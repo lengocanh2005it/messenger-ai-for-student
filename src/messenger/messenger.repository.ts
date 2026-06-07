@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
+import { POC_USER_ID } from '../config/poc.constants';
 import { UserMessengerMappingEntity } from '../database/entities';
 import {
   MessengerMessageLog,
@@ -75,23 +76,35 @@ export class MessengerRepository {
     cadence?: NotificationCadence;
     topic?: string;
   }): Promise<UserMessengerMapping> {
-    const existing = await this.mappingRepo.findOne({
-      where: { notificationMessagesToken: params.notificationMessagesToken },
-    });
+    const resolvedUserId = params.userId ?? POC_USER_ID;
+    let existing =
+      (await this.mappingRepo.findOne({
+        where: { notificationMessagesToken: params.notificationMessagesToken },
+      })) ??
+      (params.psid
+        ? await this.mappingRepo.findOne({
+            where: { psid: params.psid, status: 'ACTIVE' },
+            order: { id: 'DESC' },
+          })
+        : null);
 
     if (existing) {
       existing.psid = params.psid ?? existing.psid;
-      existing.userId = params.userId ?? existing.userId;
+      existing.userId = resolvedUserId;
+      existing.notificationMessagesToken = params.notificationMessagesToken;
       existing.cadence = params.cadence ?? existing.cadence;
       existing.topic = params.topic ?? existing.topic;
       existing.status = 'ACTIVE';
 
       const saved = await this.mappingRepo.save(existing);
+      if (saved.psid) {
+        await this.deactivateDuplicateMappingsForPsid(saved.psid, saved.id);
+      }
       return this.mapEntity(saved);
     }
 
     const created = this.mappingRepo.create({
-      userId: params.userId ?? null,
+      userId: resolvedUserId,
       psid: params.psid ?? null,
       notificationMessagesToken: params.notificationMessagesToken,
       cadence: params.cadence ?? null,
@@ -100,6 +113,9 @@ export class MessengerRepository {
     });
 
     const saved = await this.mappingRepo.save(created);
+    if (saved.psid) {
+      await this.deactivateDuplicateMappingsForPsid(saved.psid, saved.id);
+    }
     return this.mapEntity(saved);
   }
 
@@ -108,10 +124,76 @@ export class MessengerRepository {
   ): Promise<UserMessengerMapping[]> {
     const rows = await this.mappingRepo.find({
       where: { status: 'ACTIVE', cadence },
-      order: { id: 'ASC' },
+      order: { id: 'DESC' },
     });
 
-    return rows.map((row) => this.mapEntity(row));
+    return this.dedupeMappingsByPsid(rows.map((row) => this.mapEntity(row)));
+  }
+
+  private dedupeMappingsByPsid(
+    mappings: UserMessengerMapping[],
+  ): UserMessengerMapping[] {
+    const byPsid = new Map<string, UserMessengerMapping>();
+
+    for (const mapping of mappings) {
+      if (!mapping.psid) {
+        byPsid.set(`mapping-${mapping.id}`, mapping);
+        continue;
+      }
+
+      const existing = byPsid.get(mapping.psid);
+      if (!existing) {
+        byPsid.set(mapping.psid, mapping);
+        continue;
+      }
+
+      if (
+        existing.notificationMessagesToken.startsWith('poc:psid:') &&
+        !mapping.notificationMessagesToken.startsWith('poc:psid:')
+      ) {
+        byPsid.set(mapping.psid, mapping);
+      }
+    }
+
+    return Array.from(byPsid.values());
+  }
+
+  private async deactivateDuplicateMappingsForPsid(
+    psid: string,
+    keepId: number,
+  ): Promise<void> {
+    await this.mappingRepo.update(
+      {
+        psid,
+        id: Not(keepId),
+        status: 'ACTIVE',
+      },
+      { status: 'INACTIVE' },
+    );
+  }
+
+  async cleanupActiveDuplicateMappings(): Promise<number> {
+    const rows = await this.mappingRepo.find({
+      where: { status: 'ACTIVE' },
+      order: { id: 'DESC' },
+    });
+    const keepMappings = this.dedupeMappingsByPsid(
+      rows.map((row) => this.mapEntity(row)),
+    );
+    const keepIds = new Set(keepMappings.map((mapping) => mapping.id));
+    let deactivated = 0;
+
+    for (const row of rows) {
+      if (keepIds.has(row.id)) {
+        continue;
+      }
+
+      row.status = 'INACTIVE';
+      await this.mappingRepo.save(row);
+      deactivated += 1;
+    }
+
+    return deactivated;
   }
 
   async findActiveMetaTokenMappingByPsid(
@@ -127,6 +209,23 @@ export class MessengerRepository {
       .getOne();
 
     return row ? this.mapEntity(row) : null;
+  }
+
+  async hasSentScheduledReportToday(psid: string): Promise<boolean> {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const count = await this.logRepo
+      .createQueryBuilder('log')
+      .where('log.psid = :psid', { psid })
+      .andWhere('log.status = :status', { status: 'SENT' })
+      .andWhere('log.message_type IN (:...types)', {
+        types: ['SCHEDULED_LEARNING_REPORT', 'SCHEDULED_LEARNING_REPORT_PSID_FALLBACK'],
+      })
+      .andWhere('log.created_at >= :startOfDay', { startOfDay })
+      .getCount();
+
+    return count > 0;
   }
 
   async logMessage(params: {

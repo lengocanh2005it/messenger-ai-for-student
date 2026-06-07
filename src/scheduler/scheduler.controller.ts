@@ -8,6 +8,6 @@ export class SchedulerController {
   @Post('send-reports')
   @HttpCode(200)
   sendReports() {
-    return this.reportCronService.sendScheduledReports();
+    return this.reportCronService.sendScheduledReports({ forceSend: true });
   }
 }

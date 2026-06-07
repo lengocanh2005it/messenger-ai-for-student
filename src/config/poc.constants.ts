@@ -13,23 +13,26 @@ export function resolvePocUserId(userId?: number | null): number {
   return POC_USER_ID;
 }
 
-export function getRecurringNotificationMMeLink(
-  pageRef: string,
-  userId: number = POC_USER_ID,
-): string {
-  const url = new URL(`https://m.me/rn/${pageRef}`);
-  url.searchParams.set('topic', POC_TOPIC);
-  url.searchParams.set('cadence', POC_CADENCE.toLowerCase());
+export function buildPocPsidToken(psid: string): string {
+  return `poc:psid:${psid}`;
+}
+
+export function getPocMMeLink(pageRef: string, userId: number = POC_USER_ID): string {
+  const url = new URL(`https://m.me/${pageRef}`);
   url.searchParams.set('ref', String(userId));
   return url.toString();
 }
 
-export function isPocPsidToken(token: string): boolean {
-  return token.startsWith('poc:psid:');
+export function getPocSubscriptionConfirmationMessage(): string {
+  return 'Bạn đã đăng ký nhận báo cáo học tập. WISPACE sẽ gửi báo cáo AI qua Messenger khoảng 2–3 ngày trước ngày thi của bạn.';
 }
 
-export function isMetaNotificationToken(token: string): boolean {
-  return token.startsWith('tkn_') || !isPocPsidToken(token);
+export function getPocAlreadySubscribedMessage(): string {
+  return 'Bạn đã đăng ký nhận báo cáo học tập rồi. WISPACE sẽ gửi báo cáo AI khoảng 2–3 ngày trước ngày thi — không cần bấm lại.';
+}
+
+export function isPocPsidToken(token: string): boolean {
+  return token.startsWith('poc:psid:');
 }
 
 export function parseOptinUserId(ref?: string): number {

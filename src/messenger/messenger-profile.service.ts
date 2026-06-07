@@ -13,7 +13,7 @@ export class MessengerProfileService {
       greeting: [
         {
           locale: 'default',
-          text: 'Chào bạn! Bấm Get Started hoặc Menu → "Đăng ký nhận báo cáo" để bật thẻ Nhận tin Meta.',
+          text: 'Chào bạn! Bấm Get Started hoặc Menu → "Nhận báo cáo học tập" để đăng ký báo cáo AI hàng ngày.',
         },
       ],
       persistent_menu: [
@@ -23,8 +23,8 @@ export class MessengerProfileService {
           call_to_actions: [
             {
               type: 'postback',
-              title: 'Đăng ký nhận báo cáo',
-              payload: 'SEND_OPT_IN',
+              title: 'Nhận báo cáo học tập',
+              payload: 'GET_LEARNING_REPORT',
             },
           ],
         },

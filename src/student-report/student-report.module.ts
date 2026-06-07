@@ -11,6 +11,6 @@ import { StudentReportService } from './student-report.service';
     StudentCapacityService,
     StudentReportService,
   ],
-  exports: [StudentReportService, StudentCapacityService],
+  exports: [StudentReportService, StudentCapacityService, UserGoalsApiService],
 })
 export class StudentReportModule {}

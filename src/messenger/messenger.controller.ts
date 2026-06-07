@@ -77,52 +77,17 @@ export class MessengerController {
     };
   }
 
-  @Post('messenger/notifications/register-topic')
+  @Post('messenger/test-send')
   @HttpCode(200)
-  async registerTopic(@Body() body: { psid: string }) {
-    await this.messengerService.registerNotificationTopic(body.psid);
-    return {
-      ok: true,
-      message:
-        'Sent topic registration opt-in. Open Messenger, click the opt-in button, then check webhook logs for tkn_...',
-    };
-  }
-
-  @Post('messenger/notifications/sync-tokens')
-  @HttpCode(200)
-  syncTokens() {
-    return this.messengerService.syncNotificationTokensFromMeta();
-  }
-
-  @Post('messenger/notifications/send-optin')
-  @HttpCode(200)
-  async sendOptIn(
+  async testSend(
     @Body()
     body: {
       psid: string;
       userId?: number;
     },
   ) {
-    await this.messengerService.sendNotificationOptInRequest(body.psid, {
-      userId: body.userId,
-    });
-    return {
-      ok: true,
-      message: 'Sent Meta opt-in template. User must click the opt-in button.',
-    };
-  }
-
-  @Post('messenger/test-send')
-  @HttpCode(200)
-  async testSend(
-    @Body()
-    body: {
-      notification_messages_token: string;
-      userId?: number;
-    },
-  ) {
-    const report = await this.messengerService.sendReportToToken(
-      body.notification_messages_token,
+    const report = await this.messengerService.sendReportToPsid(
+      body.psid,
       body.userId,
     );
 
