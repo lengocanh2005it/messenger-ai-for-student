@@ -18,6 +18,56 @@ export class MessengerRepository {
     private readonly logRepo: Repository<MessengerMessageLogEntity>,
   ) {}
 
+  async findActiveMappingByPsid(
+    psid: string,
+  ): Promise<UserMessengerMapping | null> {
+    const row = await this.mappingRepo.findOne({
+      where: { psid, status: 'ACTIVE' },
+    });
+
+    return row ? this.mapEntity(row) : null;
+  }
+
+  async upsertPocSubscription(params: {
+    psid: string;
+    userId: number;
+    cadence: NotificationCadence;
+    topic: string;
+    notificationMessagesToken: string;
+  }): Promise<UserMessengerMapping> {
+    const existing =
+      (await this.mappingRepo.findOne({
+        where: { psid: params.psid },
+      })) ??
+      (await this.mappingRepo.findOne({
+        where: { notificationMessagesToken: params.notificationMessagesToken },
+      }));
+
+    if (existing) {
+      existing.psid = params.psid;
+      existing.userId = params.userId;
+      existing.notificationMessagesToken = params.notificationMessagesToken;
+      existing.cadence = params.cadence;
+      existing.topic = params.topic;
+      existing.status = 'ACTIVE';
+
+      const saved = await this.mappingRepo.save(existing);
+      return this.mapEntity(saved);
+    }
+
+    const created = this.mappingRepo.create({
+      userId: params.userId,
+      psid: params.psid,
+      notificationMessagesToken: params.notificationMessagesToken,
+      cadence: params.cadence,
+      topic: params.topic,
+      status: 'ACTIVE',
+    });
+
+    const saved = await this.mappingRepo.save(created);
+    return this.mapEntity(saved);
+  }
+
   async upsertFromOptin(params: {
     psid?: string;
     userId?: number;
@@ -62,6 +112,21 @@ export class MessengerRepository {
     });
 
     return rows.map((row) => this.mapEntity(row));
+  }
+
+  async findActiveMetaTokenMappingByPsid(
+    psid: string,
+  ): Promise<UserMessengerMapping | null> {
+    const row = await this.mappingRepo
+      .createQueryBuilder('mapping')
+      .where('mapping.psid = :psid', { psid })
+      .andWhere('mapping.status = :status', { status: 'ACTIVE' })
+      .andWhere('mapping.notification_messages_token NOT LIKE :legacyToken', {
+        legacyToken: 'poc:psid:%',
+      })
+      .getOne();
+
+    return row ? this.mapEntity(row) : null;
   }
 
   async logMessage(params: {

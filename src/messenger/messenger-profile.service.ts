@@ -13,7 +13,7 @@ export class MessengerProfileService {
       greeting: [
         {
           locale: 'default',
-          text: 'Chào bạn! Bấm Get Started để bắt đầu với WISPACE.',
+          text: 'Chào bạn! Bấm Get Started hoặc Menu → "Đăng ký nhận báo cáo" để bật thẻ Nhận tin Meta.',
         },
       ],
       persistent_menu: [
@@ -23,13 +23,8 @@ export class MessengerProfileService {
           call_to_actions: [
             {
               type: 'postback',
-              title: 'Bắt đầu',
-              payload: 'GET_STARTED',
-            },
-            {
-              type: 'postback',
-              title: 'Nhận báo cáo học tập',
-              payload: 'GET_LEARNING_REPORT',
+              title: 'Đăng ký nhận báo cáo',
+              payload: 'SEND_OPT_IN',
             },
           ],
         },
@@ -42,7 +37,7 @@ export class MessengerProfileService {
   private async callProfileApi(payload: unknown): Promise<void> {
     const pageAccessToken = this.configService.get<string>('PAGE_ACCESS_TOKEN');
     const graphApiVersion =
-      this.configService.get<string>('GRAPH_API_VERSION') ?? 'v25.0';
+      this.configService.get<string>('GRAPH_API_VERSION') ?? 'v21.0';
 
     if (!pageAccessToken) {
       throw new InternalServerErrorException('PAGE_ACCESS_TOKEN is missing');

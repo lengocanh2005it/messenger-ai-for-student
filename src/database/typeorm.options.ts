@@ -3,7 +3,7 @@ import { DataSourceOptions } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { MessengerMessageLogEntity } from './entities/messenger-message-log.entity';
 import { UserMessengerMappingEntity } from './entities/user-messenger-mapping.entity';
-import { UserProfileEntity } from './entities/user-profile.entity';
+import { UserEntity } from './entities/user.entity';
 
 type EnvSource = ConfigService | NodeJS.ProcessEnv;
 
@@ -17,7 +17,7 @@ function readEnv(source: EnvSource, key: string): string | undefined {
 
 export function getTypeOrmOptions(
   source: EnvSource,
-  options?: { includeUserProfile?: boolean },
+  options?: { includeUsers?: boolean },
 ): DataSourceOptions {
   return {
     type: 'postgres',
@@ -33,7 +33,7 @@ export function getTypeOrmOptions(
     entities: [
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,
-      ...(options?.includeUserProfile ? [UserProfileEntity] : []),
+      ...(options?.includeUsers ? [UserEntity] : []),
     ],
     migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
     synchronize: false,
@@ -45,7 +45,7 @@ export function getAppTypeOrmOptions(
   config: ConfigService,
 ): DataSourceOptions & { migrationsRun?: boolean } {
   return {
-    ...getTypeOrmOptions(config, { includeUserProfile: true }),
+    ...getTypeOrmOptions(config, { includeUsers: true }),
     migrationsRun: config.get<string>('DB_MIGRATIONS_RUN') === 'true',
   };
 }

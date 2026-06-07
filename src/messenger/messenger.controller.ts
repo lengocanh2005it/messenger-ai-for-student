@@ -8,9 +8,14 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import {
+  POC_CADENCE,
+  POC_TOPIC,
+  POC_USER_ID,
+} from '../config/poc.constants';
 import { MessengerProfileService } from './messenger-profile.service';
 import { MessengerService } from './messenger.service';
-import type { MessengerWebhookPayload, NotificationCadence } from './types';
+import type { MessengerWebhookPayload } from './types';
 
 @Controller()
 export class MessengerController {
@@ -49,18 +54,61 @@ export class MessengerController {
     };
   }
 
-  @Get('messenger/m-me-link/:userId')
-  getMMeLink(
-    @Param('userId') userId: string,
-    @Query('topic') topic?: string,
-    @Query('cadence') cadence?: NotificationCadence,
-  ) {
+  @Get('messenger/m-me-link')
+  getPocMMeLink() {
     return {
+      userId: POC_USER_ID,
+      topic: POC_TOPIC,
+      cadence: POC_CADENCE,
+      url: this.messengerService.getMMeLink(POC_USER_ID),
+    };
+  }
+
+  @Get('messenger/m-me-link/:userId')
+  getMMeLink(@Param('userId') userId: string) {
+    const parsedUserId = Number.parseInt(userId, 10);
+    return {
+      userId: Number.isFinite(parsedUserId) ? parsedUserId : POC_USER_ID,
+      topic: POC_TOPIC,
+      cadence: POC_CADENCE,
       url: this.messengerService.getMMeLink(
-        userId,
-        topic,
-        cadence ?? 'DAILY',
+        Number.isFinite(parsedUserId) ? parsedUserId : POC_USER_ID,
       ),
+    };
+  }
+
+  @Post('messenger/notifications/register-topic')
+  @HttpCode(200)
+  async registerTopic(@Body() body: { psid: string }) {
+    await this.messengerService.registerNotificationTopic(body.psid);
+    return {
+      ok: true,
+      message:
+        'Sent topic registration opt-in. Open Messenger, click the opt-in button, then check webhook logs for tkn_...',
+    };
+  }
+
+  @Post('messenger/notifications/sync-tokens')
+  @HttpCode(200)
+  syncTokens() {
+    return this.messengerService.syncNotificationTokensFromMeta();
+  }
+
+  @Post('messenger/notifications/send-optin')
+  @HttpCode(200)
+  async sendOptIn(
+    @Body()
+    body: {
+      psid: string;
+      userId?: number;
+    },
+  ) {
+    await this.messengerService.sendNotificationOptInRequest(body.psid, {
+      userId: body.userId,
+    });
+    return {
+      ok: true,
+      message: 'Sent Meta opt-in template. User must click the opt-in button.',
     };
   }
 
@@ -75,7 +123,7 @@ export class MessengerController {
   ) {
     const report = await this.messengerService.sendReportToToken(
       body.notification_messages_token,
-      body.userId ?? 0,
+      body.userId,
     );
 
     return {

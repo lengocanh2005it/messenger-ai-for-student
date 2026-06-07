@@ -3,8 +3,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   MessengerMessageLogEntity,
+  UserEntity,
   UserMessengerMappingEntity,
-  UserProfileEntity,
 } from './entities';
 import { getAppTypeOrmOptions } from './typeorm.options';
 
@@ -18,7 +18,7 @@ import { getAppTypeOrmOptions } from './typeorm.options';
     TypeOrmModule.forFeature([
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,
-      UserProfileEntity,
+      UserEntity,
     ]),
   ],
   exports: [TypeOrmModule],

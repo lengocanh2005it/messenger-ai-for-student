@@ -8,11 +8,13 @@ export interface MessengerReferral {
 
 export interface MessengerOptin {
   type?: string;
+  payload?: string;
   notification_messages_token?: string;
   notification_messages_status?: string;
   topic?: string;
   frequency?: NotificationCadence;
   ref?: string;
+  title?: string;
 }
 
 export interface MessengerWebhookEvent {
