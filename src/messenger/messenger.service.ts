@@ -24,7 +24,7 @@ import {
 } from './types';
 
 export const WELCOME_MESSAGE =
-  'Chào bạn! WISPACE sẵn sàng. Bấm Get Started hoặc Menu → "Nhận báo cáo học tập" để đăng ký nhận báo cáo AI hàng ngày.';
+  'Chào bạn! WISPACE sẵn sàng. Mở Menu để "Đăng ký nhận báo cáo học tập" hoặc "Xem tiến độ học tập".';
 
 export class MessengerApiError extends Error {
   constructor(
@@ -144,7 +144,7 @@ export class MessengerService {
     }
 
     const userId = resolvePocUserId(mapping.userId);
-    const report = await this.studentReportService.generateReport(userId);
+    const report = await this.studentReportService.generateReport(mapping.psid);
 
     await this.sendTextViaPsid({
       psid: mapping.psid,
@@ -156,10 +156,24 @@ export class MessengerService {
     return report;
   }
 
+  async sendLearningProgressReport(
+    psid: string,
+    userId?: number,
+  ): Promise<string> {
+    const resolvedUserId = resolvePocUserId(userId);
+    const report = await this.studentReportService.generateReport(psid);
+    await this.sendTextViaPsid({
+      psid,
+      userId: resolvedUserId,
+      text: report,
+      messageType: 'LEARNING_PROGRESS',
+    });
+    return report;
+  }
+
   async sendReportToPsid(psid: string, userId?: number): Promise<string> {
     const resolvedUserId = resolvePocUserId(userId);
-    const report =
-      await this.studentReportService.generateReport(resolvedUserId);
+    const report = await this.studentReportService.generateReport(psid);
     await this.sendTextViaPsid({
       psid,
       userId: resolvedUserId,
@@ -259,9 +273,27 @@ export class MessengerService {
     if (
       payload === 'GET_LEARNING_REPORT' ||
       payload === 'SEND_OPT_IN' ||
-      payload === 'GET_STARTED'
+      payload === 'REGISTER_LEARNING_REPORT'
     ) {
       await this.registerForScheduledReports(psid);
+      return true;
+    }
+
+    if (
+      payload === 'VIEW_LEARNING_PROGRESS' ||
+      payload === 'GET_LEARNING_PROGRESS'
+    ) {
+      await this.sendLearningProgressReport(psid);
+      return true;
+    }
+
+    if (payload === 'GET_STARTED') {
+      await this.sendTextViaPsid({
+        psid,
+        userId: POC_USER_ID,
+        text: WELCOME_MESSAGE,
+        messageType: 'WELCOME',
+      });
       return true;
     }
 

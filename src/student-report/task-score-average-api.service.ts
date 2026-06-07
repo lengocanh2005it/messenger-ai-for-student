@@ -4,7 +4,6 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { POC_USER_ID } from '../config/poc.constants';
 import { TaskScoreAverageRecord } from './task-score-average.types';
 import { StudentCapacityInput } from './student-capacity.types';
 import { UserGoalsApiService } from './user-goals-api.service';
@@ -18,43 +17,29 @@ export class TaskScoreAverageApiService {
     private readonly userGoalsApiService: UserGoalsApiService,
   ) {}
 
-  async getCapacityData(userId: number): Promise<StudentCapacityInput> {
-    const records = await this.fetchTaskScoreAverages();
-    const resolvedUserId = userId > 0 ? userId : POC_USER_ID;
-    const userRecords = records.filter(
-      (record) => record.userId === resolvedUserId,
-    );
+  async getCapacityData(psid: string): Promise<StudentCapacityInput> {
+    const records = await this.fetchTaskScoreAverages(psid);
 
-    if (userRecords.length === 0) {
+    if (records.length === 0) {
       throw new InternalServerErrorException(
-        `TaskScoreAverage API has no data for userId=${resolvedUserId}`,
+        `TaskScoreAverage API has no data for psid=${psid}`,
       );
     }
 
-    const goals = await this.userGoalsApiService.getUserGoals();
+    const goals = await this.userGoalsApiService.getUserGoals(psid);
 
-    return this.mapToCapacityInput(userRecords, goals);
+    return this.mapToCapacityInput(records, goals);
   }
 
-  private async fetchTaskScoreAverages(): Promise<TaskScoreAverageRecord[]> {
+  private async fetchTaskScoreAverages(
+    psid: string,
+  ): Promise<TaskScoreAverageRecord[]> {
     const url =
       this.configService.get<string>('WISPACE_API_TASK_SCORE_URL') ??
       'https://backend.aihubproduction.com/api/TaskScoreAverage';
-    const accessToken = this.configService.get<string>(
-      'WISPACE_API_ACCESS_TOKEN',
-    );
-
-    if (!accessToken) {
-      throw new InternalServerErrorException(
-        'WISPACE_API_ACCESS_TOKEN is missing',
-      );
-    }
 
     const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
+      headers: this.userGoalsApiService.buildWispaceHeaders(psid),
     });
 
     if (!response.ok) {
@@ -65,7 +50,9 @@ export class TaskScoreAverageApiService {
     }
 
     const data = (await response.json()) as TaskScoreAverageRecord[];
-    this.logger.log(`TaskScoreAverage API returned ${data.length} record(s)`);
+    this.logger.log(
+      `TaskScoreAverage API returned ${data.length} record(s) (psid=${psid})`,
+    );
     return data;
   }
 

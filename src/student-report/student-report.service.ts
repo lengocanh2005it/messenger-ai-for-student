@@ -21,8 +21,8 @@ export class StudentReportService {
     private readonly studentCapacityService: StudentCapacityService,
   ) {}
 
-  async generateReport(userId: number): Promise<string> {
-    const input = await this.studentCapacityService.getCapacityData(userId);
+  async generateReport(psid: string): Promise<string> {
+    const input = await this.studentCapacityService.getCapacityData(psid);
     const report = await this.generateAiReport(input);
     return this.formatReport(report);
   }

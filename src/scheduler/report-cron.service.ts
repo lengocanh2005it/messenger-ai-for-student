@@ -30,35 +30,17 @@ export class ReportCronService {
     skipped: number;
     failed: number;
     schedule: {
-      shouldSend: boolean;
-      daysUntilExam: number;
-      examDate: string;
       minDays: number;
       maxDays: number;
     };
     failures: Array<{ token: string; error: string }>;
   }> {
-    const schedule = await this.reportScheduleService.shouldSendReportToday();
     const forceSend = options?.forceSend === true;
-
-    if (!forceSend && !schedule.shouldSend) {
-      this.logger.log(
-        `Skip send-reports: examDate=${schedule.examDate}, daysUntilExam=${schedule.daysUntilExam}, window=${schedule.minDays}-${schedule.maxDays}`,
-      );
-
-      return {
-        total: 0,
-        sent: 0,
-        skipped: 0,
-        failed: 0,
-        schedule,
-        failures: [],
-      };
-    }
+    const schedule = this.reportScheduleService.getExamReminderWindow();
 
     if (forceSend) {
       this.logger.log(
-        `Force send-reports: bypassing exam date window (daysUntilExam=${schedule.daysUntilExam})`,
+        `Force send-reports: bypassing per-user exam date window (${schedule.minDays}-${schedule.maxDays} days)`,
       );
     }
 
@@ -72,7 +54,25 @@ export class ReportCronService {
     let skipped = 0;
 
     for (const mapping of mappings) {
-      if (!forceSend && mapping.psid) {
+      if (!mapping.psid) {
+        skipped += 1;
+        this.logger.log(`Skip mapping ${mapping.id}: missing PSID`);
+        continue;
+      }
+
+      if (!forceSend) {
+        const userSchedule = await this.reportScheduleService.shouldSendReportToday(
+          mapping.psid,
+        );
+
+        if (!userSchedule.shouldSend) {
+          skipped += 1;
+          this.logger.log(
+            `Skip PSID ${mapping.psid}: examDate=${userSchedule.examDate}, daysUntilExam=${userSchedule.daysUntilExam}, window=${userSchedule.minDays}-${userSchedule.maxDays}`,
+          );
+          continue;
+        }
+
         const alreadySentToday =
           await this.messengerRepository.hasSentScheduledReportToday(
             mapping.psid,

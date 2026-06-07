@@ -9,32 +9,38 @@ export class ReportScheduleService {
     private readonly userGoalsApiService: UserGoalsApiService,
   ) {}
 
-  async getDaysUntilExam(): Promise<number> {
-    const goals = await this.userGoalsApiService.getUserGoals();
+  async getDaysUntilExam(psid: string): Promise<number> {
+    const goals = await this.userGoalsApiService.getUserGoals(psid);
     const examDateIso = this.userGoalsApiService.parseExamDate(goals.examDate);
     return this.calculateDaysUntilExam(examDateIso, new Date());
   }
 
-  async shouldSendReportToday(): Promise<{
+  async shouldSendReportToday(psid: string): Promise<{
     shouldSend: boolean;
     daysUntilExam: number;
     examDate: string;
     minDays: number;
     maxDays: number;
   }> {
-    const goals = await this.userGoalsApiService.getUserGoals();
+    const goals = await this.userGoalsApiService.getUserGoals(psid);
     const examDate = this.userGoalsApiService.parseExamDate(goals.examDate);
     const daysUntilExam = this.calculateDaysUntilExam(examDate, new Date());
     const minDays = this.getMinDaysBeforeExam();
     const maxDays = this.getMaxDaysBeforeExam();
 
     return {
-      shouldSend:
-        daysUntilExam >= minDays && daysUntilExam <= maxDays,
+      shouldSend: daysUntilExam >= minDays && daysUntilExam <= maxDays,
       daysUntilExam,
       examDate,
       minDays,
       maxDays,
+    };
+  }
+
+  getExamReminderWindow(): { minDays: number; maxDays: number } {
+    return {
+      minDays: this.getMinDaysBeforeExam(),
+      maxDays: this.getMaxDaysBeforeExam(),
     };
   }
 

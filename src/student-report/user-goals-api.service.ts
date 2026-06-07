@@ -12,25 +12,13 @@ export class UserGoalsApiService {
 
   constructor(private readonly configService: ConfigService) {}
 
-  async getUserGoals(): Promise<UserGoalsRecord> {
+  async getUserGoals(psid: string): Promise<UserGoalsRecord> {
     const url =
       this.configService.get<string>('WISPACE_API_USER_GOALS_URL') ??
       'https://backend.aihubproduction.com/api/User/goals';
-    const accessToken = this.configService.get<string>(
-      'WISPACE_API_ACCESS_TOKEN',
-    );
-
-    if (!accessToken) {
-      throw new InternalServerErrorException(
-        'WISPACE_API_ACCESS_TOKEN is missing',
-      );
-    }
 
     const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
+      headers: this.buildWispaceHeaders(psid),
     });
 
     if (!response.ok) {
@@ -42,7 +30,7 @@ export class UserGoalsApiService {
 
     const data = (await response.json()) as UserGoalsRecord;
     this.logger.log(
-      `User goals API returned targetScore=${data.targetScore}, examDate=${data.examDate}`,
+      `User goals API returned targetScore=${data.targetScore}, examDate=${data.examDate} (psid=${psid})`,
     );
     return data;
   }
@@ -62,5 +50,18 @@ export class UserGoalsApiService {
     throw new InternalServerErrorException(
       `User goals API returned unsupported examDate format: ${examDate}`,
     );
+  }
+
+  buildWispaceHeaders(psid: string): Record<string, string> {
+    if (!psid.trim()) {
+      throw new InternalServerErrorException(
+        'PSID is required for WISPACE API requests',
+      );
+    }
+
+    return {
+      'x-psid': psid.trim(),
+      Accept: 'application/json',
+    };
   }
 }

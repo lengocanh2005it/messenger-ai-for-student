@@ -8,7 +8,7 @@ export class StudentCapacityService {
     private readonly taskScoreAverageApiService: TaskScoreAverageApiService,
   ) {}
 
-  getCapacityData(userId: number): Promise<StudentCapacityInput> {
-    return this.taskScoreAverageApiService.getCapacityData(userId);
+  getCapacityData(psid: string): Promise<StudentCapacityInput> {
+    return this.taskScoreAverageApiService.getCapacityData(psid);
   }
 }
