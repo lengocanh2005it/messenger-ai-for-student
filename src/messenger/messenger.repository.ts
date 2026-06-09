@@ -220,7 +220,10 @@ export class MessengerRepository {
       .where('log.psid = :psid', { psid })
       .andWhere('log.status = :status', { status: 'SENT' })
       .andWhere('log.message_type IN (:...types)', {
-        types: ['SCHEDULED_LEARNING_REPORT', 'SCHEDULED_LEARNING_REPORT_PSID_FALLBACK'],
+        types: [
+          'SCHEDULED_LEARNING_REPORT',
+          'SCHEDULED_LEARNING_REPORT_PSID_FALLBACK',
+        ],
       })
       .andWhere('log.created_at >= :startOfDay', { startOfDay })
       .getCount();

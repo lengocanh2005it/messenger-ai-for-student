@@ -22,9 +22,7 @@ export class ReportCronService {
     await this.sendScheduledReports();
   }
 
-  async sendScheduledReports(options?: {
-    forceSend?: boolean;
-  }): Promise<{
+  async sendScheduledReports(options?: { forceSend?: boolean }): Promise<{
     total: number;
     sent: number;
     skipped: number;
@@ -61,9 +59,8 @@ export class ReportCronService {
       }
 
       if (!forceSend) {
-        const userSchedule = await this.reportScheduleService.shouldSendReportToday(
-          mapping.psid,
-        );
+        const userSchedule =
+          await this.reportScheduleService.shouldSendReportToday(mapping.psid);
 
         if (!userSchedule.shouldSend) {
           skipped += 1;

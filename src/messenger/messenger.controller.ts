@@ -8,11 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import {
-  POC_CADENCE,
-  POC_TOPIC,
-  POC_USER_ID,
-} from '../config/poc.constants';
+import { POC_CADENCE, POC_TOPIC, POC_USER_ID } from '../config/poc.constants';
 import { MessengerProfileService } from './messenger-profile.service';
 import { MessengerService } from './messenger.service';
 import type { MessengerWebhookPayload } from './types';

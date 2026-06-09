@@ -37,8 +37,7 @@ export class StudentReportService {
       return this.buildFallbackReport(input);
     }
 
-    const model =
-      this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
+    const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
     const client = this.getOpenAiClient(apiKey);
 
     const response = await client.chat.completions.create({

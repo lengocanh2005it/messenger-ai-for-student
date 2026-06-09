@@ -17,7 +17,10 @@ export function buildPocPsidToken(psid: string): string {
   return `poc:psid:${psid}`;
 }
 
-export function getPocMMeLink(pageRef: string, userId: number = POC_USER_ID): string {
+export function getPocMMeLink(
+  pageRef: string,
+  userId: number = POC_USER_ID,
+): string {
   const url = new URL(`https://m.me/${pageRef}`);
   url.searchParams.set('ref', String(userId));
   return url.toString();

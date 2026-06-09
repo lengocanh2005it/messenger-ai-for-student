@@ -56,13 +56,15 @@ export class ReportScheduleService {
 
   private getMinDaysBeforeExam(): number {
     return Number(
-      this.configService.get<string>('WISPACE_REPORT_DAYS_BEFORE_EXAM_MIN') ?? 2,
+      this.configService.get<string>('WISPACE_REPORT_DAYS_BEFORE_EXAM_MIN') ??
+        2,
     );
   }
 
   private getMaxDaysBeforeExam(): number {
     return Number(
-      this.configService.get<string>('WISPACE_REPORT_DAYS_BEFORE_EXAM_MAX') ?? 3,
+      this.configService.get<string>('WISPACE_REPORT_DAYS_BEFORE_EXAM_MAX') ??
+        3,
     );
   }
 
