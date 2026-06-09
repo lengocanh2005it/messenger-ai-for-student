@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { POC_CADENCE } from '../config/poc.constants';
 import { MessengerRepository } from '../messenger/messenger.repository';
 import { MessengerService } from '../messenger/messenger.service';
 import { ReportScheduleService } from './report-schedule.service';
@@ -45,7 +44,7 @@ export class ReportCronService {
     await this.messengerRepository.cleanupActiveDuplicateMappings();
 
     const mappings =
-      await this.messengerRepository.findActiveMappingsForCadence(POC_CADENCE);
+      await this.messengerRepository.findActiveSubscribedMappings();
 
     const failures: Array<{ token: string; error: string }> = [];
     let sent = 0;

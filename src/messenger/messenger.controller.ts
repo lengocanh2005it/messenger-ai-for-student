@@ -1,14 +1,14 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
   NotFoundException,
-  Param,
   Post,
   Query,
 } from '@nestjs/common';
-import { POC_CADENCE, POC_TOPIC, POC_USER_ID } from '../config/poc.constants';
+import { parseMessengerLinkContext } from '../config/poc.constants';
 import { MessengerProfileService } from './messenger-profile.service';
 import { MessengerService } from './messenger.service';
 import type { MessengerWebhookPayload } from './types';
@@ -51,25 +51,24 @@ export class MessengerController {
   }
 
   @Get('messenger/m-me-link')
-  getPocMMeLink() {
-    return {
-      userId: POC_USER_ID,
-      topic: POC_TOPIC,
-      cadence: POC_CADENCE,
-      url: this.messengerService.getMMeLink(POC_USER_ID),
-    };
-  }
+  getMMeLink(
+    @Query('ref') ref?: string,
+    @Query('topic') topic?: string,
+    @Query('cadence') cadence?: string,
+  ) {
+    const context = parseMessengerLinkContext({ ref, topic, cadence });
+    if (!context) {
+      throw new BadRequestException(
+        'Query params ref, topic and cadence are required. ref is userId.',
+      );
+    }
 
-  @Get('messenger/m-me-link/:userId')
-  getMMeLink(@Param('userId') userId: string) {
-    const parsedUserId = Number.parseInt(userId, 10);
     return {
-      userId: Number.isFinite(parsedUserId) ? parsedUserId : POC_USER_ID,
-      topic: POC_TOPIC,
-      cadence: POC_CADENCE,
-      url: this.messengerService.getMMeLink(
-        Number.isFinite(parsedUserId) ? parsedUserId : POC_USER_ID,
-      ),
+      ref: context.ref,
+      topic: context.topic,
+      cadence: context.cadence,
+      userId: context.userId,
+      url: this.messengerService.buildMMeLink(context),
     };
   }
 
@@ -79,13 +78,9 @@ export class MessengerController {
     @Body()
     body: {
       psid: string;
-      userId?: number;
     },
   ) {
-    const report = await this.messengerService.sendReportToPsid(
-      body.psid,
-      body.userId,
-    );
+    const report = await this.messengerService.sendReportToPsid(body.psid);
 
     return {
       ok: true,

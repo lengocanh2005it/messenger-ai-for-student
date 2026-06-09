@@ -6,14 +6,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-  POC_CADENCE,
-  POC_TOPIC,
-  POC_USER_ID,
+  MessengerLinkContext,
+  buildMMeLink,
   buildPocPsidToken,
   getPocAlreadySubscribedMessage,
-  getPocMMeLink,
   getPocSubscriptionConfirmationMessage,
-  resolvePocUserId,
+  getMissingUserRefMessage,
+  parseMessengerLinkContext,
 } from '../config/poc.constants';
 import { StudentReportService } from '../student-report/student-report.service';
 import { MessengerRepository } from './messenger.repository';
@@ -58,7 +57,7 @@ export class MessengerService {
     return challenge ?? '';
   }
 
-  getMMeLink(userId?: number): string {
+  buildMMeLink(context: MessengerLinkContext): string {
     const pageRef =
       this.configService.get<string>('MESSENGER_PAGE_USERNAME') ??
       this.configService.get<string>('MESSENGER_PAGE_ID');
@@ -69,7 +68,7 @@ export class MessengerService {
       );
     }
 
-    return getPocMMeLink(pageRef, resolvePocUserId(userId ?? POC_USER_ID));
+    return buildMMeLink(pageRef, context);
   }
 
   async handleWebhook(payload: MessengerWebhookPayload): Promise<{
@@ -99,15 +98,17 @@ export class MessengerService {
 
   async registerForScheduledReports(
     psid: string,
-    userId?: number,
+    context: MessengerLinkContext,
   ): Promise<void> {
-    const resolvedUserId = resolvePocUserId(userId);
     const existing = await this.repository.findActiveMappingByPsid(psid);
 
-    if (existing?.cadence === POC_CADENCE) {
+    if (
+      existing?.cadence === context.cadence &&
+      existing?.topic === context.topic
+    ) {
       await this.sendTextViaPsid({
         psid,
-        userId: resolvePocUserId(existing.userId),
+        userId: existing.userId ?? context.userId,
         text: getPocAlreadySubscribedMessage(),
         messageType: 'SUBSCRIPTION_ALREADY_ACTIVE',
       });
@@ -116,19 +117,19 @@ export class MessengerService {
 
     await this.repository.upsertPocSubscription({
       psid,
-      userId: resolvedUserId,
-      cadence: POC_CADENCE,
-      topic: POC_TOPIC,
+      userId: context.userId,
+      cadence: context.cadence,
+      topic: context.topic,
       notificationMessagesToken: buildPocPsidToken(psid),
     });
 
     this.logger.log(
-      `Registered PSID ${psid} for daily reports (userId=${resolvedUserId})`,
+      `Registered PSID ${psid} (userId=${context.userId}, topic=${context.topic}, cadence=${context.cadence})`,
     );
 
     await this.sendTextViaPsid({
       psid,
-      userId: resolvedUserId,
+      userId: context.userId,
       text: getPocSubscriptionConfirmationMessage(),
       messageType: 'SUBSCRIPTION_CONFIRMATION',
     });
@@ -143,12 +144,11 @@ export class MessengerService {
       );
     }
 
-    const userId = resolvePocUserId(mapping.userId);
     const report = await this.studentReportService.generateReport(mapping.psid);
 
     await this.sendTextViaPsid({
       psid: mapping.psid,
-      userId,
+      userId: mapping.userId,
       text: report,
       messageType: 'SCHEDULED_LEARNING_REPORT',
     });
@@ -156,27 +156,24 @@ export class MessengerService {
     return report;
   }
 
-  async sendLearningProgressReport(
-    psid: string,
-    userId?: number,
-  ): Promise<string> {
-    const resolvedUserId = resolvePocUserId(userId);
+  async sendLearningProgressReport(psid: string): Promise<string> {
+    const userId = await this.resolveUserId(psid);
     const report = await this.studentReportService.generateReport(psid);
     await this.sendTextViaPsid({
       psid,
-      userId: resolvedUserId,
+      userId,
       text: report,
       messageType: 'LEARNING_PROGRESS',
     });
     return report;
   }
 
-  async sendReportToPsid(psid: string, userId?: number): Promise<string> {
-    const resolvedUserId = resolvePocUserId(userId);
+  async sendReportToPsid(psid: string): Promise<string> {
+    const userId = await this.resolveUserId(psid);
     const report = await this.studentReportService.generateReport(psid);
     await this.sendTextViaPsid({
       psid,
-      userId: resolvedUserId,
+      userId,
       text: report,
       messageType: 'LEARNING_REPORT',
     });
@@ -224,27 +221,123 @@ export class MessengerService {
     this.logger.log(`Webhook event: ${eventTypes.join(', ') || 'unknown'}`);
   }
 
-  private async handleEvent(event: MessengerWebhookEvent): Promise<boolean> {
-    if (event.optin) {
-      this.logger.log('Ignored Meta opt-in webhook (PSID-only mode)');
-      return true;
+  private extractRefFromEvent(
+    event: MessengerWebhookEvent,
+  ): string | undefined {
+    return (
+      event.referral?.ref ??
+      event.postback?.referral?.ref ??
+      event.message?.referral?.ref ??
+      event.optin?.ref
+    );
+  }
+
+  private extractLinkContextFromEvent(
+    event: MessengerWebhookEvent,
+  ): MessengerLinkContext | undefined {
+    const ref = this.extractRefFromEvent(event);
+    const topic = event.optin?.topic;
+    const cadence = event.optin?.frequency;
+
+    return parseMessengerLinkContext({ ref, topic, cadence });
+  }
+
+  private async resolveLinkContext(
+    psid: string,
+    event?: MessengerWebhookEvent,
+  ): Promise<MessengerLinkContext | undefined> {
+    if (event) {
+      const fromEvent = this.extractLinkContextFromEvent(event);
+      if (fromEvent) {
+        return fromEvent;
+      }
     }
 
+    const mapping = await this.repository.findActiveMappingByPsid(psid);
+    if (!mapping?.userId) {
+      return undefined;
+    }
+
+    return parseMessengerLinkContext({
+      ref: String(mapping.userId),
+      topic: mapping.topic,
+      cadence: mapping.cadence,
+    });
+  }
+
+  private async resolveUserId(
+    psid: string,
+    event?: MessengerWebhookEvent,
+  ): Promise<number | undefined> {
+    const context = await this.resolveLinkContext(psid, event);
+    return context?.userId;
+  }
+
+  private async linkPsidFromContext(
+    psid: string,
+    context: MessengerLinkContext,
+  ): Promise<void> {
+    await this.repository.upsertPsidUserLink({
+      psid,
+      userId: context.userId,
+      topic: context.topic,
+      cadence: context.cadence,
+    });
+    this.logger.log(
+      `Linked PSID ${psid} to userId=${context.userId}, topic=${context.topic}, cadence=${context.cadence}`,
+    );
+  }
+
+  private async handleEvent(event: MessengerWebhookEvent): Promise<boolean> {
     const psid = event.sender?.id;
     if (!psid) {
       this.logger.warn('Ignored Messenger event without sender.id');
       return false;
     }
 
+    if (event.optin) {
+      const context = parseMessengerLinkContext({
+        ref: event.optin.ref,
+        topic: event.optin.topic,
+        cadence: event.optin.frequency,
+      });
+
+      if (context) {
+        await this.linkPsidFromContext(psid, context);
+        this.logger.log(
+          `Linked PSID ${psid} from opt-in (ref=${context.ref}, topic=${context.topic}, cadence=${context.cadence})`,
+        );
+      } else {
+        this.logger.warn(
+          `Opt-in for PSID ${psid} missing ref, topic or cadence`,
+        );
+      }
+
+      return true;
+    }
+
+    if (event.referral?.ref && !event.postback && !event.message?.text) {
+      const context = this.extractLinkContextFromEvent(event);
+      if (context) {
+        await this.linkPsidFromContext(psid, context);
+      }
+      return true;
+    }
+
     const postbackPayload = event.postback?.payload;
     if (postbackPayload) {
-      return this.handlePostbackEvent(psid, postbackPayload);
+      return this.handlePostbackEvent(psid, postbackPayload, event);
     }
 
     if (event.message?.text) {
+      const context = this.extractLinkContextFromEvent(event);
+      if (context) {
+        await this.linkPsidFromContext(psid, context);
+      }
+      const userId = await this.resolveUserId(psid, event);
       await this.sendTextViaPsid({
         psid,
-        userId: POC_USER_ID,
+        userId,
         text: WELCOME_MESSAGE,
         messageType: 'WELCOME',
       });
@@ -258,6 +351,7 @@ export class MessengerService {
   private async handlePostbackEvent(
     psid: string,
     payload: string,
+    event: MessengerWebhookEvent,
   ): Promise<boolean> {
     if (this.isDuplicatePostback(psid, payload)) {
       this.logger.log(
@@ -266,16 +360,35 @@ export class MessengerService {
       return true;
     }
 
+    const context = await this.resolveLinkContext(psid, event);
+    if (context) {
+      await this.linkPsidFromContext(psid, context);
+    }
+
     this.logger.log(`PSID: ${psid}`);
-    this.logger.log(`USER_ID: ${POC_USER_ID}`);
+    this.logger.log(`USER_ID: ${context?.userId ?? 'unknown'}`);
     this.logger.log(`POSTBACK: ${payload}`);
+    if (context) {
+      this.logger.log(
+        `REF: ${context.ref}, TOPIC: ${context.topic}, CADENCE: ${context.cadence}`,
+      );
+    }
 
     if (
       payload === 'GET_LEARNING_REPORT' ||
       payload === 'SEND_OPT_IN' ||
       payload === 'REGISTER_LEARNING_REPORT'
     ) {
-      await this.registerForScheduledReports(psid);
+      if (!context) {
+        await this.sendTextViaPsid({
+          psid,
+          text: getMissingUserRefMessage(),
+          messageType: 'MISSING_USER_REF',
+        });
+        return true;
+      }
+
+      await this.registerForScheduledReports(psid, context);
       return true;
     }
 
@@ -290,7 +403,7 @@ export class MessengerService {
     if (payload === 'GET_STARTED') {
       await this.sendTextViaPsid({
         psid,
-        userId: POC_USER_ID,
+        userId: context?.userId,
         text: WELCOME_MESSAGE,
         messageType: 'WELCOME',
       });
@@ -299,7 +412,7 @@ export class MessengerService {
 
     await this.sendTextViaPsid({
       psid,
-      userId: POC_USER_ID,
+      userId: context?.userId,
       text: WELCOME_MESSAGE,
       messageType: 'WELCOME',
     });

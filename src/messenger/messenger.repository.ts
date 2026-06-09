@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
-import { POC_USER_ID } from '../config/poc.constants';
+import { buildPocPsidToken } from '../config/poc.constants';
 import { UserMessengerMappingEntity } from '../database/entities';
 import {
   MessengerMessageLog,
@@ -27,6 +27,43 @@ export class MessengerRepository {
     });
 
     return row ? this.mapEntity(row) : null;
+  }
+
+  async upsertPsidUserLink(params: {
+    psid: string;
+    userId: number;
+    topic?: string;
+    cadence?: NotificationCadence;
+  }): Promise<UserMessengerMapping> {
+    const token = buildPocPsidToken(params.psid);
+    const existing = await this.mappingRepo.findOne({
+      where: { psid: params.psid },
+    });
+
+    if (existing) {
+      existing.userId = params.userId;
+      existing.psid = params.psid;
+      existing.notificationMessagesToken =
+        existing.notificationMessagesToken || token;
+      existing.topic = params.topic ?? existing.topic;
+      existing.cadence = params.cadence ?? existing.cadence;
+      existing.status = 'ACTIVE';
+
+      const saved = await this.mappingRepo.save(existing);
+      return this.mapEntity(saved);
+    }
+
+    const created = this.mappingRepo.create({
+      userId: params.userId,
+      psid: params.psid,
+      notificationMessagesToken: token,
+      topic: params.topic ?? null,
+      cadence: params.cadence ?? null,
+      status: 'ACTIVE',
+    });
+
+    const saved = await this.mappingRepo.save(created);
+    return this.mapEntity(saved);
   }
 
   async upsertPocSubscription(params: {
@@ -76,7 +113,7 @@ export class MessengerRepository {
     cadence?: NotificationCadence;
     topic?: string;
   }): Promise<UserMessengerMapping> {
-    const resolvedUserId = params.userId ?? POC_USER_ID;
+    const resolvedUserId = params.userId;
     let existing =
       (await this.mappingRepo.findOne({
         where: { notificationMessagesToken: params.notificationMessagesToken },
@@ -87,6 +124,10 @@ export class MessengerRepository {
             order: { id: 'DESC' },
           })
         : null);
+
+    if (!resolvedUserId) {
+      throw new Error('userId is required for upsertFromOptin');
+    }
 
     if (existing) {
       existing.psid = params.psid ?? existing.psid;
@@ -126,6 +167,18 @@ export class MessengerRepository {
       where: { status: 'ACTIVE', cadence },
       order: { id: 'DESC' },
     });
+
+    return this.dedupeMappingsByPsid(rows.map((row) => this.mapEntity(row)));
+  }
+
+  async findActiveSubscribedMappings(): Promise<UserMessengerMapping[]> {
+    const rows = await this.mappingRepo
+      .createQueryBuilder('mapping')
+      .where('mapping.status = :status', { status: 'ACTIVE' })
+      .andWhere('mapping.cadence IS NOT NULL')
+      .andWhere('mapping.topic IS NOT NULL')
+      .orderBy('mapping.id', 'DESC')
+      .getMany();
 
     return this.dedupeMappingsByPsid(rows.map((row) => this.mapEntity(row)));
   }

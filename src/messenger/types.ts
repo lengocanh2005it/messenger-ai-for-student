@@ -23,6 +23,7 @@ export interface MessengerWebhookEvent {
   };
   message?: {
     text?: string;
+    referral?: MessengerReferral;
   };
   postback?: {
     payload?: string;

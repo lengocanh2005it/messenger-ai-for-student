@@ -1,28 +1,87 @@
 import { NotificationCadence } from '../messenger/types';
 
-/** POC: chưa có đăng nhập — hardcode toàn bộ tham số recurring notification. */
-export const POC_USER_ID = 436;
-export const POC_TOPIC = 'ai_capacity_report';
-export const POC_CADENCE: NotificationCadence = 'DAILY';
+const VALID_CADENCES: NotificationCadence[] = ['DAILY', 'WEEKLY', 'MONTHLY'];
 
-export function resolvePocUserId(userId?: number | null): number {
-  if (userId && userId > 0) {
-    return userId;
+export interface MessengerLinkContext {
+  ref: string;
+  topic: string;
+  cadence: NotificationCadence;
+  userId: number;
+}
+
+export function parseUserIdFromRef(ref?: string | null): number | undefined {
+  if (!ref?.trim()) {
+    return undefined;
   }
 
-  return POC_USER_ID;
+  const parsed = Number.parseInt(ref.trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+export function isValidCadence(
+  value?: string | null,
+): value is NotificationCadence {
+  return (
+    !!value &&
+    VALID_CADENCES.includes(value.trim().toUpperCase() as NotificationCadence)
+  );
+}
+
+export function normalizeCadence(value: string): NotificationCadence {
+  return value.trim().toUpperCase() as NotificationCadence;
+}
+
+export function parseMessengerLinkContext(input: {
+  ref?: string | null;
+  topic?: string | null;
+  cadence?: string | null;
+}): MessengerLinkContext | undefined {
+  const ref = input.ref?.trim();
+  const topic = input.topic?.trim();
+  const cadence = input.cadence?.trim();
+
+  if (!ref || !topic || !cadence || !isValidCadence(cadence)) {
+    return undefined;
+  }
+
+  const userId = parseUserIdFromRef(ref);
+  if (!userId) {
+    return undefined;
+  }
+
+  return {
+    ref,
+    topic,
+    cadence: normalizeCadence(cadence),
+    userId,
+  };
+}
+
+export function parseUserIdFromPayload(payload?: string): number | undefined {
+  if (!payload) {
+    return undefined;
+  }
+
+  const refMatch = /(?:^|[;,]\s*)ref[:=](\d+)/i.exec(payload);
+  if (refMatch) {
+    return parseUserIdFromRef(refMatch[1]);
+  }
+
+  return undefined;
 }
 
 export function buildPocPsidToken(psid: string): string {
   return `poc:psid:${psid}`;
 }
 
-export function getPocMMeLink(
+export function buildMMeLink(
   pageRef: string,
-  userId: number = POC_USER_ID,
+  context: MessengerLinkContext,
 ): string {
   const url = new URL(`https://m.me/${pageRef}`);
-  url.searchParams.set('ref', String(userId));
+  url.searchParams.set('topic', context.topic);
+  url.searchParams.set('cadence', context.cadence);
+  url.searchParams.set('ref', context.ref);
   return url.toString();
 }
 
@@ -34,28 +93,10 @@ export function getPocAlreadySubscribedMessage(): string {
   return 'Bạn đã đăng ký nhận báo cáo học tập rồi. WISPACE sẽ gửi báo cáo AI khoảng 2–3 ngày trước ngày thi — không cần bấm lại.';
 }
 
+export function getMissingUserRefMessage(): string {
+  return 'Vui lòng mở Messenger từ liên kết WISPACE (có đủ topic, cadence và ref) để kết nối tài khoản trước khi sử dụng.';
+}
+
 export function isPocPsidToken(token: string): boolean {
   return token.startsWith('poc:psid:');
-}
-
-export function parseOptinUserId(ref?: string): number {
-  if (!ref) {
-    return POC_USER_ID;
-  }
-
-  const parsed = Number.parseInt(ref, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : POC_USER_ID;
-}
-
-export function parseOptinUserIdFromPayload(payload?: string): number {
-  if (!payload) {
-    return POC_USER_ID;
-  }
-
-  const refMatch = /(?:^|[;,]\s*)ref[:=](\d+)/i.exec(payload);
-  if (refMatch) {
-    return parseOptinUserId(refMatch[1]);
-  }
-
-  return POC_USER_ID;
 }
