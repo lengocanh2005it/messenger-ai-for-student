@@ -47,13 +47,23 @@ export class StudyReminderJobRepository {
     }
 
     if (existing.status === 'sent' || existing.status === 'cancelled') {
-      return this.mapEntity(existing);
+      if (!this.hasScheduleChanged(existing, input)) {
+        return this.mapEntity(existing);
+      }
+
+      this.applyScheduleUpdate(existing, input);
+      existing.status = 'pending';
+      existing.retryCount = 0;
+      existing.sentAt = null;
+      existing.lastError = null;
+      existing.nextRetryAt = null;
+
+      const saved = await this.jobRepo.save(existing);
+      return this.mapEntity(saved);
     }
 
     existing.userId = input.userId ?? existing.userId;
-    existing.scheduledAt = input.scheduledAt;
-    existing.remindAt = input.remindAt;
-    existing.topic = input.topic ?? existing.topic;
+    this.applyScheduleUpdate(existing, input);
     existing.maxRetries = input.maxRetries;
 
     if (existing.status === 'failed') {
@@ -167,14 +177,24 @@ export class StudyReminderJobRepository {
     });
   }
 
+  async deleteSentJobs(): Promise<number> {
+    const result = await this.jobRepo
+      .createQueryBuilder()
+      .delete()
+      .from(StudyReminderJobEntity)
+      .where('status = :status', { status: 'sent' })
+      .execute();
+
+    return result.affected ?? 0;
+  }
+
   async deleteTerminalJobsOlderThan(cutoff: Date): Promise<number> {
     const result = await this.jobRepo
       .createQueryBuilder()
       .delete()
       .from(StudyReminderJobEntity)
       .where(
-        `(status = 'sent' AND sent_at IS NOT NULL AND sent_at < :cutoff)
-         OR (status = 'cancelled' AND updated_at < :cutoff)
+        `(status = 'cancelled' AND updated_at < :cutoff)
          OR (status = 'failed' AND retry_count >= max_retries AND updated_at < :cutoff)`,
         { cutoff },
       )
@@ -193,6 +213,28 @@ export class StudyReminderJobRepository {
       .execute();
 
     return result.affected ?? 0;
+  }
+
+  private hasScheduleChanged(
+    existing: StudyReminderJobEntity,
+    input: UpsertStudyReminderJobInput,
+  ): boolean {
+    return (
+      existing.scheduledAt.getTime() !== input.scheduledAt.getTime() ||
+      existing.remindAt.getTime() !== input.remindAt.getTime() ||
+      (input.topic ?? null) !== (existing.topic ?? null)
+    );
+  }
+
+  private applyScheduleUpdate(
+    existing: StudyReminderJobEntity,
+    input: UpsertStudyReminderJobInput,
+  ): void {
+    existing.userId = input.userId ?? existing.userId;
+    existing.scheduledAt = input.scheduledAt;
+    existing.remindAt = input.remindAt;
+    existing.topic = input.topic ?? existing.topic;
+    existing.maxRetries = input.maxRetries;
   }
 
   private mapEntity(entity: StudyReminderJobEntity): StudyReminderJob {

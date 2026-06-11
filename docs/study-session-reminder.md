@@ -39,10 +39,11 @@ flowchart LR
 
 | Bước | Tần suất | Việc làm |
 |------|----------|----------|
-| **Sync** | **API khi lịch đổi** + cron 30 phút (dự phòng) + lúc server start | Đọc lịch sắp tới → ghi `study_reminder_jobs` với `remind_at` |
+| **Sync** | **API khi lịch đổi** + cron 30 phút (dự phòng) + lúc server start + **23:00 rollover** | Quét horizon 14 ngày → ghi/cập nhật `study_reminder_jobs` |
 | **Dispatch** | Mỗi 1 phút | Job đến `remind_at` → LLM sinh nội dung → gửi Messenger |
-| **Cleanup** | Mỗi ngày 03:00 | Xóa job `sent` / `cancelled` / `failed` hết retry quá `JOB_RETENTION_DAYS` |
-| **Preview** | Theo yêu cầu (menu bot) | Gửi ngay buổi sắp tới, không qua job queue |
+| **Evening rollover** | **23:00** (`STUDY_REMINDER_TIMEZONE`) | Xóa job **`sent`** → sync lại horizon 14 ngày |
+| **Cleanup** | Mỗi ngày 03:00 | Xóa job `cancelled` / `failed` hết retry quá `JOB_RETENTION_DAYS` |
+| **Preview** | Theo yêu cầu (menu bot) | Đọc lịch trực tiếp từ API/DB — gửi ngay, không qua job queue |
 
 ---
 
@@ -99,23 +100,44 @@ stateDiagram-v2
 - Lỗi → `retry_count++`, `next_retry_at = now + RETRY_BACKOFF_MINUTES` (tối đa `MAX_RETRIES`)
 - Đã qua giờ học → `cancelled`, không gửi
 
-### 3.3. Cleanup — Xóa job đã xử lý xong
+### 3.3. Cleanup & evening rollover
 
-Job `sent` / `cancelled` / `failed` (hết retry) không cần giữ lâu — bảng chỉ phục vụ **hàng đợi gửi**, không phải lưu trữ lịch sử. Audit gửi tin nằm ở `messenger_message_logs`.
+Bảng `study_reminder_jobs` là **snapshot outbox** (hàng đợi gửi), không phải lưu trữ lịch sử. Audit gửi tin nằm ở `messenger_message_logs`.
 
-Cron **03:00 mỗi ngày** xóa các job terminal có `sent_at` / `updated_at` cũ hơn `STUDY_REMINDER_JOB_RETENTION_DAYS` (mặc định **7 ngày**). Chỉ xóa job đã kết thúc; `pending` / `processing` / `failed` còn retry **không** bị đụng.
+#### Evening rollover (23:00, timezone `STUDY_REMINDER_TIMEZONE`)
 
-Gợi ý retention:
+Horizon sync mặc định **14 ngày** (`STUDY_REMINDER_SYNC_HORIZON_HOURS=336`). Cuối ngày:
 
-| Giá trị | Khi nào dùng |
-|---------|----------------|
-| **7 ngày** (mặc định) | POC / ít user — đủ debug gần đây, DB nhẹ |
-| **14–30 ngày** | Cần tra cứu job gần hơn trước khi xóa |
-| **1–3 ngày** | Scale lớn, chỉ cần audit qua `messenger_message_logs` |
+1. **Xóa toàn bộ job `sent`** (đã nhắn xong trong ngày).
+2. **Sync lại** toàn bộ mapping ACTIVE → tạo job `pending` cho các buổi còn trong 14 ngày tới.
+
+Cron tự chạy; hoặc gọi thủ công:
+
+```http
+POST /messenger/study-reminder/evening-rollover
+X-Internal-Api-Key: ...
+```
+
+Giờ rollover cấu hình qua `STUDY_REMINDER_EVENING_ROLLOVER_HOUR` (mặc định **23**).
+
+#### Cleanup sâu (03:00)
+
+Xóa job terminal **`cancelled`** / **`failed`** (hết retry) cũ hơn `STUDY_REMINDER_JOB_RETENTION_DAYS` (mặc định 7 ngày). Job `pending` / `processing` / `failed` còn retry **không** bị đụng.
+
+#### Khi user đổi lịch (Wispace)
+
+| Luồng | Cách cập nhật |
+|-------|----------------|
+| **Outbox (T-30)** | `POST /messenger/study-calendar/sync` `{ "userId": 143 }` ngay sau commit lịch |
+| **Preview (menu)** | Đọc trực tiếp UserCalendar API/DB — luôn thấy lịch mới, không cần sync job |
+
+Sync theo user sẽ upsert job `pending`, hủy job stale, và **tạo lại job `pending`** nếu buổi đã `sent`/`cancelled` nhưng **giờ học đổi**.
 
 ### 3.4. Sinh nội dung — LLM
 
-`StudyReminderService` gom context (lịch, goals, band Task 1/2) → gọi **OpenAI** → format tin nhắn.
+`StudyReminderService` gom context (lịch, goals, band Task 1/2, **tên từ `Users.DisplayName`**) → gọi **OpenAI** → format tin nhắn.
+
+Tên hiển thị: đọc bảng `Users` theo `user_id` (hoặc mapping `psid` → `user_id`). Thứ tự fallback: `DisplayName` → `Username` → `"bạn"`.
 
 Dispatch tự động và menu preview đều dùng cùng service này. Không có `OPENAI_API_KEY` → fallback template.
 
@@ -171,10 +193,11 @@ Sync **theo một `userId`** — không quét toàn bộ mapping. Cron 30 phút 
 ```bash
 curl -X POST https://{messenger-service}/messenger/study-calendar/sync \
   -H "Content-Type: application/json" \
+  -H "X-Internal-Api-Key: ${INTERNAL_API_KEY}" \
   -d '{"userId": 2597}'
 ```
 
-Nên gọi **fire-and-forget** sau khi transaction lịch commit thành công. Production: bảo vệ endpoint bằng API gateway / shared secret nội bộ.
+Hoặc `Authorization: Bearer ${INTERNAL_API_KEY}`. Giá trị key lấy từ `.env` (`INTERNAL_API_KEY`) — **cùng secret** Wispace backend cấu hình khi gọi service này.
 
 ```mermaid
 sequenceDiagram
@@ -369,6 +392,9 @@ STUDY_REMINDER_TIMEZONE=Asia/Ho_Chi_Minh
 
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-5.4
+
+# Ops / Wispace → sync, send-reports (header X-Internal-Api-Key)
+INTERNAL_API_KEY=replace-with-a-long-random-secret
 ```
 
 Tất cả giá trị thời gian **bắt buộc trong `.env`** — không hardcode trong code.
@@ -451,9 +477,8 @@ Không có giải pháp nào hoàn hảo tuyệt đối. Hướng **outbox table
 
 ### 11.4. Hướng cải thiện (theo thứ tự ưu tiên)
 
-1. **Wispace wire sync API** — gọi `POST /messenger/study-calendar/sync` sau mỗi POST/DELETE `UserCalendar` (endpoint POC đã có; mục 3.6).
-2. **Bảo vệ endpoint sync** — API key / gateway nội bộ ở production.
-3. **Bỏ fallback DB** khi API `UserCalendar` ổn định — single source qua `x-psid`.
+1. **Wispace wire sync API** — `POST /messenger/study-calendar/sync` + header `X-Internal-Api-Key` (mục 3.6).
+2. **Bỏ fallback DB** khi API `UserCalendar` ổn định — single source qua `x-psid`.
 4. **Giám sát job `failed`** — alert khi `retry_count` hết hoặc job `processing` kẹt lâu.
 5. **Pre-generate hoặc cache nội dung LLM** lúc sync (tùy chọn) — giảm latency lúc dispatch, nội dung ổn định hơn.
 6. **Queue chuyên dụng** — khi số user / số job tăng mạnh hoặc cần delay chính xác hơn cron 1 phút.

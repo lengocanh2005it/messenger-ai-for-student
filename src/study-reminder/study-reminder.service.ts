@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { StudentCapacityService } from '../student-report/student-capacity.service';
 import { UserGoalsApiService } from '../student-report/user-goals-api.service';
+import { UserDisplayNameService } from './user-display-name.service';
 import { StudyReminderScheduleService } from './study-reminder-schedule.service';
 import { StudySessionSourceService } from './study-session-source.service';
 import { loadSystemPrompt } from '../prompts/load-system-prompt';
@@ -27,13 +28,20 @@ export class StudyReminderService {
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
     private readonly userGoalsApiService: UserGoalsApiService,
     private readonly studentCapacityService: StudentCapacityService,
+    private readonly userDisplayNameService: UserDisplayNameService,
   ) {}
 
   async generateReminderForSession(
     psid: string,
     session: NormalizedStudySession,
-    displayName = 'bạn',
+    options?: { userId?: number; displayName?: string },
   ): Promise<string> {
+    const displayName =
+      options?.displayName?.trim() ||
+      (await this.userDisplayNameService.resolveDisplayName({
+        psid,
+        userId: options?.userId,
+      }));
     const input = await this.buildLlmInput(psid, session, displayName);
     const output = await this.generateAiReminder(input);
     return this.formatReminder(output);

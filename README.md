@@ -29,7 +29,7 @@ npm run start:dev
 
 Webhook Meta: `GET/POST /webhook`  
 Cấu hình menu bot: `POST /messenger/profile/setup`  
-Wispace sync lịch: `POST /messenger/study-calendar/sync` body `{ "userId": 2597 }`
+Wispace sync lịch: `POST /messenger/study-calendar/sync` + header `X-Internal-Api-Key` (xem `.env` `INTERNAL_API_KEY`)
 
 ## Scripts hữu ích
 

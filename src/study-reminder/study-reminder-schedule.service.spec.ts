@@ -41,4 +41,8 @@ describe('StudyReminderScheduleService', () => {
 
     expect(service.isSessionStarted(scheduledAt, now)).toBe(false);
   });
+
+  it('defaults evening rollover hour to 23', () => {
+    expect(service.getOutboxSettings().eveningRolloverHour).toBe(23);
+  });
 });

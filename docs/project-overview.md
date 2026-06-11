@@ -174,14 +174,18 @@ demo_send_message_fb/
 
 ### Vận hành & tích hợp Wispace
 
+Tất cả endpoint dưới đây yêu cầu header **`X-Internal-Api-Key`** (hoặc `Authorization: Bearer …`) khớp `INTERNAL_API_KEY` trong `.env`.
+
 | Method | Path | Body | Mô tả |
 |--------|------|------|--------|
 | POST | `/messenger/study-calendar/sync` | `{ "userId": number }` | **Wispace gọi** sau POST/DELETE `UserCalendar` |
 | POST | `/messenger/send-reports` | — | Gửi báo cáo (bỏ qua cửa sổ ngày thi) |
 | POST | `/messenger/sync-study-reminders` | — | Sync toàn bộ user (ops / cron dự phòng) |
 | POST | `/messenger/send-study-reminders` | — | Sync + dispatch job đến hạn |
+| POST | `/messenger/profile/setup` | — | Cấu hình menu bot (ops) |
+| POST | `/messenger/test-send` | `{ "psid": string }` | Gửi thử báo cáo (ops) |
 
-Các endpoint trên **nên bảo vệ** ở production (API gateway / shared secret).
+Cron nội bộ (sync 30 phút, dispatch 1 phút) **không** qua HTTP — không cần API key.
 
 ---
 
@@ -219,6 +223,7 @@ Xem `.env.example`. Nhóm chính:
 - **OpenAI:** `OPENAI_API_KEY`, `OPENAI_MODEL`
 - **Wispace API:** `WISPACE_API_USER_CALENDAR_URL`, `WISPACE_API_USER_GOALS_URL`, `WISPACE_API_TASK_SCORE_URL` — auth bằng header `x-psid`
 - **Study reminder:** `STUDY_REMINDER_*` — **bắt buộc**, không hardcode fallback trong code
+- **Ops API:** `INTERNAL_API_KEY` — header `X-Internal-Api-Key` cho sync / send-reports / profile setup
 - **Báo cáo thi:** `WISPACE_REPORT_DAYS_BEFORE_EXAM_MIN/MAX`
 - **DB:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_MIGRATIONS_RUN`
 
@@ -245,8 +250,7 @@ npm run study-reminder:jobs    # In jobs trong DB
 - **Chỉ Messenger** — user chưa map `psid` không nhận tin.
 - **Tích hợp lịch học** — Wispace gọi `POST /messenger/study-calendar/sync` khi đổi lịch; cron 30 phút là dự phòng.
 - **API UserCalendar** — cần `WISPACE_API_USER_CALENDAR_URL`; fallback DB khi API lỗi.
-- **Chưa có auth** trên endpoint `/messenger/study-calendar/sync` và ops khác — cần gateway / secret ở production.
-- **Wispace chưa wire** gọi sync API — cần thêm HTTP call sau mỗi lần đổi lịch (endpoint POC đã sẵn).
+- **Wispace chưa wire** gọi sync API — cần thêm HTTP call + header `X-Internal-Api-Key` sau mỗi lần đổi lịch.
 
 Trade-off chi tiết nhắc lịch học: mục 11 trong [study-session-reminder.md](./study-session-reminder.md).
 

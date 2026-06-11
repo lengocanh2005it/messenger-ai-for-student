@@ -7,7 +7,9 @@ import {
   NotFoundException,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { InternalApiKeyGuard } from '../common/guards/internal-api-key.guard';
 import { parseMessengerLinkContext } from '../config/poc.constants';
 import { MessengerProfileService } from './messenger-profile.service';
 import { MessengerService } from './messenger.service';
@@ -59,7 +61,7 @@ export class MessengerController {
     const context = parseMessengerLinkContext({ ref, topic, cadence });
     if (!context) {
       throw new BadRequestException(
-        'Query params ref, topic and cadence are required. ref is userId.',
+        'Query param ref is required (WISPACE userId). topic and cadence are optional.',
       );
     }
 
@@ -73,6 +75,7 @@ export class MessengerController {
   }
 
   @Post('messenger/test-send')
+  @UseGuards(InternalApiKeyGuard)
   @HttpCode(200)
   async testSend(
     @Body()
@@ -89,6 +92,7 @@ export class MessengerController {
   }
 
   @Post('messenger/profile/setup')
+  @UseGuards(InternalApiKeyGuard)
   @HttpCode(200)
   setupProfile() {
     return this.messengerProfileService.setupProfile();

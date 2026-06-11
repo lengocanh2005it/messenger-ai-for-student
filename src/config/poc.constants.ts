@@ -2,6 +2,10 @@ import { NotificationCadence } from '../messenger/types';
 
 const VALID_CADENCES: NotificationCadence[] = ['DAILY', 'WEEKLY', 'MONTHLY'];
 
+/** Defaults when Messenger webhook only sends ref (Get Started / m.me). */
+export const POC_DEFAULT_LINK_TOPIC = 'IELTS';
+export const POC_DEFAULT_LINK_CADENCE: NotificationCadence = 'WEEKLY';
+
 export interface MessengerLinkContext {
   ref: string;
   topic: string;
@@ -37,22 +41,22 @@ export function parseMessengerLinkContext(input: {
   cadence?: string | null;
 }): MessengerLinkContext | undefined {
   const ref = input.ref?.trim();
-  const topic = input.topic?.trim();
-  const cadence = input.cadence?.trim();
-
-  if (!ref || !topic || !cadence || !isValidCadence(cadence)) {
-    return undefined;
-  }
-
   const userId = parseUserIdFromRef(ref);
   if (!userId) {
     return undefined;
   }
 
+  const topic = input.topic?.trim() || POC_DEFAULT_LINK_TOPIC;
+  const cadenceInput = input.cadence?.trim() || POC_DEFAULT_LINK_CADENCE;
+
+  if (!isValidCadence(cadenceInput)) {
+    return undefined;
+  }
+
   return {
-    ref,
+    ref: ref!,
     topic,
-    cadence: normalizeCadence(cadence),
+    cadence: normalizeCadence(cadenceInput),
     userId,
   };
 }
@@ -83,6 +87,10 @@ export function buildMMeLink(
   url.searchParams.set('cadence', context.cadence);
   url.searchParams.set('ref', context.ref);
   return url.toString();
+}
+
+export function buildWelcomeMessage(displayName = 'bạn'): string {
+  return `Chào ${displayName}! WISPACE sẵn sàng. Mở Menu để "Đăng ký nhận báo cáo học tập", "Xem tiến độ học tập" hoặc "Nhắc lịch học sắp tới".`;
 }
 
 export function getPocSubscriptionConfirmationMessage(): string {

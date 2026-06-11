@@ -13,4 +13,7 @@ export class UserEntity {
 
   @Column({ name: 'DisplayName', type: 'text', nullable: true })
   displayName: string | null;
+
+  @Column({ name: 'Username', type: 'varchar', nullable: true })
+  username: string | null;
 }

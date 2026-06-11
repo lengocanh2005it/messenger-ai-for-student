@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CommonModule } from '../common/common.module';
 import {
   MessengerMessageLogEntity,
   UserMessengerMappingEntity,
@@ -13,6 +14,7 @@ import { MessengerService } from './messenger.service';
 
 @Module({
   imports: [
+    CommonModule,
     TypeOrmModule.forFeature([
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,

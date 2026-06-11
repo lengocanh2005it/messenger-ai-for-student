@@ -12,6 +12,7 @@ export class StudyReminderScheduleService {
     maxRetries: number;
     retryBackoffMinutes: number;
     jobRetentionDays: number;
+    eveningRolloverHour: number;
     timezone: string;
   } {
     return {
@@ -21,6 +22,7 @@ export class StudyReminderScheduleService {
       maxRetries: this.getMaxRetries(),
       retryBackoffMinutes: this.getRetryBackoffMinutes(),
       jobRetentionDays: this.getJobRetentionDays(),
+      eveningRolloverHour: this.getEveningRolloverHour(),
       timezone: this.getTimezone(),
     };
   }
@@ -107,6 +109,25 @@ export class StudyReminderScheduleService {
 
   private getJobRetentionDays(): number {
     return this.readRequiredPositiveNumber('STUDY_REMINDER_JOB_RETENTION_DAYS');
+  }
+
+  private getEveningRolloverHour(): number {
+    const raw = this.configService
+      .get<string>('STUDY_REMINDER_EVENING_ROLLOVER_HOUR')
+      ?.trim();
+
+    if (!raw) {
+      return 23;
+    }
+
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0 || value > 23) {
+      throw new InternalServerErrorException(
+        'STUDY_REMINDER_EVENING_ROLLOVER_HOUR must be an integer from 0 to 23 in .env',
+      );
+    }
+
+    return value;
   }
 
   private getTimezone(): string {

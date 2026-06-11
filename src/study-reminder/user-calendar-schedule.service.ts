@@ -29,7 +29,17 @@ export class UserCalendarScheduleService {
   ): Promise<NormalizedStudySession[]> {
     try {
       const records = await this.userCalendarApiService.listCalendars(psid);
-      return this.normalizeAndFilter(records, horizonEnd);
+      const fromApi = this.normalizeAndFilter(records, horizonEnd);
+
+      if (fromApi.length > 0 || !userId) {
+        return fromApi;
+      }
+
+      this.logger.warn(
+        `UserCalendar API returned 0 upcoming session(s) for psid=${psid}, falling back to DB userId=${userId}`,
+      );
+
+      return this.getUpcomingSessionsFromDb(userId, horizonEnd);
     } catch (error) {
       if (!userId) {
         throw error;
@@ -174,6 +184,16 @@ export class UserCalendarScheduleService {
       return 'Z';
     }
 
-    return label.replace('GMT', '');
+    const match = label.match(/^GMT(?:(\+|-)(\d{1,2})(?::(\d{2}))?)?$/);
+    if (!match) {
+      return 'Z';
+    }
+
+    const sign = match[1] ?? '+';
+    const hours = Number(match[2] ?? 0);
+    const minutes = Number(match[3] ?? 0);
+    const pad = (value: number) => String(value).padStart(2, '0');
+
+    return `${sign}${pad(hours)}:${pad(minutes)}`;
   }
 }

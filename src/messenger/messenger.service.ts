@@ -9,6 +9,7 @@ import {
   MessengerLinkContext,
   buildMMeLink,
   buildPocPsidToken,
+  buildWelcomeMessage,
   getPocAlreadySubscribedMessage,
   getPocSubscriptionConfirmationMessage,
   getMissingUserRefMessage,
@@ -17,6 +18,7 @@ import {
 import { StudentReportService } from '../student-report/student-report.service';
 import { StudyReminderScheduleService } from '../study-reminder/study-reminder-schedule.service';
 import { StudyReminderService } from '../study-reminder/study-reminder.service';
+import { UserDisplayNameService } from '../study-reminder/user-display-name.service';
 import { getNoUpcomingStudySessionMessage } from '../study-reminder/study-reminder.messages';
 import { NormalizedStudySession } from '../study-reminder/study-schedule.types';
 import { MessengerRepository } from './messenger.repository';
@@ -25,9 +27,6 @@ import {
   MessengerWebhookPayload,
   UserMessengerMapping,
 } from './types';
-
-export const WELCOME_MESSAGE =
-  'Chào bạn! WISPACE sẵn sàng. Mở Menu để "Đăng ký nhận báo cáo học tập", "Xem tiến độ học tập" hoặc "Nhắc lịch học sắp tới".';
 
 export class MessengerApiError extends Error {
   constructor(
@@ -53,6 +52,7 @@ export class MessengerService {
     private readonly studentReportService: StudentReportService,
     private readonly studyReminderService: StudyReminderService,
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
+    private readonly userDisplayNameService: UserDisplayNameService,
   ) {}
 
   verifyWebhook(token?: string, challenge?: string): string {
@@ -65,8 +65,8 @@ export class MessengerService {
 
   buildMMeLink(context: MessengerLinkContext): string {
     const pageRef =
-      this.configService.get<string>('MESSENGER_PAGE_USERNAME') ??
-      this.configService.get<string>('MESSENGER_PAGE_ID');
+      this.configService.get<string>('MESSENGER_PAGE_USERNAME')?.trim() ||
+      this.configService.get<string>('MESSENGER_PAGE_ID')?.trim();
 
     if (!pageRef) {
       throw new InternalServerErrorException(
@@ -186,11 +186,14 @@ export class MessengerService {
     return report;
   }
 
-  async sendUpcomingStudySessionReminderPreview(psid: string): Promise<string> {
-    const userId = await this.resolveUserId(psid);
+  async sendUpcomingStudySessionReminderPreview(
+    psid: string,
+    userId?: number,
+  ): Promise<string> {
+    const resolvedUserId = userId ?? (await this.resolveUserId(psid));
     const session = await this.studyReminderService.getNextUpcomingSession(
       psid,
-      userId,
+      resolvedUserId,
     );
 
     if (!session) {
@@ -199,7 +202,7 @@ export class MessengerService {
       );
       await this.sendTextViaPsid({
         psid,
-        userId,
+        userId: resolvedUserId,
         text: emptyMessage,
         messageType: 'STUDY_SESSION_REMINDER_EMPTY',
       });
@@ -208,7 +211,7 @@ export class MessengerService {
 
     return this.sendStudySessionReminder({
       psid,
-      userId,
+      userId: resolvedUserId,
       session,
       messageType: 'STUDY_SESSION_REMINDER_PREVIEW',
     });
@@ -224,7 +227,7 @@ export class MessengerService {
     const reminder = await this.studyReminderService.generateReminderForSession(
       params.psid,
       params.session,
-      params.displayName,
+      { userId: params.userId, displayName: params.displayName },
     );
 
     await this.sendTextViaPsid({
@@ -299,6 +302,19 @@ export class MessengerService {
     return parseMessengerLinkContext({ ref, topic, cadence });
   }
 
+  private async resolveUserId(
+    psid: string,
+    event?: MessengerWebhookEvent,
+  ): Promise<number | undefined> {
+    const context = await this.resolveLinkContext(psid, event);
+    if (context?.userId) {
+      return context.userId;
+    }
+
+    const mapping = await this.repository.findActiveMappingByPsid(psid);
+    return mapping?.userId;
+  }
+
   private async resolveLinkContext(
     psid: string,
     event?: MessengerWebhookEvent,
@@ -320,14 +336,6 @@ export class MessengerService {
       topic: mapping.topic,
       cadence: mapping.cadence,
     });
-  }
-
-  private async resolveUserId(
-    psid: string,
-    event?: MessengerWebhookEvent,
-  ): Promise<number | undefined> {
-    const context = await this.resolveLinkContext(psid, event);
-    return context?.userId;
   }
 
   private async linkPsidFromContext(
@@ -395,7 +403,7 @@ export class MessengerService {
       await this.sendTextViaPsid({
         psid,
         userId,
-        text: WELCOME_MESSAGE,
+        text: await this.buildWelcomeMessage(psid, userId),
         messageType: 'WELCOME',
       });
       return true;
@@ -461,7 +469,10 @@ export class MessengerService {
       payload === 'VIEW_UPCOMING_STUDY_SESSION' ||
       payload === 'PREVIEW_STUDY_REMINDER'
     ) {
-      await this.sendUpcomingStudySessionReminderPreview(psid);
+      await this.sendUpcomingStudySessionReminderPreview(
+        psid,
+        context?.userId,
+      );
       return true;
     }
 
@@ -469,7 +480,7 @@ export class MessengerService {
       await this.sendTextViaPsid({
         psid,
         userId: context?.userId,
-        text: WELCOME_MESSAGE,
+        text: await this.buildWelcomeMessage(psid, context?.userId),
         messageType: 'WELCOME',
       });
       return true;
@@ -478,7 +489,7 @@ export class MessengerService {
     await this.sendTextViaPsid({
       psid,
       userId: context?.userId,
-      text: WELCOME_MESSAGE,
+      text: await this.buildWelcomeMessage(psid, context?.userId),
       messageType: 'WELCOME',
     });
     return true;
@@ -507,6 +518,17 @@ export class MessengerService {
     }
 
     return false;
+  }
+
+  private async buildWelcomeMessage(
+    psid: string,
+    userId?: number,
+  ): Promise<string> {
+    const displayName = await this.userDisplayNameService.resolveDisplayName({
+      psid,
+      userId,
+    });
+    return buildWelcomeMessage(displayName);
   }
 
   private async callSendApiByPsid(

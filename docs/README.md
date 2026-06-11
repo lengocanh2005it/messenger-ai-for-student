@@ -16,6 +16,7 @@ Sau mỗi lần tạo / sửa / xóa lịch trên API Wispace (`POST` / `DELETE`
 ```http
 POST {messenger-service}/messenger/study-calendar/sync
 Content-Type: application/json
+X-Internal-Api-Key: {INTERNAL_API_KEY}
 
 { "userId": 2597 }
 ```
