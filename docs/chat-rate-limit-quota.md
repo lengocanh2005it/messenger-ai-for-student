@@ -456,8 +456,9 @@ class ChatRateLimitService {
 | Tài nguyên | Link / path |
 |------------|-------------|
 | Meta rate limits | https://developers.facebook.com/docs/messenger-platform/overview/rate-limiting |
-| Log tin nhắn hiện tại | `src/database/entities/messenger-message-log.entity.ts` |
-| Webhook handler | `src/messenger/messenger.service.ts` |
+| Log tin nhắn hiện tại | `src/infrastructure/database/entities/messenger-message-log.entity.ts` |
+| Webhook handler | `src/modules/messenger/application/services/messenger.service.ts` |
+| Gửi tin (Send API) | `src/modules/messenger/application/services/messenger-outbound.service.ts` |
 | Pattern outbox tương tự | `study_reminder_jobs` — [study-session-reminder.md](./study-session-reminder.md) |
 
 ---

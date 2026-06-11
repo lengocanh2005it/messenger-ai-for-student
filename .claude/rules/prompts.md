@@ -1,16 +1,16 @@
 ---
 alwaysApply: false
-paths: src/prompts/**
+paths: src/shared/prompts/**
 ---
 
 # LLM system prompts
 
-Prompt nằm trong `src/prompts/*.system.txt`, load qua `load-system-prompt.ts`.
+Prompt nằm trong `src/shared/prompts/*.system.txt`, load qua `load-system-prompt.ts`.
 
 | File | Service |
 |------|---------|
-| `student-report.system.txt` | `StudentReportService` |
-| `study-reminder.system.txt` | `StudyReminderService` |
+| `student-report.system.txt` | `modules/student-report/application/services/student-report.service.ts` |
+| `study-reminder.system.txt` | `modules/study-reminder/application/services/study-reminder.service.ts` |
 
 ## Sau khi sửa
 
@@ -18,10 +18,10 @@ Prompt nằm trong `src/prompts/*.system.txt`, load qua `load-system-prompt.ts`.
 npm run build
 ```
 
-Nest copy assets sang `dist/prompts/` (`nest-cli.json` → `assets`).
+Nest copy assets sang `dist/shared/prompts/` (`nest-cli.json` → `assets`).
 
 ## Quy ước
 
-- Không inline prompt dài trong service.
+- Không inline prompt dài trong application service.
 - Nội dung tin nhắn output: tiếng Việt, thân thiện, ngắn gọn phù hợp Messenger.
 - Thiếu `OPENAI_API_KEY` → service fallback template cứng (không gọi API).

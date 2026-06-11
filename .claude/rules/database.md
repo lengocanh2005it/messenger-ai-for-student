@@ -1,6 +1,6 @@
 ---
 alwaysApply: false
-paths: src/database/**
+paths: src/infrastructure/database/**
 ---
 
 # Database & migrations
@@ -17,13 +17,15 @@ paths: src/database/**
 
 ## Thêm migration
 
-1. Sửa/thêm entity trong `src/database/entities/`.
-2. Tạo file migration trong `src/database/migrations/` (timestamp prefix).
+1. Sửa/thêm entity trong `src/infrastructure/database/entities/`.
+2. Tạo file migration trong `src/infrastructure/database/migrations/` (timestamp prefix).
 3. Chạy `npm run migration:run`.
 
-CLI generate (nếu cần): `npm run migration:generate -- src/database/migrations/TenMigration`.
+CLI generate (nếu cần): `npm run migration:generate -- src/infrastructure/database/migrations/TenMigration`.
 
 ## Lưu ý
 
-- `data-source.ts` dùng cho TypeORM CLI; app dùng `typeorm.options.ts`.
+- `data-source.ts` dùng cho TypeORM CLI (`dist/infrastructure/database/data-source.js`).
+- App dùng `typeorm.options.ts` qua `DatabaseModule`.
 - `DB_MIGRATIONS_RUN=true` → auto migrate khi start.
+- ORM entities **không** đặt trong `modules/*/domain/` — domain chỉ types thuần.

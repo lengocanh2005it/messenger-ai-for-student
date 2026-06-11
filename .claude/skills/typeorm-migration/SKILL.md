@@ -9,9 +9,9 @@ disable-model-invocation: true
 ## Steps
 
 1. Read `.claude/rules/database.md`.
-2. Edit entity in `src/database/entities/`.
-3. Create migration in `src/database/migrations/` with timestamp prefix (match existing files).
-4. Export entity from `src/database/entities/index.ts` if new.
+2. Edit entity in `src/infrastructure/database/entities/`.
+3. Create migration in `src/infrastructure/database/migrations/` with timestamp prefix (match existing files).
+4. Export entity from `src/infrastructure/database/entities/index.ts` if new.
 5. Run:
 
 ```bash

@@ -1,10 +1,12 @@
 # Quy ước chung — demo_send_message_fb
 
-POC NestJS: Messenger webhook + báo cáo AI + nhắc lịch học cho WISPACE.
+POC NestJS Clean Architecture: Messenger webhook + báo cáo AI + nhắc lịch học cho WISPACE.
+
+**Đọc thêm:** `.claude/rules/clean-architecture.md` — bắt buộc khi thêm/sửa code trong `src/modules/`.
 
 ## Nguyên tắc
 
-- Diff nhỏ; tái dùng module hiện có.
+- Diff nhỏ; đúng tầng Clean Architecture (domain / application / infrastructure / presentation).
 - Config qua `.env` + `ConfigService` — không hardcode token/số thời gian.
 - Tin nhắn user-facing: **tiếng Việt**. Log/comment: EN hoặc Việt ngắn.
 - Không thêm Redis/Bull/SQS trừ khi user yêu cầu — outbox = bảng `study_reminder_jobs`.
@@ -13,12 +15,12 @@ POC NestJS: Messenger webhook + báo cáo AI + nhắc lịch học cho WISPACE.
 
 | Module | Chỉ làm |
 |--------|---------|
-| `messenger/` | Webhook, Send API, menu, mapping/logs |
-| `student-report/` | Báo cáo học tập, Wispace API goals/scores |
-| `study-reminder/` | Sync/dispatch/cleanup jobs, UserCalendar API |
-| `scheduler/` | Cron báo cáo thi + HTTP ops trigger |
+| `modules/messenger/` | Webhook, Send API (outbound), menu, mapping/logs |
+| `modules/student-report/` | Báo cáo học tập, Wispace API goals/scores |
+| `modules/study-reminder/` | Sync/dispatch/cleanup jobs, UserCalendar API |
+| `modules/scheduler/` | Cron báo cáo thi + HTTP ops trigger |
 
-**Không** nhét logic study reminder vào `MessengerService`.
+**Không** nhét logic study reminder vào `MessengerService` (webhook chỉ orchestrate).
 
 ## Auth & API
 
@@ -28,6 +30,7 @@ POC NestJS: Messenger webhook + báo cáo AI + nhắc lịch học cho WISPACE.
 
 ## Tài liệu
 
+- Kiến trúc: `.claude/rules/clean-architecture.md`
 - Tổng quan: `docs/project-overview.md`
 - Nhắc lịch học: `docs/study-session-reminder.md`
-- Agent chung (Codex/Cursor): `AGENTS.md`
+- Agent chung: `AGENTS.md`

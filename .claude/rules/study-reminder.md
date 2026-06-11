@@ -1,6 +1,6 @@
 ---
 alwaysApply: false
-paths: src/study-reminder/**
+paths: src/modules/study-reminder/**
 ---
 
 # Study reminder module
@@ -12,7 +12,7 @@ POST /messenger/study-calendar/sync { userId }
   → StudyReminderSyncService (GET UserCalendar, x-psid)
   → study_reminder_jobs (pending)
   → StudyReminderDispatchService (cron 1 phút)
-  → StudyReminderService (LLM) → Messenger
+  → StudyReminderService (LLM) + MESSAGE_SENDER (MessengerOutbound)
 ```
 
 Wispace **phải** gọi sync sau POST/DELETE `UserCalendar`. Cron 30 phút chỉ là dự phòng.
@@ -21,20 +21,21 @@ Wispace **phải** gọi sync sau POST/DELETE `UserCalendar`. Cron 30 phút ch�
 
 Biến `STUDY_REMINDER_*` trong `.env` — dùng `readRequiredPositiveNumber`, **không** fallback số trong code.
 
-## File chính
+## File chính (Clean Architecture)
 
-| File | Vai trò |
-|------|---------|
-| `study-reminder-sync.service.ts` | Sync lịch → jobs |
-| `study-reminder-dispatch.service.ts` | Claim + gửi job đến hạn |
-| `study-reminder-schedule.service.ts` | Tính `remind_at` |
-| `study-reminder-worker.service.ts` | Cron sync/dispatch/rollover |
-| `user-calendar-api.service.ts` | GET UserCalendar (x-psid) |
-| `study-reminder-job.repository.ts` | CRUD jobs |
+| File | Tầng | Vai trò |
+|------|------|---------|
+| `application/services/study-reminder-sync.service.ts` | application | Sync lịch → jobs |
+| `application/services/study-reminder-dispatch.service.ts` | application | Claim + gửi (qua `MESSAGE_SENDER`) |
+| `application/services/study-reminder-schedule.service.ts` | application | Tính `remind_at` |
+| `application/services/study-reminder-worker.service.ts` | application | Cron sync/dispatch/rollover |
+| `infrastructure/wispace/user-calendar-api.service.ts` | infrastructure | GET UserCalendar (x-psid) |
+| `infrastructure/persistence/study-reminder-job.repository.ts` | infrastructure | CRUD jobs |
+| `application/ports/messenger-mapping.port.ts` | application | Đọc mapping — không import `MessengerModule` |
 
 ## Test
 
-Sửa logic `remind_at` → cập nhật `study-reminder-schedule.service.spec.ts`.
+Sửa logic `remind_at` → `application/services/study-reminder-schedule.service.spec.ts`.
 
 ## Debug
 

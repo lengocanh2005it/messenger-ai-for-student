@@ -30,15 +30,16 @@ npm run study-reminder:jobs
 |-------|----------|
 | `/study-reminder-debug` | Debug jobs nhắc lịch, sync, dispatch |
 | `/typeorm-migration` | Thêm/sửa entity + migration |
-| `/edit-llm-prompt` | Sửa `src/prompts/*.system.txt` |
+| `/edit-llm-prompt` | Sửa `src/shared/prompts/*.system.txt` |
 | `/verify` | `build` + `test` + `lint` trước khi xong task |
 
 ### Rules
 
 - `project-conventions.md` — luôn load (quy ước chung)
-- `study-reminder.md` — `src/study-reminder/**`
-- `database.md` — `src/database/**`
-- `prompts.md` — `src/prompts/**`
+- `clean-architecture.md` — **đọc khi sửa `src/modules/`** (4 tầng, ports, DI)
+- `study-reminder.md` — `src/modules/study-reminder/**`
+- `database.md` — `src/infrastructure/database/**`
+- `prompts.md` — `src/shared/prompts/**`
 
 ## Tài liệu đầy đủ
 

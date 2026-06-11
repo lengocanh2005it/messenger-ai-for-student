@@ -9,15 +9,15 @@ description: Edit OpenAI system prompts for student reports or study reminders. 
 
 | Prompt | Service |
 |--------|---------|
-| `src/prompts/student-report.system.txt` | Báo cáo học tập |
-| `src/prompts/study-reminder.system.txt` | Nhắc lịch học |
+| `src/shared/prompts/student-report.system.txt` | Báo cáo học tập |
+| `src/shared/prompts/study-reminder.system.txt` | Nhắc lịch học |
 
 Read `.claude/rules/prompts.md` before editing.
 
 ## Workflow
 
 1. Sửa `.system.txt` — output hướng tới tin Messenger tiếng Việt.
-2. `npm run build` (copy sang `dist/prompts/`).
+2. `npm run build` (copy sang `dist/shared/prompts/`).
 3. Test: menu bot preview hoặc `POST /messenger/test-send` (ops key).
 
 ## Không làm

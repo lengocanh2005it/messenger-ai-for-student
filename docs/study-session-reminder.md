@@ -96,6 +96,7 @@ stateDiagram-v2
   sent --> [*]
 ```
 
+- Sinh nội dung LLM (`StudyReminderService`) → gửi qua port `MESSAGE_SENDER` (`MessengerOutboundService`)
 - Thành công → `status = sent`
 - Lỗi → `retry_count++`, `next_retry_at = now + RETRY_BACKOFF_MINUTES` (tối đa `MAX_RETRIES`)
 - Đã qua giờ học → `cancelled`, không gửi
@@ -352,28 +353,48 @@ Cố lên nhé! 💪
 
 ## 7. Cấu trúc code
 
+Module `study-reminder` theo Clean Architecture (xem [AGENTS.md](../AGENTS.md#clean-architecture)):
+
 ```
-src/study-reminder/
-  study-reminder-sync.service.ts       # Sync lịch → jobs (all | theo userId)
-  study-reminder-dispatch.service.ts   # Dispatch + retry
-  study-reminder-cleanup.service.ts    # Xóa job terminal cũ
-  study-reminder-worker.service.ts     # Cron sync / dispatch / cleanup
-  study-reminder.service.ts            # LLM
-  user-calendar-api.service.ts         # GET/POST/DELETE UserCalendar (x-psid)
-  user-calendar-schedule.service.ts    # Chuẩn hóa lịch + fallback DB
-  study-session-source.service.ts      # Nguồn buổi học cho sync
-  study-reminder-job.repository.ts
+src/modules/study-reminder/
+├── study-reminder.module.ts
+├── domain/
+│   ├── entities/                      # study-schedule.types, study-reminder-job.types, …
+│   └── repositories/
+│       └── study-reminder-job.repository.port.ts
+├── application/
+│   ├── ports/
+│   │   └── messenger-mapping.port.ts  # MESSENGER_MAPPING_READER — không import MessengerModule
+│   ├── services/
+│   │   ├── study-reminder-sync.service.ts       # Sync lịch → jobs (all | theo userId)
+│   │   ├── study-reminder-dispatch.service.ts   # Dispatch + retry (MESSAGE_SENDER)
+│   │   ├── study-reminder-cleanup.service.ts
+│   │   ├── study-reminder-worker.service.ts     # Cron sync / dispatch / rollover
+│   │   ├── study-reminder.service.ts            # LLM
+│   │   ├── study-reminder-schedule.service.ts   # Tính remind_at
+│   │   ├── study-session-source.service.ts
+│   │   └── user-display-name.service.ts
+│   ├── messages/study-reminder.messages.ts
+│   └── utils/study-reminder.utils.ts
+└── infrastructure/
+    ├── persistence/study-reminder-job.repository.ts
+    └── wispace/
+        ├── user-calendar-api.service.ts         # GET UserCalendar (x-psid)
+        └── user-calendar-schedule.service.ts    # Chuẩn hóa lịch + fallback DB
 
-src/scheduler/
-  scheduler.controller.ts              # POST study-calendar/sync, sync-study-reminders, …
+src/modules/scheduler/presentation/controllers/
+  scheduler.controller.ts                # POST study-calendar/sync, sync-study-reminders, …
 
-src/messenger/
-  messenger.service.ts                 # Gửi tin + menu preview
-  messenger-profile.service.ts
+src/modules/messenger/
+  application/services/messenger.service.ts      # Webhook + menu preview nhắc lịch
+  application/services/messenger-outbound.service.ts  # Send API (MESSAGE_SENDER)
+  infrastructure/meta/messenger-profile.service.ts
 
-src/prompts/
-  study-reminder.system.txt            # System prompt OpenAI
+src/shared/prompts/
+  study-reminder.system.txt              # System prompt OpenAI
 ```
+
+**Dispatch:** `StudyReminderDispatchService` gọi `StudyReminderService.generateReminderForSession` rồi `MESSAGE_SENDER.sendTextViaPsid` — không import `MessengerService`.
 
 ---
 
