@@ -15,6 +15,10 @@ import {
   parseMessengerLinkContext,
 } from '../config/poc.constants';
 import { StudentReportService } from '../student-report/student-report.service';
+import { StudyReminderScheduleService } from '../study-reminder/study-reminder-schedule.service';
+import { StudyReminderService } from '../study-reminder/study-reminder.service';
+import { getNoUpcomingStudySessionMessage } from '../study-reminder/study-reminder.messages';
+import { NormalizedStudySession } from '../study-reminder/study-schedule.types';
 import { MessengerRepository } from './messenger.repository';
 import {
   MessengerWebhookEvent,
@@ -23,7 +27,7 @@ import {
 } from './types';
 
 export const WELCOME_MESSAGE =
-  'Chào bạn! WISPACE sẵn sàng. Mở Menu để "Đăng ký nhận báo cáo học tập" hoặc "Xem tiến độ học tập".';
+  'Chào bạn! WISPACE sẵn sàng. Mở Menu để "Đăng ký nhận báo cáo học tập", "Xem tiến độ học tập" hoặc "Nhắc lịch học sắp tới".';
 
 export class MessengerApiError extends Error {
   constructor(
@@ -47,6 +51,8 @@ export class MessengerService {
     private readonly configService: ConfigService,
     private readonly repository: MessengerRepository,
     private readonly studentReportService: StudentReportService,
+    private readonly studyReminderService: StudyReminderService,
+    private readonly studyReminderScheduleService: StudyReminderScheduleService,
   ) {}
 
   verifyWebhook(token?: string, challenge?: string): string {
@@ -178,6 +184,57 @@ export class MessengerService {
       messageType: 'LEARNING_REPORT',
     });
     return report;
+  }
+
+  async sendUpcomingStudySessionReminderPreview(psid: string): Promise<string> {
+    const userId = await this.resolveUserId(psid);
+    const session = await this.studyReminderService.getNextUpcomingSession(
+      psid,
+      userId,
+    );
+
+    if (!session) {
+      const emptyMessage = getNoUpcomingStudySessionMessage(
+        this.studyReminderScheduleService.getOutboxSettings().minutesBefore,
+      );
+      await this.sendTextViaPsid({
+        psid,
+        userId,
+        text: emptyMessage,
+        messageType: 'STUDY_SESSION_REMINDER_EMPTY',
+      });
+      return emptyMessage;
+    }
+
+    return this.sendStudySessionReminder({
+      psid,
+      userId,
+      session,
+      messageType: 'STUDY_SESSION_REMINDER_PREVIEW',
+    });
+  }
+
+  async sendStudySessionReminder(params: {
+    psid: string;
+    session: NormalizedStudySession;
+    messageType: string;
+    userId?: number;
+    displayName?: string;
+  }): Promise<string> {
+    const reminder = await this.studyReminderService.generateReminderForSession(
+      params.psid,
+      params.session,
+      params.displayName,
+    );
+
+    await this.sendTextViaPsid({
+      psid: params.psid,
+      userId: params.userId,
+      text: reminder,
+      messageType: params.messageType,
+    });
+
+    return reminder;
   }
 
   async sendTextViaPsid(params: {
@@ -397,6 +454,14 @@ export class MessengerService {
       payload === 'GET_LEARNING_PROGRESS'
     ) {
       await this.sendLearningProgressReport(psid);
+      return true;
+    }
+
+    if (
+      payload === 'VIEW_UPCOMING_STUDY_SESSION' ||
+      payload === 'PREVIEW_STUDY_REMINDER'
+    ) {
+      await this.sendUpcomingStudySessionReminderPreview(psid);
       return true;
     }
 

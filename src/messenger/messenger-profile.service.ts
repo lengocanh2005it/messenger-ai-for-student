@@ -13,7 +13,7 @@ export class MessengerProfileService {
       greeting: [
         {
           locale: 'default',
-          text: 'Chào bạn! Mở Menu để đăng ký nhận báo cáo hoặc xem tiến độ học tập ngay.',
+          text: 'Chào bạn! Mở Menu để đăng ký báo cáo, xem tiến độ hoặc nhắc lịch học sắp tới.',
         },
       ],
       persistent_menu: [
@@ -30,6 +30,11 @@ export class MessengerProfileService {
               type: 'postback',
               title: 'Xem tiến độ học tập',
               payload: 'VIEW_LEARNING_PROGRESS',
+            },
+            {
+              type: 'postback',
+              title: 'Nhắc lịch học sắp tới',
+              payload: 'VIEW_UPCOMING_STUDY_SESSION',
             },
           ],
         },
