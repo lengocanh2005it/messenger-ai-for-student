@@ -1,141 +1,289 @@
-# Hướng dẫn cho AI Agent (Cursor)
+# AGENTS.md
 
-Tài liệu này giúp agent làm việc đúng ngữ cảnh repo **demo_send_message_fb** — POC NestJS gửi tin Messenger cho WISPACE. Đọc trước khi sửa code hoặc thêm tính năng.
+Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_fb** — POC NestJS gửi tin Facebook Messenger cho học viên WISPACE (báo cáo AI + nhắc lịch học).
 
----
-
-## 1. Đọc gì trước
-
-| Ưu tiên | File | Khi nào |
-|---------|------|---------|
-| 1 | [docs/project-overview.md](docs/project-overview.md) | Lần đầu vào repo — kiến trúc, module, API |
-| 2 | [docs/study-session-reminder.md](docs/study-session-reminder.md) | Sửa nhắc lịch học, jobs, sync, dispatch |
-| 3 | `.env.example` | Biến môi trường bắt buộc |
-| 4 | `src/config/poc.constants.ts` | Link `m.me`, parse `userId` từ `ref` |
-
-Repo **không** có `.cursor/rules/` hay project skills riêng — quy ước nằm ở file này và `docs/`.
+Đọc file này trước khi sửa code. Chi tiết sâu nằm trong `docs/` — chỉ đọc khi task liên quan.
 
 ---
 
-## 2. Bối cảnh sản phẩm
+## Project overview
 
-- **Mục tiêu POC:** chứng minh học viên IELTS nhận **báo cáo AI** và **nhắc lịch học** qua Messenger sau khi liên kết tài khoản WISPACE.
-- **Không phải** app full-stack — service backend nhỏ, DB PostgreSQL **dùng chung** với Wispace.
-- **Ưu tiên:** diff nhỏ, tái dùng module hiện có, config qua `.env`, không over-engineer (không thêm Redis/queue trừ khi được yêu cầu).
+| | |
+|---|---|
+| **Stack** | NestJS 11, TypeScript, TypeORM, PostgreSQL, OpenAI |
+| **Mục tiêu** | Học viên IELTS liên kết `m.me` ↔ WISPACE, nhận báo cáo tiến độ và nhắc buổi học qua Messenger |
+| **Phạm vi** | Backend service nhỏ — **không** full-stack, **không** microservice riêng |
+| **DB** | PostgreSQL **dùng chung** với Wispace; POC chỉ migration bảng mapping/logs/jobs |
+| **Nguyên tắc** | Diff nhỏ, tái dùng module hiện có, config qua `.env`, không over-engineer (không Redis/queue trừ khi user yêu cầu) |
 
 ---
 
-## 3. Cấu trúc module — chỗ nào sửa gì
+## Dev environment tips
+
+- Copy `.env.example` → `.env` và điền token thật trước khi chạy sync/cron.
+- Webhook Meta cần URL public (ngrok/tunnel) trỏ tới `POST /webhook`.
+- Sau lần deploy đầu: gọi `POST /messenger/profile/setup` (header `X-Internal-Api-Key`) để cấu hình menu bot.
+- Sửa file trong `src/shared/prompts/*.system.txt` → **bắt buộc** `npm run build` (Nest copy assets sang `dist/shared/prompts/`).
+- Study reminder: biến `STUDY_REMINDER_*` **bắt buộc** — dùng `readRequiredPositiveNumber`, không hardcode fallback trong code.
+- Wispace API auth bằng header **`x-psid`** (PSID Messenger), không dùng user access token.
+- Ops HTTP (`/messenger/study-calendar/sync`, `send-reports`, …) cần header **`X-Internal-Api-Key`** hoặc `Authorization: Bearer …` khớp `INTERNAL_API_KEY`.
+- Cron nội bộ (sync 30 phút, dispatch 1 phút) chạy trong process — không qua API key.
+- Debug jobs nhắc lịch: `npm run study-reminder:jobs`.
+- Bootstrap jobs lần đầu: `npm run study-reminder:sync`.
+
+---
+
+## Build commands
+
+```bash
+npm install
+npm run start:dev          # dev server (watch)
+npm run build              # compile + copy prompts → dist/
+npm run start:prod         # node dist/main
+npm run migration:run      # build + chạy TypeORM migrations
+npm run migration:revert   # revert migration cuối
+npm run migration:show     # xem trạng thái migrations
+npm run lint               # eslint --fix
+npm run format             # prettier
+```
+
+### Scripts tiện ích (cần `.env` + DB)
+
+```bash
+npm run db:inspect
+npm run db:explore-study-schedule
+npm run study-reminder:sync-only    # sync jobs, không migrate
+npm run study-reminder:sync         # build + migrate + sync + dispatch
+npm run study-reminder:jobs         # in jobs trong DB
+```
+
+---
+
+## Testing instructions
+
+```bash
+npm run test                # Jest, spec trong src/**/*.spec.ts
+npm run test:watch
+npm run test:cov
+npm run test:e2e            # test/app.e2e-spec.ts
+```
+
+**Khi nào thêm/sửa test:**
+
+- Sửa logic tính `remind_at` → cập nhật `study-reminder-schedule.service.spec.ts`
+- Sửa upsert job khi đổi lịch → `study-reminder-job.repository.spec.ts`
+- Sửa guard ops API → `internal-api-key.guard.spec.ts`
+- Sửa parse `ref`/link `m.me` → `poc.constants.spec.ts`
+
+Trước khi kết thúc task: chạy `npm run build` và `npm run test`. Sửa lỗi type/lint/test cho đến khi pass.
+
+Spec hiện có:
+
+- `src/modules/study-reminder/application/services/study-reminder-schedule.service.spec.ts`
+- `src/modules/study-reminder/application/services/study-reminder-cleanup.service.spec.ts`
+- `src/shared/common/guards/internal-api-key.guard.spec.ts`
+- `src/shared/config/poc.constants.spec.ts`
+- `src/app.controller.spec.ts`
+
+---
+
+## Clean Architecture
+
+Repo dùng **feature modules + 4 tầng** (presentation → application → domain ← infrastructure). Chi tiết: `.claude/rules/clean-architecture.md`.
+
+### Luồng phụ thuộc
+
+- **Domain** — types thuần, repository interfaces (không NestJS/TypeORM).
+- **Application** — services / use cases, ports cross-module (`Symbol` + `@Inject`).
+- **Infrastructure** — TypeORM repo impl, Wispace/Meta HTTP, OpenAI callers.
+- **Presentation** — controllers (mỏng, delegate xuống application).
+
+### Ports cross-module
+
+| Token | Dùng khi |
+|-------|----------|
+| `MESSENGER_REPOSITORY` | Đọc/ghi mapping, logs |
+| `MESSENGER_MAPPING_READER` | Study reminder sync / display name |
+| `MESSAGE_SENDER` | Gửi tin Messenger (dispatch, không import `MessengerService`) |
+
+`StudyReminderModule` import `MessengerOutboundModule` — **không** `forwardRef` với `MessengerModule`.
+
+---
+
+## Project structure
 
 ```
-src/messenger/          → Webhook, gửi tin Meta, menu, mapping repository
-src/student-report/     → Báo cáo học tập, gọi WISPACE API + OpenAI
-src/study-reminder/     → Outbox jobs, UserCalendar API, sync/dispatch/cleanup, LLM
-src/scheduler/          → Cron báo cáo thi; POST study-calendar/sync, sync-study-reminders
-src/database/           → Entities, migrations TypeORM
-src/prompts/            → System prompt OpenAI (*.system.txt) — sửa prompt ở đây
-src/config/             → Hằng POC (link, message cố định ngắn)
+src/
+├── main.ts, app.module.ts, app.controller.ts
+├── shared/
+│   ├── config/              # poc.constants (m.me, parse ref)
+│   ├── common/              # InternalApiKeyGuard
+│   └── prompts/             # *.system.txt, load-system-prompt.ts
+├── infrastructure/
+│   └── database/            # TypeORM entities, migrations, DatabaseModule
+└── modules/
+    ├── messenger/           # domain | application | infrastructure | presentation
+    │   └── messenger-outbound.module.ts   # Send API + mapping (tách cycle)
+    ├── student-report/
+    ├── study-reminder/
+    └── scheduler/           # cron + ops HTTP /messenger/*
+docs/                        # Tài liệu chi tiết — đọc theo task
+scripts/                     # CLI debug (không chạy trong app runtime)
 ```
 
-**Tránh:**
+Mỗi feature trong `modules/<name>/`:
 
-- Nhét logic study reminder vào `MessengerService` — dùng `StudyReminderService` / worker.
-- Hardcode thời gian nhắc lịch — dùng `StudyReminderScheduleService` + `.env`.
-- Inline system prompt dài trong service — thêm/sửa file trong `src/prompts/`.
+```
+domain/entities|repositories/ → application/services|ports/ → infrastructure/ → presentation/controllers/
+```
+
+### Module → trách nhiệm
+
+| Module | Vai trò |
+|--------|---------|
+| `MessengerModule` | Webhook orchestration, profile menu |
+| `MessengerOutboundModule` | Send API, `MessengerRepository`, ports |
+| `StudentReportModule` | Wispace goals/scores → LLM báo cáo |
+| `StudyReminderModule` | Sync/dispatch/cleanup jobs, LLM nhắc học |
+| `SchedulerModule` | `ReportCronService` + HTTP ops endpoints |
+| `DatabaseModule` | TypeORM + PostgreSQL |
+
+`AppModule` import trực tiếp `StudyReminderModule` (không chỉ transitive).
 
 ---
 
-## 4. Quy ước code
+## Code style & conventions
 
 - **Ngôn ngữ:** TypeScript, NestJS 11, TypeORM.
 - **Tin nhắn user-facing:** tiếng Việt.
-- **Log / comment:** tiếng Anh hoặc Việt ngắn, chỉ khi logic không hiển nhiên.
-- **Config:** `ConfigService` + `.env`; study reminder dùng `readRequiredPositiveNumber` — không fallback số trong code.
-- **Ops HTTP** (`/messenger/study-calendar/sync`, send-reports, …): header `X-Internal-Api-Key: ${INTERNAL_API_KEY}`.
-- **Wispace API:** header `x-psid` (PSID Messenger), không dùng user access token.
-- **Migration:** tạo file trong `src/database/migrations/`, chạy `npm run migration:run`.
-- **Prompts:** sau sửa `.txt` cần `npm run build` (assets copy sang `dist/prompts/`).
+- **Log / comment:** tiếng Anh hoặc Việt ngắn — chỉ khi logic không hiển nhiên.
+- **Config:** `ConfigService` + `.env`; thêm biến mới → cập nhật `.env.example`.
+- **Migration:** `src/infrastructure/database/migrations/`, entity trong `src/infrastructure/database/entities/`.
+- **Prompts:** `src/shared/prompts/` — không inline system prompt dài trong service.
+- **Cross-module:** inject port (`@Inject(TOKEN)`), `import type` cho interface.
+
+### Anti-patterns (tránh)
+
+| Đừng | Thay bằng |
+|------|-----------|
+| Nhét logic study reminder vào `MessengerService` | `StudyReminderService` / worker |
+| `StudyReminderModule` import `MessengerModule` | `MessengerOutboundModule` + ports |
+| `@Entity()` trong `domain/` | ORM entity ở `infrastructure/database/entities/` |
+| Hardcode lead time nhắc lịch | `StudyReminderScheduleService` + `.env` |
+| Thêm Bull/SQS/Redis queue | Bảng `study_reminder_jobs` (outbox POC) |
+| Hardcode token/API key | `.env` + `ConfigService` |
+| Commit `.env` | Chỉ `.env.example` |
 
 ---
 
-## 5. Luồng dữ liệu quan trọng
+## Task → file (routing nhanh)
+
+| Task | File chính |
+|------|------------|
+| Thêm menu postback | `infrastructure/meta/messenger-profile.service.ts`, `application/services/messenger.service.ts` |
+| Đổi nội dung báo cáo AI | `shared/prompts/student-report.system.txt`, `student-report/.../student-report.service.ts` |
+| Đổi nội dung nhắc học | `shared/prompts/study-reminder.system.txt`, `study-reminder/.../study-reminder.service.ts` |
+| Đổi lead time / horizon / retention | `.env`, `study-reminder-schedule.service.ts` |
+| Thêm migration bảng | `infrastructure/database/migrations/`, `entities/` |
+| Wispace đổi lịch → sync | `scheduler/.../scheduler.controller.ts` → `StudyReminderSyncService` |
+| UserCalendar API client | `study-reminder/infrastructure/wispace/user-calendar-api.service.ts` |
+| Gửi tin từ module khác | Inject `MESSAGE_SENDER`, không `MessengerService` |
+| Sync toàn bộ (ops) | `POST /messenger/sync-study-reminders`, `scripts/sync-study-reminder-jobs.mjs` |
+| Rate limit chat (tương lai) | Xem `docs/chat-rate-limit-quota.md` |
+
+---
+
+## Data flows (tóm tắt)
 
 ### Liên kết user
 
-`ref` query param = `userId` WISPACE → `user_messenger_mappings.psid` + `user_id`.
+`ref` query param = `userId` WISPACE → lưu `user_messenger_mappings` (`psid` + `user_id`).
 
 ### Báo cáo học tập
 
-`UserGoalsApiService` + `TaskScoreAverageApiService` → `StudentReportService` → `MessengerService.sendTextViaPsid`.
+```
+UserGoalsApiService + TaskScoreAverageApiService
+  → StudentReportService (LLM)
+  → MessengerService.sendTextViaPsid
+```
+
+Trigger: cron 08:00, menu postback, hoặc `POST /messenger/send-reports`.
 
 ### Nhắc lịch học
 
 ```
 Wispace đổi lịch → POST /messenger/study-calendar/sync { userId }
-  → StudyReminderSyncService (GET UserCalendar x-psid) → study_reminder_jobs
-  → StudyReminderDispatchService (cron 1 phút) → StudyReminderService (LLM) → Messenger
+  → StudyReminderSyncService (GET UserCalendar, x-psid)
+  → study_reminder_jobs
+  → StudyReminderDispatchService (cron 1 phút)
+  → StudyReminderService (LLM) + MESSAGE_SENDER (MessengerOutbound)
 ```
 
-Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar` — xem `docs/study-session-reminder.md` §3.6. Không dùng webhook/event bus.
+Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar`. Cron 30 phút chỉ là dự phòng — không thay webhook/event bus.
 
 ---
 
-## 6. Task thường gặp → file
+## Security
 
-| Task | File chính |
-|------|------------|
-| Thêm menu postback | `messenger-profile.service.ts`, `messenger.service.ts` (handlePostback) |
-| Đổi nội dung báo cáo AI | `src/prompts/student-report.system.txt`, `student-report.service.ts` |
-| Đổi nội dung nhắc học | `src/prompts/study-reminder.system.txt`, `study-reminder.service.ts` |
-| Đổi lead time / horizon / retention | `.env`, `study-reminder-schedule.service.ts` |
-| Thêm migration bảng | `src/database/migrations/`, entity trong `entities/` |
-| Wispace đổi lịch → sync | `scheduler.controller.ts` → `StudyReminderSyncService.syncUpcomingSessions({ userId })` |
-| UserCalendar API client | `user-calendar-api.service.ts` (GET/POST/DELETE, x-psid) |
-| Sync toàn bộ (ops) | `POST /messenger/sync-study-reminders`, `scripts/sync-study-reminder-jobs.mjs` |
-| Debug jobs | `npm run study-reminder:jobs`, `study-reminder-job.repository.ts` |
+- **Không** commit secrets: `.env`, token Meta/OpenAI, `INTERNAL_API_KEY`, DB password.
+- Ops endpoints bảo vệ bởi `InternalApiKeyGuard` — không bỏ guard khi thêm endpoint vận hành.
+- Wispace API: chỉ header `x-psid`, không lưu/log full access token user.
+- Meta webhook: xác thực qua `VERIFY_TOKEN` (GET `/webhook`).
 
 ---
 
-## 7. Test & build
+## Documentation index (đọc theo task)
 
-```bash
-npm run build
-npm run test                    # jest, spec trong src/
-npm run study-reminder:sync-only  # cần .env + DB
-```
+| Ưu tiên | File | Khi nào đọc |
+|---------|------|-------------|
+| 1 | [docs/project-overview.md](docs/project-overview.md) | Lần đầu vào repo — kiến trúc, API, cron |
+| 2 | [docs/study-session-reminder.md](docs/study-session-reminder.md) | Sửa nhắc lịch, jobs, sync, dispatch, rollover |
+| 3 | [docs/chat-rate-limit-quota.md](docs/chat-rate-limit-quota.md) | Chatbot hai chiều, rate limit, quota |
+| 4 | `.env.example` | Biến môi trường bắt buộc |
+| 5 | `src/shared/config/poc.constants.ts` | Link `m.me`, parse `userId` từ `ref` |
+| — | `.claude/rules/clean-architecture.md` | Sửa/thêm code trong `src/modules/` |
 
-Spec hiện có: `study-reminder-schedule.service.spec.ts`. Thêm test khi sửa logic schedule tính `remind_at`.
+### Claude Code (`.claude/`)
 
-Không commit `.env` (secrets). Cập nhật `.env.example` khi thêm biến mới.
+| Path | Mục đích |
+|------|----------|
+| `CLAUDE.md` | Context load mỗi session |
+| `.claude/settings.json` | Permissions (npm/git allow; `.env` deny) |
+| `.claude/rules/` | Conventions + `clean-architecture.md`, path-scoped |
+| `.claude/skills/` | `/study-reminder-debug`, `/typeorm-migration`, `/edit-llm-prompt`, `/verify` |
+
+Cursor dùng file này (`AGENTS.md`) + skills global `~/.cursor/skills-cursor/`. Repo **không** có `.cursor/rules/` riêng.
 
 ---
 
-## 8. Không làm trừ khi user yêu cầu
-
-- Commit / push git
-- Tạo file markdown ngoài `docs/` hoặc sửa README dài dòng không cần thiết
-- Thêm message queue (Bull, SQS) — POC dùng bảng `study_reminder_jobs`
-- Force push, sửa git config
-- Hardcode token, API key
-
----
-
-## 9. Gap tích hợp (đừng giả định đã xong)
+## Integration gaps (đừng giả định đã xong)
 
 | Gap | Trạng thái POC |
 |-----|----------------|
 | `POST /messenger/study-calendar/sync` | ✓ Endpoint + sync theo `userId` |
 | Auth ops (`INTERNAL_API_KEY`) | ✓ Header `X-Internal-Api-Key` hoặc Bearer |
-| Wispace wire sync sau đổi lịch | ✗ Cần cấu hình `INTERNAL_API_KEY` + gọi API |
+| Wispace wire sync sau đổi lịch | ✗ Cần cấu hình key + gọi API từ Wispace |
 | Tên học viên cho LLM | ✓ `Users.DisplayName` → `Username` → `'bạn'` |
-| Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✗ Cần cleanup job cũ hoặc sửa upsert |
+| Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✓ `StudyReminderJobRepository.upsertPendingJob` reopen → `pending` |
+| Chat hai chiều + rate limit | ✗ Chỉ có tài liệu thiết kế |
 
-Khi đóng gap, cập nhật `docs/study-session-reminder.md` và bảng trên.
+Khi đóng gap: cập nhật `docs/study-session-reminder.md` và bảng trên.
 
 ---
 
-## 10. Skills Cursor (global)
+## Boundaries — không làm trừ khi user yêu cầu
 
-Repo không định nghĩa skill riêng. Agent có thể dùng skills hệ thống Cursor (create-rule, create-skill, review-bugbot…) khi user yêu cầu — không tự tạo `.cursor/rules` trừ khi được nhờ.
+- Commit / push git
+- Tạo file markdown ngoài `docs/` hoặc sửa README dài dòng không cần thiết
+- Thêm message queue (Bull, SQS, Redis)
+- Force push, sửa git config
+- Tự tạo `.cursor/rules` (đề xuất user dùng skill create-rule nếu cần rule lâu dài)
 
-Nếu cần rule lâu dài cho repo này, đề xuất user tạo qua skill **create-rule** hoặc file `.cursor/rules/*.mdc`.
+---
+
+## PR / commit guidelines
+
+- Chỉ commit khi user yêu cầu rõ ràng.
+- Không commit `.env` hoặc file chứa secrets.
+- Message commit: ngắn, mô tả **why** hơn **what**.
+- Trước PR: `npm run build`, `npm run test`, `npm run lint` pass.

@@ -96,6 +96,7 @@ stateDiagram-v2
   sent --> [*]
 ```
 
+- Sinh nội dung LLM (`StudyReminderService`) → gửi qua port `MESSAGE_SENDER` (`MessengerOutboundService`)
 - Thành công → `status = sent`
 - Lỗi → `retry_count++`, `next_retry_at = now + RETRY_BACKOFF_MINUTES` (tối đa `MAX_RETRIES`)
 - Đã qua giờ học → `cancelled`, không gửi
@@ -131,7 +132,12 @@ Xóa job terminal **`cancelled`** / **`failed`** (hết retry) cũ hơn `STUDY_R
 | **Outbox (T-30)** | `POST /messenger/study-calendar/sync` `{ "userId": 143 }` ngay sau commit lịch |
 | **Preview (menu)** | Đọc trực tiếp UserCalendar API/DB — luôn thấy lịch mới, không cần sync job |
 
-Sync theo user sẽ upsert job `pending`, hủy job stale, và **tạo lại job `pending`** nếu buổi đã `sent`/`cancelled` nhưng **giờ học đổi**.
+Sync theo user sẽ upsert job `pending`, hủy job stale, và **reopen job `pending`** khi:
+
+- buổi đã `sent` nhưng **giờ học đổi** (cùng `session_key`);
+- buổi đã `cancelled` nhưng **xuất hiện lại** trong lịch sync (kể cả cùng giờ).
+
+Giữ nguyên `sent` nếu giờ học không đổi — tránh nhắc trùng.
 
 ### 3.4. Sinh nội dung — LLM
 
@@ -352,28 +358,48 @@ Cố lên nhé! 💪
 
 ## 7. Cấu trúc code
 
+Module `study-reminder` theo Clean Architecture (xem [AGENTS.md](../AGENTS.md#clean-architecture)):
+
 ```
-src/study-reminder/
-  study-reminder-sync.service.ts       # Sync lịch → jobs (all | theo userId)
-  study-reminder-dispatch.service.ts   # Dispatch + retry
-  study-reminder-cleanup.service.ts    # Xóa job terminal cũ
-  study-reminder-worker.service.ts     # Cron sync / dispatch / cleanup
-  study-reminder.service.ts            # LLM
-  user-calendar-api.service.ts         # GET/POST/DELETE UserCalendar (x-psid)
-  user-calendar-schedule.service.ts    # Chuẩn hóa lịch + fallback DB
-  study-session-source.service.ts      # Nguồn buổi học cho sync
-  study-reminder-job.repository.ts
+src/modules/study-reminder/
+├── study-reminder.module.ts
+├── domain/
+│   ├── entities/                      # study-schedule.types, study-reminder-job.types, …
+│   └── repositories/
+│       └── study-reminder-job.repository.port.ts
+├── application/
+│   ├── ports/
+│   │   └── messenger-mapping.port.ts  # MESSENGER_MAPPING_READER — không import MessengerModule
+│   ├── services/
+│   │   ├── study-reminder-sync.service.ts       # Sync lịch → jobs (all | theo userId)
+│   │   ├── study-reminder-dispatch.service.ts   # Dispatch + retry (MESSAGE_SENDER)
+│   │   ├── study-reminder-cleanup.service.ts
+│   │   ├── study-reminder-worker.service.ts     # Cron sync / dispatch / rollover
+│   │   ├── study-reminder.service.ts            # LLM
+│   │   ├── study-reminder-schedule.service.ts   # Tính remind_at
+│   │   ├── study-session-source.service.ts
+│   │   └── user-display-name.service.ts
+│   ├── messages/study-reminder.messages.ts
+│   └── utils/study-reminder.utils.ts
+└── infrastructure/
+    ├── persistence/study-reminder-job.repository.ts
+    └── wispace/
+        ├── user-calendar-api.service.ts         # GET UserCalendar (x-psid)
+        └── user-calendar-schedule.service.ts    # Chuẩn hóa lịch + fallback DB
 
-src/scheduler/
-  scheduler.controller.ts              # POST study-calendar/sync, sync-study-reminders, …
+src/modules/scheduler/presentation/controllers/
+  scheduler.controller.ts                # POST study-calendar/sync, sync-study-reminders, …
 
-src/messenger/
-  messenger.service.ts                 # Gửi tin + menu preview
-  messenger-profile.service.ts
+src/modules/messenger/
+  application/services/messenger.service.ts      # Webhook + menu preview nhắc lịch
+  application/services/messenger-outbound.service.ts  # Send API (MESSAGE_SENDER)
+  infrastructure/meta/messenger-profile.service.ts
 
-src/prompts/
-  study-reminder.system.txt            # System prompt OpenAI
+src/shared/prompts/
+  study-reminder.system.txt              # System prompt OpenAI
 ```
+
+**Dispatch:** `StudyReminderDispatchService` gọi `StudyReminderService.generateReminderForSession` rồi `MESSAGE_SENDER.sendTextViaPsid` — không import `MessengerService`.
 
 ---
 
@@ -388,6 +414,7 @@ STUDY_REMINDER_SYNC_HORIZON_HOURS=336
 STUDY_REMINDER_MAX_RETRIES=3
 STUDY_REMINDER_RETRY_BACKOFF_MINUTES=2
 STUDY_REMINDER_JOB_RETENTION_DAYS=7
+STUDY_REMINDER_EVENING_ROLLOVER_HOUR=23
 STUDY_REMINDER_TIMEZONE=Asia/Ho_Chi_Minh
 
 OPENAI_API_KEY=sk-...
@@ -418,7 +445,8 @@ POST /messenger/profile/setup
 
 - **Bắt buộc:** Wispace gọi `POST /messenger/study-calendar/sync` sau mỗi lần đổi lịch (xem mục 3.6).
 - **Dự phòng:** server sync khi khởi động + cron 30 phút.
-- Dispatch cron mỗi 1 phút.
+- Dispatch cron mỗi 1 phút (chi tiết rủi ro tải DB: mục [11.6](#116-worker-dispatch-polling--trở-ngại-tải-db--giảm-rủi-ro)).
+- Evening rollover 23:00 — xóa job `sent` + sync lại horizon.
 - Cleanup cron 03:00 mỗi ngày — xóa job terminal cũ hơn `JOB_RETENTION_DAYS`.
 
 ---
@@ -465,6 +493,7 @@ Không có giải pháp nào hoàn hảo tuyệt đối. Hướng **outbox table
 | **Sync full-scan (cron)** | Cron 30 phút vẫn quét **tất cả** mapping — chỉ là dự phòng; luồng chính sync theo `userId` | Thấp khi ít user; tăng khi scale |
 | **API + DB dự phòng** | Nguồn chính API `UserCalendar`; API down thì đọc DB `UserCalendars` | Thấp nếu API ổn định |
 | **Nhiều instance app** | `claimJob` qua DB giảm gửi trùng, nhưng cron chạy trên mọi instance — cần theo dõi khi scale ngang | Thấp ở single instance |
+| **Dispatch polling 1 phút** | Worker quét DB mỗi phút — lo ngại “check DB liên tục” khi bảng outbox phình | Thấp ở POC; trung bình–cao khi scale — chi tiết mục [11.6](#116-worker-dispatch-polling--trở-ngại-tải-db--giảm-rủi-ro) |
 
 ### 11.3. So với hướng khác (tóm tắt)
 
@@ -479,11 +508,109 @@ Không có giải pháp nào hoàn hảo tuyệt đối. Hướng **outbox table
 
 1. **Wispace wire sync API** — `POST /messenger/study-calendar/sync` + header `X-Internal-Api-Key` (mục 3.6).
 2. **Bỏ fallback DB** khi API `UserCalendar` ổn định — single source qua `x-psid`.
-4. **Giám sát job `failed`** — alert khi `retry_count` hết hoặc job `processing` kẹt lâu.
-5. **Pre-generate hoặc cache nội dung LLM** lúc sync (tùy chọn) — giảm latency lúc dispatch, nội dung ổn định hơn.
-6. **Queue chuyên dụng** — khi số user / số job tăng mạnh hoặc cần delay chính xác hơn cron 1 phút.
+3. **Giám sát job `failed`** — alert khi `retry_count` hết hoặc job `processing` kẹt lâu.
+4. **Pre-generate hoặc cache nội dung LLM** lúc sync (tùy chọn) — giảm latency lúc dispatch, nội dung ổn định hơn.
+5. **Adaptive dispatch polling** — giảm tần suất quét DB khi không có job due trong X giờ tới (mục 11.6).
+6. **Queue chuyên dụng** (BullMQ, pg_cron theo `remind_at`…) — khi số job / số instance tăng mạnh.
 7. **Mở rộng kênh** — email/push in-app cho user chưa link Messenger (nếu product cần).
 
-### 11.5. Kết luận ngắn
+### 11.6. Worker dispatch polling — Trở ngại tải DB & giảm rủi ro
+
+Dispatch worker (`StudyReminderWorkerService`) chạy cron **mỗi 1 phút** (`* * * * *`) và gọi `StudyReminderDispatchService.dispatchDueReminders()`. Lo ngại thường gặp: *“1 phút polling 1 lần = check DB liên tục, DB lớn là xong.”* Phần này làm rõ **thực tế query**, **khi nào mới nguy hiểm**, và **đã / sẽ giảm rủi ro thế nào**.
+
+#### 11.6.1. Outbox vs worker polling (tóm tắt)
+
+| Khái niệm | Trong POC |
+|-----------|-----------|
+| **Outbox** | Bảng `study_reminder_jobs` — snapshot “việc cần gửi nhắc T-30”, chưa gọi Messenger |
+| **Sync worker** | Ghi/cập nhật outbox từ `UserCalendar` (cron 30 phút, API sync, 23:00 rollover) |
+| **Dispatch worker (polling)** | **Mỗi 1 phút** đọc outbox: job nào `remind_at <= now` thì gửi |
+
+**Menu “Nhắc lịch học sắp tới”** không đi qua outbox — đọc lịch trực tiếp và gửi ngay (preview).
+
+```mermaid
+flowchart LR
+  Lich[UserCalendar] --> Sync[Sync cron / API]
+  Sync --> Outbox[(study_reminder_jobs)]
+  Outbox --> Poll[Dispatch mỗi 1 phút]
+  Poll --> LLM[OpenAI]
+  Poll --> FB[Messenger]
+```
+
+#### 11.6.2. Mỗi phút thực sự query gì?
+
+**Không** phải `SELECT * FROM study_reminder_jobs` hay full table scan toàn bộ lịch sử.
+
+`findDueJobs()` (rút gọn):
+
+```sql
+WHERE status IN ('pending', 'failed')
+  AND remind_at <= :now
+  AND scheduled_at > :now + MIN_LEAD_MINUTES
+  AND (next_retry_at IS NULL OR next_retry_at <= :now)
+ORDER BY remind_at ASC
+LIMIT 50
+```
+
+| Đặc điểm | Ý nghĩa |
+|----------|---------|
+| Index `(status, remind_at)` | Postgres chỉ quét **phần job due**, không đọc hết bảng |
+| `LIMIT 50` | Mỗi lần poll tối đa 50 job — trần tải một vòng dispatch |
+| Điều kiện `scheduled_at` | Bỏ qua job đã quá giờ học |
+
+**Tần suất:** 1 query SELECT (+ vài UPDATE claim/sent mỗi job due) **mỗi phút** ≈ **1.440 query/ngày** chỉ cho dispatch — với index đúng và vài trăm job `pending`, chi phí rất nhỏ trên Postgres shared Wispace.
+
+Cron **sync 30 phút** là tải **khác** (đọc UserCalendar theo từng `psid`, UPSERT outbox) — nặng hơn mỗi lần chạy nhưng **ít hơn** (48 lần/ngày).
+
+#### 11.6.3. Khi nào polling 1 phút trở thành trở ngại?
+
+| Tình huống | Vì sao nguy hiểm | Triệu chứng |
+|------------|-------------------|-------------|
+| **Outbox phình** | Hàng trăm nghìn / triệu row `sent`, `cancelled` chưa dọn | Index lớn, vacuum chậm, query due chậm dần |
+| **Nhiều job `pending` due cùng lúc** | Một phút phải xử lý > `LIMIT 50` | Nhắc muộn dồn sang phút sau |
+| **Nhiều instance Nest** | Mỗi pod chạy cùng cron dispatch | Cạnh tranh claim; cần `claimJob` atomic (đã có) |
+| **DB shared đã nặng** | Wispace prod + POC cộng thêm query/phút | Latency tăng chung |
+| **Kỳ vọng chính xác tuyệt đối T-30** | Poll 1 phút → gửi muộn tối đa ~1 phút | Chấp nhận được với nhắc 30 phút trước; không phù hợp nhắc 1 phút trước |
+
+**Kết luận thực tế:** Rủi ro chính **không** nằm ở “có poll hay không”, mà ở **kích thước bảng outbox** và **quy mô đồng thời**. POC vài chục user, horizon 14 ngày, evening rollover xóa `sent` → **chưa là vấn đề**.
+
+#### 11.6.4. Đã có trong code để giảm rủi ro
+
+| Cơ chế | File / cấu hình |
+|--------|------------------|
+| Index dispatch | `idx_study_reminder_jobs_dispatch` trên `(status, remind_at)` |
+| `LIMIT 50` mỗi vòng | `StudyReminderJobRepository.findDueJobs()` |
+| Claim job | `pending`/`failed` → `processing` trước khi gửi — tránh duplicate (single instance) |
+| Reset job kẹt | `resetStuckProcessingJobs` sau 10 phút |
+| Evening rollover **23:00** | Xóa toàn bộ job `sent` + sync lại horizon |
+| Cleanup **03:00** | Xóa `cancelled` / `failed` hết retry cũ hơn `JOB_RETENTION_DAYS` |
+| Horizon 14 ngày | Chỉ giữ job trong cửa sổ sync — không snapshot cả năm |
+
+#### 11.6.5. So sánh tải: dispatch poll vs các cron khác
+
+| Cron | Tần suất | Đọc gì | Ghi chú |
+|------|----------|--------|---------|
+| **dispatch** | **1 phút** | Chỉ job due trong outbox (`LIMIT 50`) | Lo ngại “poll DB” tập trung ở đây |
+| **sync** | 30 phút | UserCalendar API × số mapping ACTIVE | Nặng hơn **mỗi lần**, nhưng 48 lần/ngày |
+| **evening rollover** | 1 lần/ngày | DELETE `sent` + full sync | Giữ outbox nhỏ |
+| **cleanup** | 1 lần/ngày | DELETE terminal cũ | Giảm dead rows |
+
+#### 11.6.6. Hướng xử lý khi scale (chưa implement — tham khảo)
+
+| Hướng | Mô tả | Trade-off |
+|-------|--------|-----------|
+| **A. Tăng chu kỳ dispatch** | 2–5 phút thay vì 1 phút | Giảm query; nhắc muộn thêm vài phút |
+| **B. Adaptive polling** | Không có job due trong 2h tới → ngủ 5–15 phút; gần `remind_at` → 1 phút | Cân bằng tải vs độ chính xác — **khuyến nghị trước khi thêm hạ tầng** |
+| **C. `FOR UPDATE SKIP LOCKED`** | Nhiều worker/pod claim job an toàn | Cần khi scale ngang nhiều instance |
+| **D. Delayed job queue** | BullMQ / SQS / pg_cron fire đúng `remind_at` | Không poll liên tục; thêm Redis/ops |
+| **E. Poll lịch thay vì outbox** | Mỗi N phút đọc UserCalendar, gửi nếu trong cửa sổ T-30 | Đơn giản nhưng kém retry, tải API Wispace cao |
+
+Với **học viên IELTS + nhắc trước 30 phút**, kết hợp **outbox nhỏ + dọn `sent` tối + index** thường đủ đến hàng chục nghìn job `pending` active. Chỉ cần hướng D/E khi product yêu cầu delay chính xác giây hoặc volume cực lớn.
+
+#### 11.6.7. Liên quan rate limit chat (tương lai)
+
+Bảng đề xuất `messenger_chat_daily_usage` (xem [chat-rate-limit-quota.md](./chat-rate-limit-quota.md)) **không** dùng polling 1 phút — chỉ đọc **1 row** khi user nhắn. Trở ngại polling **chỉ áp dụng** luồng **nhắc lịch tự động (dispatch)**, không áp dụng menu preview hay chat AI.
+
+### 11.7. Kết luận ngắn
 
 Giải pháp hiện tại **đủ tốt để ship POC và vận hành sớm**: có job queue trong DB, retry, preview, sync API theo `userId`, và cron dự phòng. Điểm yếu chính không nằm ở code dispatch mà ở **Wispace có gọi sync API đúng lúc** và user đã map Messenger. Khi product scale hoặc yêu cầu độ chính xác thời gian / đa kênh tăng, nên cải thiện theo mục 11.4 thay vì thay đổi kiến trúc từ đầu.

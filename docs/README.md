@@ -6,8 +6,9 @@ POC **WISPACE × Facebook Messenger** — gửi báo cáo học tập và nhắc
 |----------|----------|
 | [project-overview.md](./project-overview.md) | Tổng quan POC: tính năng, kiến trúc, cấu trúc code, DB, HTTP API, cron, scripts |
 | [study-session-reminder.md](./study-session-reminder.md) | Nhắc lịch học: sync → jobs → dispatch → LLM; API `UserCalendar`; `POST /messenger/study-calendar/sync`; trade-off |
+| [chat-rate-limit-quota.md](./chat-rate-limit-quota.md) | Rate limit chat AI: 3 hướng lưu quota, trade-off, đề xuất `messenger_chat_daily_usage` |
 
-Hướng dẫn cho AI agent / Cursor: [AGENTS.md](../AGENTS.md).
+Hướng dẫn cho AI agent / Cursor: [AGENTS.md](../AGENTS.md) (gồm mục **Clean Architecture**). Quy tắc chi tiết tầng code: `.claude/rules/clean-architecture.md`.
 
 ## Tích hợp Wispace (nhắc lịch học)
 

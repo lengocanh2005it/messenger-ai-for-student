@@ -43,7 +43,8 @@ flowchart TB
 
   subgraph App["demo_send_message_fb (NestJS)"]
     WH["MessengerController\n/webhook"]
-    MS["MessengerService"]
+    MS["MessengerService\nwebhook orchestration"]
+    OUT["MessengerOutbound\nSend API + mapping"]
     SR["StudentReportService"]
     ST["StudyReminderModule\nsync / dispatch / cleanup"]
     CRON["SchedulerModule\ncron + HTTP triggers"]
@@ -60,6 +61,8 @@ flowchart TB
   WH --> MS
   MS --> SR
   MS --> ST
+  MS --> OUT
+  ST --> OUT
   CRON --> MS
   CRON --> ST
   SR --> WAPI
@@ -68,10 +71,10 @@ flowchart TB
   ST --> WAPI
   ST --> OAI
   ST --> CAL
-  MS --> MAP
-  MS --> LOG
+  OUT --> MAP
+  OUT --> LOG
   ST --> JOBS
-  ST --> MAP
+  ST -.->|MESSENGER_MAPPING_READER| MAP
 ```
 
 ### Luồng chính
@@ -99,30 +102,31 @@ flowchart TB
 
 ## 3. Cấu trúc code
 
+Repo dùng **Clean Architecture** — mỗi feature trong `src/modules/<name>/` có 4 tầng: `domain` → `application` → `infrastructure` → `presentation`. Chi tiết quy tắc: [AGENTS.md § Clean Architecture](../AGENTS.md#clean-architecture) và `.claude/rules/clean-architecture.md`.
+
 ```
 demo_send_message_fb/
-├── AGENTS.md                 # Hướng dẫn cho AI agent (Cursor)
+├── AGENTS.md                 # Hướng dẫn cho AI agent (Cursor, Claude, Codex)
 ├── docs/
-│   ├── README.md
-│   ├── project-overview.md   # File này
-│   └── study-session-reminder.md
 ├── scripts/                  # CLI tiện ích (không chạy trong app)
 ├── src/
-│   ├── main.ts
-│   ├── app.module.ts
-│   ├── config/
-│   │   └── poc.constants.ts      # Link m.me, parse ref/userId, message POC
-│   ├── prompts/                  # System prompt OpenAI (.txt)
-│   ├── database/
+│   ├── main.ts, app.module.ts
+│   ├── shared/
+│   │   ├── config/poc.constants.ts     # Link m.me, parse ref/userId
+│   │   ├── common/                     # InternalApiKeyGuard
+│   │   └── prompts/                    # *.system.txt, load-system-prompt.ts
+│   ├── infrastructure/database/
 │   │   ├── database.module.ts
-│   │   ├── data-source.ts        # TypeORM CLI migrations
+│   │   ├── data-source.ts              # TypeORM CLI → dist/infrastructure/database/
 │   │   ├── typeorm.options.ts
 │   │   ├── entities/
 │   │   └── migrations/
-│   ├── messenger/                # Webhook, gửi tin, menu profile
-│   ├── student-report/           # Báo cáo học tập + API Wispace
-│   ├── study-reminder/           # Nhắc lịch học (outbox jobs)
-│   └── scheduler/                # Cron báo cáo + HTTP trigger study reminder
+│   └── modules/
+│       ├── messenger/          # domain | application | infrastructure | presentation
+│       │   └── messenger-outbound.module.ts   # Send API + mapping (tách cycle)
+│       ├── student-report/
+│       ├── study-reminder/
+│       └── scheduler/          # cron báo cáo + HTTP ops /messenger/*
 ├── .env.example
 └── package.json
 ```
@@ -132,12 +136,13 @@ demo_send_message_fb/
 | Module | Vai trò |
 |--------|---------|
 | `DatabaseModule` | TypeORM + PostgreSQL, auto migration khi start |
-| `MessengerModule` | Webhook, Send API, repository mapping/logs, profile menu |
-| `StudentReportModule` | Gọi API Wispace, `StudentReportService` (LLM báo cáo) |
+| `MessengerOutboundModule` | Send API, `MessengerRepository`, ports `MESSAGE_SENDER`, `MESSENGER_MAPPING_READER` |
+| `MessengerModule` | Webhook orchestration, profile menu (`MessengerController`) |
+| `StudentReportModule` | Wispace goals/scores → `StudentReportService` (LLM báo cáo) |
 | `StudyReminderModule` | Sync lịch, dispatch job, cleanup, LLM nhắc học |
 | `SchedulerModule` | `ReportCronService`, HTTP endpoints vận hành |
 
-`StudyReminderModule` được import qua `MessengerModule` (forwardRef) và `SchedulerModule`.
+`AppModule` import trực tiếp `StudyReminderModule`. `StudyReminderModule` import `MessengerOutboundModule` (không `forwardRef` với `MessengerModule`). Dispatch nhắc lịch gửi tin qua port `MESSAGE_SENDER`, không gọi `MessengerService` trực tiếp.
 
 ---
 
@@ -204,12 +209,12 @@ Sync study reminder cũng chạy **lúc server start** (`onModuleInit`).
 
 ## 7. OpenAI & prompts
 
-System prompt nằm trong `src/prompts/*.system.txt`, load qua `load-system-prompt.ts`. Nest copy sang `dist/prompts/` khi build (`nest-cli.json` → `assets`).
+System prompt nằm trong `src/shared/prompts/*.system.txt`, load qua `load-system-prompt.ts`. Nest copy sang `dist/shared/prompts/` khi build (`nest-cli.json` → `assets`).
 
 | File | Dùng bởi |
 |------|----------|
-| `student-report.system.txt` | `StudentReportService` |
-| `study-reminder.system.txt` | `StudyReminderService` |
+| `student-report.system.txt` | `modules/student-report/application/services/student-report.service.ts` |
+| `study-reminder.system.txt` | `modules/study-reminder/application/services/study-reminder.service.ts` |
 
 Thiếu `OPENAI_API_KEY` → fallback template cứng trong service (không gọi API).
 

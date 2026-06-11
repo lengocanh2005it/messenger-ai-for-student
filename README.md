@@ -1,4 +1,4 @@
-# demo_send_message_fb
+# messenger-ai-for-student
 
 POC **WISPACE × Facebook Messenger** — NestJS service gửi báo cáo học tập IELTS và nhắc lịch học qua Messenger, nội dung cá nhân hóa bằng OpenAI.
 
