@@ -7,9 +7,13 @@ import { ConfigService } from '@nestjs/config';
 import { UserGoalsApiService } from '../../../student-report/infrastructure/wispace/user-goals-api.service';
 import {
   CreateUserCalendarInput,
-  UserCalendarListResponse,
   UserCalendarRecord,
 } from '../../domain/entities/user-calendar.types';
+import { formatEventDateForApiWrite } from '../../application/utils/study-calendar.utils';
+import {
+  normalizeCreatedCalendarRecord,
+  normalizeUserCalendarRecords,
+} from './user-calendar-record.normalizer';
 
 @Injectable()
 export class UserCalendarApiService {
@@ -33,8 +37,8 @@ export class UserCalendarApiService {
       );
     }
 
-    const payload = (await response.json()) as UserCalendarListResponse;
-    const records = Array.isArray(payload.data) ? payload.data : [];
+    const payload = await response.json();
+    const records = normalizeUserCalendarRecords(payload);
 
     this.logger.log(
       `UserCalendar API returned ${records.length} record(s) (psid=${psid})`,
@@ -46,6 +50,7 @@ export class UserCalendarApiService {
   async createCalendar(
     psid: string,
     input: CreateUserCalendarInput,
+    options?: { userId?: number },
   ): Promise<UserCalendarRecord> {
     const url = this.getBaseUrl();
     const response = await fetch(url, {
@@ -54,7 +59,10 @@ export class UserCalendarApiService {
         ...this.userGoalsApiService.buildWispaceHeaders(psid),
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(input),
+      body: JSON.stringify({
+        eventDate: formatEventDateForApiWrite(input.eventDate),
+        time: input.time,
+      }),
     });
 
     if (!response.ok) {
@@ -64,7 +72,21 @@ export class UserCalendarApiService {
       );
     }
 
-    return (await response.json()) as UserCalendarRecord;
+    const payload = await response.json();
+    const created = normalizeCreatedCalendarRecord(payload, {
+      eventDate: input.eventDate,
+      time: input.time,
+      userId: options?.userId,
+    });
+    if (!created) {
+      throw new InternalServerErrorException(
+        `UserCalendar API create returned invalid record: ${JSON.stringify(payload)}`,
+      );
+    }
+
+    this.logger.log(`UserCalendar API created id=${created.id} (psid=${psid})`);
+
+    return created;
   }
 
   async deleteCalendar(psid: string, calendarId: number): Promise<void> {

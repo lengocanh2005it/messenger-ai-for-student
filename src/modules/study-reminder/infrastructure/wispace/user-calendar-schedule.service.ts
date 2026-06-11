@@ -2,9 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { resolveScheduledAtFromEventDate } from '../../application/utils/study-calendar.utils';
 import { UserCalendarApiService } from './user-calendar-api.service';
 import { UserCalendarRecord } from '../../domain/entities/user-calendar.types';
-import { NormalizedStudySession } from '../../domain/entities/study-schedule.types';
+import {
+  CalendarSessionTimeRange,
+  NormalizedStudySession,
+} from '../../domain/entities/study-schedule.types';
 
 interface UserCalendarRow {
   Id: number;
@@ -27,21 +31,106 @@ export class UserCalendarScheduleService {
     horizonEnd: Date,
     userId?: number,
   ): Promise<NormalizedStudySession[]> {
+    return this.getCalendarSessions(psid, horizonEnd, {
+      timeRange: 'upcoming',
+      userId,
+    });
+  }
+
+  async findCalendarRecord(
+    psid: string,
+    calendarId: number,
+    userId?: number,
+  ): Promise<UserCalendarRecord | null> {
+    const records = await this.userCalendarApiService.listCalendars(psid);
+    const fromApi = records.find((record) => record.id === calendarId);
+    if (fromApi) {
+      return fromApi;
+    }
+
+    if (!userId) {
+      return null;
+    }
+
+    const rows = await this.dataSource.query<UserCalendarRow[]>(
+      `
+      SELECT "Id", "EventDate", "Time"
+      FROM "UserCalendars"
+      WHERE "Id" = $1 AND "UserId" = $2
+      LIMIT 1
+      `,
+      [calendarId, userId],
+    );
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.Id,
+      userId,
+      eventDate: this.formatStoredEventDate(row.EventDate),
+      time: row.Time,
+    };
+  }
+
+  async getCalendarSessions(
+    psid: string,
+    horizonEnd: Date,
+    options: {
+      timeRange?: CalendarSessionTimeRange;
+      userId?: number;
+      pastDays?: number;
+      limit?: number;
+    } = {},
+  ): Promise<NormalizedStudySession[]> {
+    const timeRange = options.timeRange ?? 'upcoming';
+    const pastDays = options.pastDays ?? 90;
+
     try {
       const records = await this.userCalendarApiService.listCalendars(psid);
-      const fromApi = this.normalizeAndFilter(records, horizonEnd);
+      let sessions = records
+        .map((record) => this.buildSession(record))
+        .filter(
+          (session): session is NormalizedStudySession => session !== null,
+        );
 
-      if (fromApi.length > 0 || !userId) {
-        return fromApi;
+      sessions = this.filterSessionsByTimeRange(sessions, {
+        timeRange,
+        horizonEnd,
+        pastDays,
+      });
+
+      if (sessions.length === 0 && options.userId) {
+        if (timeRange === 'upcoming' || timeRange === 'all') {
+          const upcoming = await this.getUpcomingSessionsFromDb(
+            options.userId,
+            horizonEnd,
+          );
+          sessions =
+            timeRange === 'all'
+              ? [
+                  ...this.filterSessionsByTimeRange(
+                    await this.getPastSessionsFromDb(options.userId, pastDays),
+                    { timeRange: 'past', horizonEnd, pastDays },
+                  ),
+                  ...upcoming,
+                ]
+              : upcoming;
+        } else if (timeRange === 'past') {
+          sessions = await this.getPastSessionsFromDb(options.userId, pastDays);
+        }
       }
 
-      this.logger.warn(
-        `UserCalendar API returned 0 upcoming session(s) for psid=${psid}, falling back to DB userId=${userId}`,
-      );
+      sessions = this.sortSessions(sessions, timeRange);
 
-      return this.getUpcomingSessionsFromDb(userId, horizonEnd);
+      if (options.limit && options.limit > 0) {
+        sessions = sessions.slice(0, options.limit);
+      }
+
+      return sessions;
     } catch (error) {
-      if (!userId) {
+      if (!options.userId) {
         throw error;
       }
 
@@ -51,7 +140,20 @@ export class UserCalendarScheduleService {
         }`,
       );
 
-      return this.getUpcomingSessionsFromDb(userId, horizonEnd);
+      if (timeRange === 'past') {
+        return this.getPastSessionsFromDb(options.userId, pastDays);
+      }
+
+      if (timeRange === 'all') {
+        const upcoming = await this.getUpcomingSessionsFromDb(
+          options.userId,
+          horizonEnd,
+        );
+        const past = await this.getPastSessionsFromDb(options.userId, pastDays);
+        return this.sortSessions([...past, ...upcoming], 'all');
+      }
+
+      return this.getUpcomingSessionsFromDb(options.userId, horizonEnd);
     }
   }
 
@@ -73,7 +175,7 @@ export class UserCalendarScheduleService {
 
     const sessions = rows
       .map((row) =>
-        this.normalizeRecord({
+        this.buildSession({
           id: row.Id,
           userId,
           eventDate:
@@ -91,35 +193,42 @@ export class UserCalendarScheduleService {
     return sessions;
   }
 
-  private normalizeAndFilter(
-    records: UserCalendarRecord[],
-    horizonEnd: Date,
-  ): NormalizedStudySession[] {
-    const now = Date.now() - 60 * 60 * 1000;
+  private async getPastSessionsFromDb(
+    userId: number,
+    pastDays: number,
+  ): Promise<NormalizedStudySession[]> {
+    const rows = await this.dataSource.query<UserCalendarRow[]>(
+      `
+      SELECT "Id", "EventDate", "Time"
+      FROM "UserCalendars"
+      WHERE "UserId" = $1
+        AND "EventDate" <= NOW() - INTERVAL '1 hour'
+        AND "EventDate" >= NOW() - ($2::int * INTERVAL '1 day')
+      ORDER BY "EventDate" DESC
+      `,
+      [userId, pastDays],
+    );
 
-    return records
-      .map((record) => this.normalizeRecord(record))
-      .filter((session): session is NormalizedStudySession => session !== null)
-      .filter(
-        (session) =>
-          session.scheduledAt.getTime() > now &&
-          session.scheduledAt.getTime() <= horizonEnd.getTime(),
+    return rows
+      .map((row) =>
+        this.buildSession({
+          id: row.Id,
+          userId,
+          eventDate:
+            row.EventDate instanceof Date
+              ? row.EventDate.toISOString()
+              : String(row.EventDate),
+          time: row.Time,
+        }),
       )
-      .sort(
-        (left, right) =>
-          left.scheduledAt.getTime() - right.scheduledAt.getTime(),
-      );
+      .filter((session): session is NormalizedStudySession => session !== null);
   }
 
-  private normalizeRecord(
+  private buildSession(
     record: UserCalendarRecord,
   ): NormalizedStudySession | null {
     const scheduledAt = this.resolveScheduledAt(record.eventDate, record.time);
     if (Number.isNaN(scheduledAt.getTime())) {
-      return null;
-    }
-
-    if (scheduledAt.getTime() <= Date.now()) {
       return null;
     }
 
@@ -130,77 +239,77 @@ export class UserCalendarScheduleService {
     };
   }
 
+  private filterSessionsByTimeRange(
+    sessions: NormalizedStudySession[],
+    params: {
+      timeRange: CalendarSessionTimeRange;
+      horizonEnd: Date;
+      pastDays: number;
+    },
+  ): NormalizedStudySession[] {
+    const now = Date.now();
+    const upcomingCutoff = now - 60 * 60 * 1000;
+    const pastCutoff = now - params.pastDays * 24 * 60 * 60 * 1000;
+
+    return sessions.filter((session) => {
+      const scheduledAtMs = session.scheduledAt.getTime();
+
+      if (params.timeRange === 'upcoming') {
+        return (
+          scheduledAtMs > upcomingCutoff &&
+          scheduledAtMs <= params.horizonEnd.getTime()
+        );
+      }
+
+      if (params.timeRange === 'past') {
+        return scheduledAtMs <= upcomingCutoff && scheduledAtMs >= pastCutoff;
+      }
+
+      return (
+        scheduledAtMs >= pastCutoff &&
+        scheduledAtMs <= params.horizonEnd.getTime()
+      );
+    });
+  }
+
+  private sortSessions(
+    sessions: NormalizedStudySession[],
+    timeRange: CalendarSessionTimeRange,
+  ): NormalizedStudySession[] {
+    const sorted = [...sessions].sort(
+      (left, right) => left.scheduledAt.getTime() - right.scheduledAt.getTime(),
+    );
+
+    if (timeRange === 'past') {
+      sorted.reverse();
+    }
+
+    return sorted;
+  }
+
   private resolveScheduledAt(eventDate: string, time: string | null): Date {
     const trimmedTime = time?.trim();
     if (!trimmedTime) {
       return new Date(eventDate);
     }
 
-    const [hourText, minuteText] = trimmedTime.split(':');
-    const hour = Number(hourText);
-    const minute = Number(minuteText);
-
-    if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
-      return new Date(eventDate);
-    }
-
     const timezone =
       this.configService.get<string>('STUDY_REMINDER_TIMEZONE')?.trim() ??
       'Asia/Ho_Chi_Minh';
-    const dateParts = this.getDatePartsInTimezone(
-      new Date(eventDate),
-      timezone,
-    );
-    const pad = (value: number) => String(value).padStart(2, '0');
-    const offset = this.getUtcOffsetForTimezone(timezone, dateParts);
 
-    return new Date(
-      `${dateParts.year}-${pad(dateParts.month)}-${pad(dateParts.day)}T${pad(hour)}:${pad(minute)}:00${offset}`,
-    );
+    return resolveScheduledAtFromEventDate(eventDate, trimmedTime, timezone);
   }
 
-  private getDatePartsInTimezone(
-    date: Date,
-    timezone: string,
-  ): { year: number; month: number; day: number } {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const [year, month, day] = formatter.format(date).split('-').map(Number);
-
-    return { year, month, day };
-  }
-
-  private getUtcOffsetForTimezone(
-    timezone: string,
-    dateParts: { year: number; month: number; day: number },
-  ): string {
-    const probe = new Date(
-      Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day, 12, 0, 0),
-    );
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      timeZoneName: 'shortOffset',
-    }).formatToParts(probe);
-    const label = parts.find((part) => part.type === 'timeZoneName')?.value;
-
-    if (!label || label === 'GMT') {
-      return 'Z';
+  private formatStoredEventDate(value: Date | string): string {
+    if (value instanceof Date) {
+      return value.toISOString().slice(0, 10);
     }
 
-    const match = label.match(/^GMT(?:(\+|-)(\d{1,2})(?::(\d{2}))?)?$/);
-    if (!match) {
-      return 'Z';
+    const trimmed = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      return trimmed.slice(0, 10);
     }
 
-    const sign = match[1] ?? '+';
-    const hours = Number(match[2] ?? 0);
-    const minutes = Number(match[3] ?? 0);
-    const pad = (value: number) => String(value).padStart(2, '0');
-
-    return `${sign}${pad(hours)}:${pad(minutes)}`;
+    return trimmed;
   }
 }

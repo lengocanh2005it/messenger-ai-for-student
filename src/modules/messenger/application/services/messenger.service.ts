@@ -29,6 +29,7 @@ import {
   MessengerWebhookPayload,
   UserMessengerMapping,
 } from '../../domain/entities/messenger.types';
+import { MessengerChatQueueService } from './messenger-chat-queue.service';
 import { MessengerOutboundService } from './messenger-outbound.service';
 
 export { MessengerApiError } from './messenger-outbound.service';
@@ -37,13 +38,16 @@ export { MessengerApiError } from './messenger-outbound.service';
 export class MessengerService {
   private readonly logger = new Logger(MessengerService.name);
   private readonly recentPostbacks = new Map<string, number>();
+  private readonly recentMessageMids = new Map<string, number>();
   private static readonly POSTBACK_DEDUPE_MS = 15_000;
+  private static readonly MESSAGE_MID_DEDUPE_MS = 60 * 60 * 1000;
 
   constructor(
     private readonly configService: ConfigService,
     @Inject(MESSENGER_REPOSITORY)
     private readonly repository: MessengerRepositoryPort,
     private readonly outbound: MessengerOutboundService,
+    private readonly messengerChatQueueService: MessengerChatQueueService,
     private readonly studentReportService: StudentReportService,
     private readonly studyReminderService: StudyReminderService,
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
@@ -369,16 +373,42 @@ export class MessengerService {
     }
 
     if (event.message?.text) {
+      if (event.message.is_echo) {
+        this.logger.log(`Ignored echo message for PSID ${psid}`);
+        return true;
+      }
+
+      const messageMid = event.message.mid;
+      if (messageMid && this.isDuplicateMessageMid(messageMid)) {
+        this.logger.log(
+          `Skipping duplicate message mid=${messageMid} for PSID ${psid}`,
+        );
+        return true;
+      }
+
       const context = this.extractLinkContextFromEvent(event);
       if (context) {
         await this.linkPsidFromContext(psid, context);
       }
+
       const userId = await this.resolveUserId(psid, event);
-      await this.outbound.sendTextViaPsid({
+      const userText = event.message.text.trim();
+
+      if (!userId && !context) {
+        this.signalMessageSeen(psid);
+        await this.outbound.sendTextViaPsid({
+          psid,
+          text: getMissingUserRefMessage(),
+          messageType: 'MISSING_USER_REF',
+        });
+        return true;
+      }
+
+      this.messengerChatQueueService.enqueue({
         psid,
         userId,
-        text: await this.buildWelcomeMessage(psid, userId),
-        messageType: 'WELCOME',
+        userText,
+        linkContext: context ?? (await this.resolveLinkContext(psid, event)),
       });
       return true;
     }
@@ -398,6 +428,8 @@ export class MessengerService {
       );
       return true;
     }
+
+    this.signalMessageSeen(psid);
 
     const context = await this.resolveLinkContext(psid, event);
     if (context) {
@@ -427,6 +459,7 @@ export class MessengerService {
         return true;
       }
 
+      await this.signalTyping(psid);
       await this.registerForScheduledReports(psid, context);
       return true;
     }
@@ -435,6 +468,7 @@ export class MessengerService {
       payload === 'VIEW_LEARNING_PROGRESS' ||
       payload === 'GET_LEARNING_PROGRESS'
     ) {
+      await this.signalTyping(psid);
       await this.sendLearningProgressReport(psid);
       return true;
     }
@@ -443,11 +477,13 @@ export class MessengerService {
       payload === 'VIEW_UPCOMING_STUDY_SESSION' ||
       payload === 'PREVIEW_STUDY_REMINDER'
     ) {
+      await this.signalTyping(psid);
       await this.sendUpcomingStudySessionReminderPreview(psid, context?.userId);
       return true;
     }
 
     if (payload === 'GET_STARTED') {
+      await this.signalTyping(psid);
       await this.outbound.sendTextViaPsid({
         psid,
         userId: context?.userId,
@@ -457,6 +493,7 @@ export class MessengerService {
       return true;
     }
 
+    await this.signalTyping(psid);
     await this.outbound.sendTextViaPsid({
       psid,
       userId: context?.userId,
@@ -464,6 +501,38 @@ export class MessengerService {
       messageType: 'WELCOME',
     });
     return true;
+  }
+
+  private signalMessageSeen(psid: string): void {
+    void this.outbound.sendSenderAction(psid, 'mark_seen');
+  }
+
+  private async signalTyping(psid: string): Promise<void> {
+    await this.outbound.sendSenderAction(psid, 'typing_on');
+  }
+
+  private isDuplicateMessageMid(mid: string): boolean {
+    const now = Date.now();
+    const lastSeen = this.recentMessageMids.get(mid);
+
+    if (
+      lastSeen !== undefined &&
+      now - lastSeen < MessengerService.MESSAGE_MID_DEDUPE_MS
+    ) {
+      return true;
+    }
+
+    this.recentMessageMids.set(mid, now);
+
+    if (this.recentMessageMids.size > 2_000) {
+      for (const [entryKey, timestamp] of this.recentMessageMids) {
+        if (now - timestamp > MessengerService.MESSAGE_MID_DEDUPE_MS) {
+          this.recentMessageMids.delete(entryKey);
+        }
+      }
+    }
+
+    return false;
   }
 
   private isDuplicatePostback(psid: string, payload: string): boolean {

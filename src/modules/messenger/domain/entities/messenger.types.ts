@@ -22,7 +22,9 @@ export interface MessengerWebhookEvent {
     id?: string;
   };
   message?: {
+    mid?: string;
     text?: string;
+    is_echo?: boolean;
     referral?: MessengerReferral;
   };
   postback?: {

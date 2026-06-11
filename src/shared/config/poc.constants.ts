@@ -90,7 +90,7 @@ export function buildMMeLink(
 }
 
 export function buildWelcomeMessage(displayName = 'bạn'): string {
-  return `Chào ${displayName}! WISPACE sẵn sàng. Mở Menu để "Đăng ký nhận báo cáo học tập", "Xem tiến độ học tập" hoặc "Nhắc lịch học sắp tới".`;
+  return `Chào ${displayName}! Mình là trợ lý WISPACE. Bạn có thể hỏi về tiến độ học, lịch học sắp tới, hoặc đăng ký báo cáo trước ngày thi — cứ nhắn tự nhiên nhé.`;
 }
 
 export function getPocSubscriptionConfirmationMessage(): string {

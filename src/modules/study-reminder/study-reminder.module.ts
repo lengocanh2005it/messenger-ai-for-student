@@ -4,6 +4,7 @@ import { StudyReminderJobEntity } from '../../infrastructure/database/entities/s
 import { UserEntity } from '../../infrastructure/database/entities/user.entity';
 import { MessengerOutboundModule } from '../messenger/messenger-outbound.module';
 import { StudentReportModule } from '../student-report/student-report.module';
+import { StudyCalendarCommandService } from './application/services/study-calendar-command.service';
 import { StudyReminderCleanupService } from './application/services/study-reminder-cleanup.service';
 import { StudyReminderDispatchService } from './application/services/study-reminder-dispatch.service';
 import { StudyReminderScheduleService } from './application/services/study-reminder-schedule.service';
@@ -26,6 +27,7 @@ import { StudyReminderJobRepository } from './infrastructure/persistence/study-r
   providers: [
     UserCalendarApiService,
     UserCalendarScheduleService,
+    StudyCalendarCommandService,
     StudySessionSourceService,
     StudyReminderScheduleService,
     StudyReminderService,
@@ -46,6 +48,8 @@ import { StudyReminderJobRepository } from './infrastructure/persistence/study-r
     StudyReminderWorkerService,
     StudyReminderSyncService,
     StudyReminderDispatchService,
+    StudySessionSourceService,
+    StudyCalendarCommandService,
     UserCalendarApiService,
     UserDisplayNameService,
   ],

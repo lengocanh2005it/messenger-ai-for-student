@@ -21,6 +21,8 @@ export interface NormalizedStudySession {
   durationMinutes?: number;
 }
 
+export type CalendarSessionTimeRange = 'upcoming' | 'past' | 'all';
+
 export interface StudyReminderLlmInput {
   displayName: string;
   scheduledAtIso: string;

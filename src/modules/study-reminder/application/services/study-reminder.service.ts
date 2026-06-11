@@ -36,6 +36,19 @@ export class StudyReminderService {
     session: NormalizedStudySession,
     options?: { userId?: number; displayName?: string },
   ): Promise<string> {
+    const bundle = await this.generateReminderBundleForSession(
+      psid,
+      session,
+      options,
+    );
+    return bundle.text;
+  }
+
+  async generateReminderBundleForSession(
+    psid: string,
+    session: NormalizedStudySession,
+    options?: { userId?: number; displayName?: string },
+  ): Promise<{ text: string; output: StudyReminderLlmOutput }> {
     const displayName =
       options?.displayName?.trim() ||
       (await this.userDisplayNameService.resolveDisplayName({
@@ -44,7 +57,10 @@ export class StudyReminderService {
       }));
     const input = await this.buildLlmInput(psid, session, displayName);
     const output = await this.generateAiReminder(input);
-    return this.formatReminder(output);
+    return {
+      text: this.formatReminder(output),
+      output,
+    };
   }
 
   async getNextUpcomingSession(
@@ -159,8 +175,8 @@ export class StudyReminderService {
     }
 
     return {
-      greeting: `Xin chào ${input.displayName},`,
-      intro: 'Đây là lời nhắc thân thiện rằng bạn có buổi học sắp diễn ra:',
+      greeting: `Chào ${input.displayName},`,
+      intro: 'mình nhắc bạn về buổi luyện IELTS Writing sắp tới nhé.',
       scheduledTime: input.scheduledTimeLabel,
       tasks,
       motivation:
@@ -171,17 +187,18 @@ export class StudyReminderService {
 
   private formatReminder(output: StudyReminderLlmOutput): string {
     const taskLines = output.tasks.map((task) => `• ${task}`).join('\n');
+    const opening = [output.greeting, output.intro]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ');
 
     return [
-      '⏰ Time to Study!',
-      '',
-      output.greeting,
-      '',
-      output.intro,
+      opening,
       '',
       `📅 ${output.scheduledTime}`,
       '',
-      "Don't forget to:",
+      'Gợi ý trước giờ học:',
       taskLines,
       '',
       output.motivation,
