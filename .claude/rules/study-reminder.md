@@ -44,6 +44,13 @@ npm run study-reminder:jobs
 npm run study-reminder:sync-only
 ```
 
-## Gap đã biết
+## Upsert job khi đổi lịch
 
-Upsert job đã `sent` khi đổi giờ cùng `session_key` — cần cleanup hoặc sửa upsert.
+`StudyReminderJobRepository.upsertPendingJob`:
+
+- `sent` + **cùng** giờ → giữ `sent` (không nhắc trùng)
+- `sent` + **đổi** giờ/topic → reopen `pending`
+- `cancelled` (buổi quay lại sync) → reopen `pending`
+- `processing` + đổi giờ → reopen `pending`
+
+Spec: `infrastructure/persistence/study-reminder-job.repository.spec.ts`

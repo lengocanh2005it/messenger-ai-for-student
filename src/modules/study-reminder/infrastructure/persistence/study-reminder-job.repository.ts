@@ -44,18 +44,28 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
       return this.mapEntity(saved);
     }
 
-    if (existing.status === 'sent' || existing.status === 'cancelled') {
+    if (existing.status === 'sent') {
       if (!this.hasScheduleChanged(existing, input)) {
         return this.mapEntity(existing);
       }
 
-      this.applyScheduleUpdate(existing, input);
-      existing.status = 'pending';
-      existing.retryCount = 0;
-      existing.sentAt = null;
-      existing.lastError = null;
-      existing.nextRetryAt = null;
+      this.reopenToPending(existing, input);
+      const saved = await this.jobRepo.save(existing);
+      return this.mapEntity(saved);
+    }
 
+    if (existing.status === 'cancelled') {
+      this.reopenToPending(existing, input);
+      const saved = await this.jobRepo.save(existing);
+      return this.mapEntity(saved);
+    }
+
+    if (existing.status === 'processing') {
+      if (!this.hasScheduleChanged(existing, input)) {
+        return this.mapEntity(existing);
+      }
+
+      this.reopenToPending(existing, input);
       const saved = await this.jobRepo.save(existing);
       return this.mapEntity(saved);
     }
@@ -233,6 +243,18 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
     existing.remindAt = input.remindAt;
     existing.topic = input.topic ?? existing.topic;
     existing.maxRetries = input.maxRetries;
+  }
+
+  private reopenToPending(
+    existing: StudyReminderJobEntity,
+    input: UpsertStudyReminderJobInput,
+  ): void {
+    this.applyScheduleUpdate(existing, input);
+    existing.status = 'pending';
+    existing.retryCount = 0;
+    existing.sentAt = null;
+    existing.lastError = null;
+    existing.nextRetryAt = null;
   }
 
   private mapEntity(entity: StudyReminderJobEntity): StudyReminderJob {

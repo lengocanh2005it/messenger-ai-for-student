@@ -132,7 +132,12 @@ Xóa job terminal **`cancelled`** / **`failed`** (hết retry) cũ hơn `STUDY_R
 | **Outbox (T-30)** | `POST /messenger/study-calendar/sync` `{ "userId": 143 }` ngay sau commit lịch |
 | **Preview (menu)** | Đọc trực tiếp UserCalendar API/DB — luôn thấy lịch mới, không cần sync job |
 
-Sync theo user sẽ upsert job `pending`, hủy job stale, và **tạo lại job `pending`** nếu buổi đã `sent`/`cancelled` nhưng **giờ học đổi**.
+Sync theo user sẽ upsert job `pending`, hủy job stale, và **reopen job `pending`** khi:
+
+- buổi đã `sent` nhưng **giờ học đổi** (cùng `session_key`);
+- buổi đã `cancelled` nhưng **xuất hiện lại** trong lịch sync (kể cả cùng giờ).
+
+Giữ nguyên `sent` nếu giờ học không đổi — tránh nhắc trùng.
 
 ### 3.4. Sinh nội dung — LLM
 

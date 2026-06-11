@@ -71,6 +71,7 @@ npm run test:e2e            # test/app.e2e-spec.ts
 **Khi nào thêm/sửa test:**
 
 - Sửa logic tính `remind_at` → cập nhật `study-reminder-schedule.service.spec.ts`
+- Sửa upsert job khi đổi lịch → `study-reminder-job.repository.spec.ts`
 - Sửa guard ops API → `internal-api-key.guard.spec.ts`
 - Sửa parse `ref`/link `m.me` → `poc.constants.spec.ts`
 
@@ -263,7 +264,7 @@ Cursor dùng file này (`AGENTS.md`) + skills global `~/.cursor/skills-cursor/`.
 | Auth ops (`INTERNAL_API_KEY`) | ✓ Header `X-Internal-Api-Key` hoặc Bearer |
 | Wispace wire sync sau đổi lịch | ✗ Cần cấu hình key + gọi API từ Wispace |
 | Tên học viên cho LLM | ✓ `Users.DisplayName` → `Username` → `'bạn'` |
-| Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✗ Cần cleanup job cũ hoặc sửa upsert |
+| Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✓ `StudyReminderJobRepository.upsertPendingJob` reopen → `pending` |
 | Chat hai chiều + rate limit | ✗ Chỉ có tài liệu thiết kế |
 
 Khi đóng gap: cập nhật `docs/study-session-reminder.md` và bảng trên.
