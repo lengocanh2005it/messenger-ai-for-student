@@ -29,6 +29,21 @@ export class MessengerRepository {
     return row ? this.mapEntity(row) : null;
   }
 
+  async findActiveMappingByUserId(
+    userId: number,
+  ): Promise<UserMessengerMapping | null> {
+    const row = await this.mappingRepo.findOne({
+      where: { userId, status: 'ACTIVE' },
+      order: { id: 'DESC' },
+    });
+
+    if (!row?.psid) {
+      return null;
+    }
+
+    return this.mapEntity(row);
+  }
+
   async upsertPsidUserLink(params: {
     psid: string;
     userId: number;
@@ -262,6 +277,17 @@ export class MessengerRepository {
       .getOne();
 
     return row ? this.mapEntity(row) : null;
+  }
+
+  async findActiveMappingsWithPsid(): Promise<UserMessengerMapping[]> {
+    const rows = await this.mappingRepo
+      .createQueryBuilder('mapping')
+      .where('mapping.status = :status', { status: 'ACTIVE' })
+      .andWhere('mapping.psid IS NOT NULL')
+      .orderBy('mapping.id', 'DESC')
+      .getMany();
+
+    return this.dedupeMappingsByPsid(rows.map((row) => this.mapEntity(row)));
   }
 
   async hasSentScheduledReportToday(psid: string): Promise<boolean> {

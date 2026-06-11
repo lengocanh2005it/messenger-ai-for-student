@@ -2,6 +2,7 @@ import { join } from 'path';
 import { DataSourceOptions } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { MessengerMessageLogEntity } from './entities/messenger-message-log.entity';
+import { StudyReminderJobEntity } from './entities/study-reminder-job.entity';
 import { UserMessengerMappingEntity } from './entities/user-messenger-mapping.entity';
 import { UserEntity } from './entities/user.entity';
 
@@ -33,6 +34,7 @@ export function getTypeOrmOptions(
     entities: [
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,
+      StudyReminderJobEntity,
       ...(options?.includeUsers ? [UserEntity] : []),
     ],
     migrations: [join(__dirname, 'migrations', '*.{ts,js}')],

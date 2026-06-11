@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { StudentCapacityService } from './student-capacity.service';
+import { loadSystemPrompt } from '../prompts/load-system-prompt';
 import {
   StudentCapacityInput,
   StudentCapacityReport,
@@ -46,8 +47,7 @@ export class StudentReportService {
       messages: [
         {
           role: 'system',
-          content:
-            'Bạn là trợ lý học tập IELTS Writing. Trả về JSON với đúng 4 key: headline, streak, "tình trạng task 2", "tình trạng task 1". Viết tiếng Việt, ngắn gọn, khích lệ, dựa trên dữ liệu đầu vào.',
+          content: loadSystemPrompt('studentReport'),
         },
         {
           role: 'user',

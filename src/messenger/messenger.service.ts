@@ -9,21 +9,24 @@ import {
   MessengerLinkContext,
   buildMMeLink,
   buildPocPsidToken,
+  buildWelcomeMessage,
   getPocAlreadySubscribedMessage,
   getPocSubscriptionConfirmationMessage,
   getMissingUserRefMessage,
   parseMessengerLinkContext,
 } from '../config/poc.constants';
 import { StudentReportService } from '../student-report/student-report.service';
+import { StudyReminderScheduleService } from '../study-reminder/study-reminder-schedule.service';
+import { StudyReminderService } from '../study-reminder/study-reminder.service';
+import { UserDisplayNameService } from '../study-reminder/user-display-name.service';
+import { getNoUpcomingStudySessionMessage } from '../study-reminder/study-reminder.messages';
+import { NormalizedStudySession } from '../study-reminder/study-schedule.types';
 import { MessengerRepository } from './messenger.repository';
 import {
   MessengerWebhookEvent,
   MessengerWebhookPayload,
   UserMessengerMapping,
 } from './types';
-
-export const WELCOME_MESSAGE =
-  'Chào bạn! WISPACE sẵn sàng. Mở Menu để "Đăng ký nhận báo cáo học tập" hoặc "Xem tiến độ học tập".';
 
 export class MessengerApiError extends Error {
   constructor(
@@ -47,6 +50,9 @@ export class MessengerService {
     private readonly configService: ConfigService,
     private readonly repository: MessengerRepository,
     private readonly studentReportService: StudentReportService,
+    private readonly studyReminderService: StudyReminderService,
+    private readonly studyReminderScheduleService: StudyReminderScheduleService,
+    private readonly userDisplayNameService: UserDisplayNameService,
   ) {}
 
   verifyWebhook(token?: string, challenge?: string): string {
@@ -59,8 +65,8 @@ export class MessengerService {
 
   buildMMeLink(context: MessengerLinkContext): string {
     const pageRef =
-      this.configService.get<string>('MESSENGER_PAGE_USERNAME') ??
-      this.configService.get<string>('MESSENGER_PAGE_ID');
+      this.configService.get<string>('MESSENGER_PAGE_USERNAME')?.trim() ||
+      this.configService.get<string>('MESSENGER_PAGE_ID')?.trim();
 
     if (!pageRef) {
       throw new InternalServerErrorException(
@@ -180,6 +186,60 @@ export class MessengerService {
     return report;
   }
 
+  async sendUpcomingStudySessionReminderPreview(
+    psid: string,
+    userId?: number,
+  ): Promise<string> {
+    const resolvedUserId = userId ?? (await this.resolveUserId(psid));
+    const session = await this.studyReminderService.getNextUpcomingSession(
+      psid,
+      resolvedUserId,
+    );
+
+    if (!session) {
+      const emptyMessage = getNoUpcomingStudySessionMessage(
+        this.studyReminderScheduleService.getOutboxSettings().minutesBefore,
+      );
+      await this.sendTextViaPsid({
+        psid,
+        userId: resolvedUserId,
+        text: emptyMessage,
+        messageType: 'STUDY_SESSION_REMINDER_EMPTY',
+      });
+      return emptyMessage;
+    }
+
+    return this.sendStudySessionReminder({
+      psid,
+      userId: resolvedUserId,
+      session,
+      messageType: 'STUDY_SESSION_REMINDER_PREVIEW',
+    });
+  }
+
+  async sendStudySessionReminder(params: {
+    psid: string;
+    session: NormalizedStudySession;
+    messageType: string;
+    userId?: number;
+    displayName?: string;
+  }): Promise<string> {
+    const reminder = await this.studyReminderService.generateReminderForSession(
+      params.psid,
+      params.session,
+      { userId: params.userId, displayName: params.displayName },
+    );
+
+    await this.sendTextViaPsid({
+      psid: params.psid,
+      userId: params.userId,
+      text: reminder,
+      messageType: params.messageType,
+    });
+
+    return reminder;
+  }
+
   async sendTextViaPsid(params: {
     psid: string;
     text: string;
@@ -242,6 +302,19 @@ export class MessengerService {
     return parseMessengerLinkContext({ ref, topic, cadence });
   }
 
+  private async resolveUserId(
+    psid: string,
+    event?: MessengerWebhookEvent,
+  ): Promise<number | undefined> {
+    const context = await this.resolveLinkContext(psid, event);
+    if (context?.userId) {
+      return context.userId;
+    }
+
+    const mapping = await this.repository.findActiveMappingByPsid(psid);
+    return mapping?.userId;
+  }
+
   private async resolveLinkContext(
     psid: string,
     event?: MessengerWebhookEvent,
@@ -263,14 +336,6 @@ export class MessengerService {
       topic: mapping.topic,
       cadence: mapping.cadence,
     });
-  }
-
-  private async resolveUserId(
-    psid: string,
-    event?: MessengerWebhookEvent,
-  ): Promise<number | undefined> {
-    const context = await this.resolveLinkContext(psid, event);
-    return context?.userId;
   }
 
   private async linkPsidFromContext(
@@ -338,7 +403,7 @@ export class MessengerService {
       await this.sendTextViaPsid({
         psid,
         userId,
-        text: WELCOME_MESSAGE,
+        text: await this.buildWelcomeMessage(psid, userId),
         messageType: 'WELCOME',
       });
       return true;
@@ -400,11 +465,22 @@ export class MessengerService {
       return true;
     }
 
+    if (
+      payload === 'VIEW_UPCOMING_STUDY_SESSION' ||
+      payload === 'PREVIEW_STUDY_REMINDER'
+    ) {
+      await this.sendUpcomingStudySessionReminderPreview(
+        psid,
+        context?.userId,
+      );
+      return true;
+    }
+
     if (payload === 'GET_STARTED') {
       await this.sendTextViaPsid({
         psid,
         userId: context?.userId,
-        text: WELCOME_MESSAGE,
+        text: await this.buildWelcomeMessage(psid, context?.userId),
         messageType: 'WELCOME',
       });
       return true;
@@ -413,7 +489,7 @@ export class MessengerService {
     await this.sendTextViaPsid({
       psid,
       userId: context?.userId,
-      text: WELCOME_MESSAGE,
+      text: await this.buildWelcomeMessage(psid, context?.userId),
       messageType: 'WELCOME',
     });
     return true;
@@ -442,6 +518,17 @@ export class MessengerService {
     }
 
     return false;
+  }
+
+  private async buildWelcomeMessage(
+    psid: string,
+    userId?: number,
+  ): Promise<string> {
+    const displayName = await this.userDisplayNameService.resolveDisplayName({
+      psid,
+      userId,
+    });
+    return buildWelcomeMessage(displayName);
   }
 
   private async callSendApiByPsid(
