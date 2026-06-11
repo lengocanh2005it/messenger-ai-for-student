@@ -6,7 +6,9 @@ describe('InternalApiKeyGuard', () => {
   const createContext = (headers: Record<string, string>): ExecutionContext =>
     ({
       switchToHttp: () => ({
-        getRequest: () => ({ header: (name: string) => headers[name.toLowerCase()] }),
+        getRequest: () => ({
+          header: (name: string) => headers[name.toLowerCase()],
+        }),
       }),
     }) as ExecutionContext;
 
@@ -16,9 +18,7 @@ describe('InternalApiKeyGuard', () => {
     } as ConfigService);
 
     expect(
-      guard.canActivate(
-        createContext({ 'x-internal-api-key': 'secret-key' }),
-      ),
+      guard.canActivate(createContext({ 'x-internal-api-key': 'secret-key' })),
     ).toBe(true);
   });
 
@@ -28,9 +28,7 @@ describe('InternalApiKeyGuard', () => {
     } as ConfigService);
 
     expect(
-      guard.canActivate(
-        createContext({ authorization: 'Bearer secret-key' }),
-      ),
+      guard.canActivate(createContext({ authorization: 'Bearer secret-key' })),
     ).toBe(true);
   });
 

@@ -8,7 +8,12 @@ import { ReportScheduleService } from './report-schedule.service';
 import { SchedulerController } from './scheduler.controller';
 
 @Module({
-  imports: [CommonModule, MessengerModule, StudentReportModule, StudyReminderModule],
+  imports: [
+    CommonModule,
+    MessengerModule,
+    StudentReportModule,
+    StudyReminderModule,
+  ],
   controllers: [SchedulerController],
   providers: [ReportScheduleService, ReportCronService],
 })

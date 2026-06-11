@@ -97,9 +97,7 @@ export class StudyReminderWorkerService implements OnModuleInit {
 
   async runEveningRollover(): Promise<{
     deletedSent: number;
-    sync: Awaited<
-      ReturnType<StudyReminderSyncService['syncUpcomingSessions']>
-    >;
+    sync: Awaited<ReturnType<StudyReminderSyncService['syncUpcomingSessions']>>;
   }> {
     const { syncHorizonHours } =
       this.studyReminderScheduleService.getOutboxSettings();

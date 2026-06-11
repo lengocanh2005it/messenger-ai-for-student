@@ -84,7 +84,9 @@ export class UserCalendarScheduleService {
         }),
       )
       .filter((session): session is NormalizedStudySession => session !== null)
-      .filter((session) => session.scheduledAt.getTime() <= horizonEnd.getTime());
+      .filter(
+        (session) => session.scheduledAt.getTime() <= horizonEnd.getTime(),
+      );
   }
 
   private normalizeAndFilter(
@@ -143,7 +145,10 @@ export class UserCalendarScheduleService {
     const timezone =
       this.configService.get<string>('STUDY_REMINDER_TIMEZONE')?.trim() ??
       'Asia/Ho_Chi_Minh';
-    const dateParts = this.getDatePartsInTimezone(new Date(eventDate), timezone);
+    const dateParts = this.getDatePartsInTimezone(
+      new Date(eventDate),
+      timezone,
+    );
     const pad = (value: number) => String(value).padStart(2, '0');
     const offset = this.getUtcOffsetForTimezone(timezone, dateParts);
 

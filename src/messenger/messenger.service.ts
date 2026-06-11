@@ -469,10 +469,7 @@ export class MessengerService {
       payload === 'VIEW_UPCOMING_STUDY_SESSION' ||
       payload === 'PREVIEW_STUDY_REMINDER'
     ) {
-      await this.sendUpcomingStudySessionReminderPreview(
-        psid,
-        context?.userId,
-      );
+      await this.sendUpcomingStudySessionReminderPreview(psid, context?.userId);
       return true;
     }
 
