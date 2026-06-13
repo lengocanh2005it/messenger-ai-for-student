@@ -1,8 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { ProactiveMessenger24hSkippedError } from '../../../messenger/application/utils/proactive-send.utils';
 import { MessengerService } from '../../../messenger/application/services/messenger.service';
-import { MESSENGER_REPOSITORY } from '../../../messenger/domain/repositories/messenger.repository.port';
-import type { MessengerRepositoryPort } from '../../../messenger/domain/repositories/messenger.repository.port';
+import {
+  MESSENGER_REPOSITORY,
+  type MessengerRepositoryPort,
+} from '../../../messenger/domain/repositories/messenger.repository.port';
+import { StudentReportRetryableError } from '../../../student-report/domain/errors/wispace-api.error';
 import { ReportScheduleService } from './report-schedule.service';
 
 @Injectable()
@@ -18,6 +22,7 @@ export class ReportCronService {
 
   @Cron('0 8 * * *', {
     name: 'exam-reminder-report',
+    timeZone: 'Asia/Ho_Chi_Minh',
   })
   async handleExamReminderCron(): Promise<void> {
     await this.sendScheduledReports();
@@ -27,6 +32,8 @@ export class ReportCronService {
     total: number;
     sent: number;
     skipped: number;
+    deferred: number;
+    windowClosed: number;
     failed: number;
     schedule: {
       minDays: number;
@@ -51,6 +58,8 @@ export class ReportCronService {
     const failures: Array<{ token: string; error: string }> = [];
     let sent = 0;
     let skipped = 0;
+    let deferred = 0;
+    let windowClosed = 0;
 
     for (const mapping of mappings) {
       if (!mapping.psid) {
@@ -85,9 +94,30 @@ export class ReportCronService {
       }
 
       try {
-        await this.messengerService.sendScheduledReportForMapping(mapping);
-        sent += 1;
+        const result =
+          await this.messengerService.sendScheduledReportForMapping(mapping);
+        if (result) {
+          sent += 1;
+        } else {
+          windowClosed += 1;
+        }
       } catch (error) {
+        if (error instanceof StudentReportRetryableError) {
+          deferred += 1;
+          this.logger.warn(
+            `Deferred scheduled report for PSID ${mapping.psid} (Wispace API retryable, R3)`,
+          );
+          continue;
+        }
+
+        if (error instanceof ProactiveMessenger24hSkippedError) {
+          windowClosed += 1;
+          this.logger.warn(
+            `Skipped scheduled report for PSID ${mapping.psid} (Messenger 24h window, L2)`,
+          );
+          continue;
+        }
+
         const message = error instanceof Error ? error.message : String(error);
         failures.push({
           token: mapping.notificationMessagesToken,
@@ -104,6 +134,8 @@ export class ReportCronService {
       total: mappings.length,
       sent,
       skipped,
+      deferred,
+      windowClosed,
       failed: failures.length,
       schedule,
       failures,

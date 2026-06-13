@@ -4,6 +4,11 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { isMessenger24hWindowError } from '../messages/chat-delivery.messages';
+import {
+  buildProactive24hLogErrorMessage,
+  buildProactiveFailureMessageType,
+} from '../utils/proactive-send.utils';
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
 import type { MessageSenderPort } from '../ports/message-sender.port';
@@ -247,18 +252,36 @@ export class MessengerOutboundService implements MessageSenderPort {
         status: 'SENT',
       });
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      await this.repository.logMessage({
-        userId: params.userId,
-        psid: params.psid,
-        messageType: params.messageType,
-        messageText: params.text,
-        status: 'FAILED',
-        errorMessage,
-      });
+      await this.logSendFailure(params, error);
       throw error;
     }
+  }
+
+  private async logSendFailure(
+    params: {
+      psid: string;
+      text: string;
+      messageType: string;
+      userId?: number;
+    },
+    error: unknown,
+  ): Promise<void> {
+    const apiError = this.toMessengerApiError(params.psid, error);
+    const is24h = isMessenger24hWindowError(apiError);
+    const errorMessage = is24h
+      ? buildProactive24hLogErrorMessage()
+      : apiError.message;
+
+    await this.repository.logMessage({
+      userId: params.userId,
+      psid: params.psid,
+      messageType: is24h
+        ? buildProactiveFailureMessageType(params.messageType)
+        : params.messageType,
+      messageText: params.text,
+      status: 'FAILED',
+      errorMessage,
+    });
   }
 
   private toMessengerApiError(psid: string, error: unknown): MessengerApiError {

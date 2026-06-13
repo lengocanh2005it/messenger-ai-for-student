@@ -301,12 +301,16 @@ export class MessengerRepository implements MessengerRepositoryPort {
       .createQueryBuilder('log')
       .where('log.psid = :psid', { psid })
       .andWhere('log.status = :status', { status: 'SENT' })
-      .andWhere('log.message_type IN (:...types)', {
-        types: [
-          'SCHEDULED_LEARNING_REPORT',
-          'SCHEDULED_LEARNING_REPORT_PSID_FALLBACK',
-        ],
-      })
+      .andWhere(
+        `(log.message_type = :primaryType
+          OR log.message_type LIKE :partType
+          OR log.message_type LIKE :legacyPartType)`,
+        {
+          primaryType: 'SCHEDULED_LEARNING_REPORT',
+          partType: 'SCHEDULED_LEARNING_REPORT_PART_%',
+          legacyPartType: 'SCHEDULED_LEARNING_REPORT_PSID_FALLBACK%',
+        },
+      )
       .andWhere('log.created_at >= :startOfDay', { startOfDay })
       .getCount();
 

@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { MESSAGE_SENDER } from '../../../messenger/application/ports/message-sender.port';
 import type { MessageSenderPort } from '../../../messenger/application/ports/message-sender.port';
+import { shouldSkipProactiveRetries } from '../../../messenger/application/utils/proactive-send.utils';
 import {
   buildStudyReminderMessageType,
   jobToSession,
@@ -88,12 +89,22 @@ export class StudyReminderDispatchService {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const nextRetryCount = job.retryCount + 1;
-        const terminal = nextRetryCount >= job.maxRetries;
+        const is24hWindow = shouldSkipProactiveRetries(error);
+        const terminal = is24hWindow || nextRetryCount >= job.maxRetries;
+        const errorMessage = is24hWindow
+          ? 'Messenger 24h messaging window closed'
+          : message;
+
+        if (is24hWindow) {
+          this.logger.warn(
+            `MESSENGER_24H_WINDOW psid=${job.psid} jobId=${job.id} study_reminder`,
+          );
+        }
 
         if (terminal) {
           await this.studyReminderJobRepository.markFailed({
             jobId: job.id,
-            errorMessage: message,
+            errorMessage,
             retryCount: nextRetryCount,
             terminal: true,
           });
@@ -104,7 +115,7 @@ export class StudyReminderDispatchService {
           );
           await this.studyReminderJobRepository.markFailed({
             jobId: job.id,
-            errorMessage: message,
+            errorMessage,
             retryCount: nextRetryCount,
             nextRetryAt,
             terminal: false,
@@ -115,7 +126,7 @@ export class StudyReminderDispatchService {
         failures.push({
           jobId: job.id,
           psid: job.psid,
-          error: message,
+          error: errorMessage,
         });
         this.logger.error(
           `Failed to dispatch study reminder job ${job.id} for PSID ${job.psid}`,

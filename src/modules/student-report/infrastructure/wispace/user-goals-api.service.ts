@@ -4,6 +4,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { WispaceApiError } from '../../domain/errors/wispace-api.error';
 import { UserGoalsRecord } from '../../domain/types/user-goals.types';
 
 @Injectable()
@@ -23,8 +24,11 @@ export class UserGoalsApiService {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new InternalServerErrorException(
+      throw new WispaceApiError(
         `User goals API failed: HTTP ${response.status} ${response.statusText} - ${body}`,
+        response.status,
+        psid,
+        'User/goals',
       );
     }
 

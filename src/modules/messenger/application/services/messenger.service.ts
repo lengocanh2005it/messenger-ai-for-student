@@ -18,6 +18,8 @@ import {
   parseMessengerLinkContext,
 } from '../../../../shared/config/poc.constants';
 import { StudentReportService } from '../../../student-report/application/services/student-report.service';
+import { StudentReportRetryableError } from '../../../student-report/domain/errors/wispace-api.error';
+import { buildStudentReportApiRetryMessage } from '../../../student-report/application/messages/student-report.messages';
 import { getNoUpcomingStudySessionMessage } from '../../../study-reminder/application/messages/study-reminder.messages';
 import { StudyReminderScheduleService } from '../../../study-reminder/application/services/study-reminder-schedule.service';
 import { StudyReminderService } from '../../../study-reminder/application/services/study-reminder.service';
@@ -35,8 +37,16 @@ import {
 import { ChatRateLimitConfigService } from '../../../chat-rate-limit/application/services/chat-rate-limit-config.service';
 import { MessengerChatQueueService } from './messenger-chat-queue.service';
 import { MessengerChatSharedConfigService } from './messenger-chat-shared-config.service';
-import { buildChatMissingMidMessage, buildUnsupportedMessageTypeReply } from '../messages/chat-delivery.messages';
+import {
+  buildChatMissingMidMessage,
+  buildUnsupportedMessageTypeReply,
+} from '../messages/chat-delivery.messages';
 import { isUnsupportedUserMessage } from '../utils/webhook-message.utils';
+import { readMessengerBubbleLimits } from '../utils/messenger-bubble-config.utils';
+import {
+  isProactiveMessenger24hError,
+  ProactiveMessenger24hSkippedError,
+} from '../utils/proactive-send.utils';
 import { MessengerOutboundService } from './messenger-outbound.service';
 
 export { MessengerApiError } from './messenger-outbound.service';
@@ -162,40 +172,126 @@ export class MessengerService {
       );
     }
 
-    const report = await this.studentReportService.generateReport(mapping.psid);
+    try {
+      const report = await this.studentReportService.generateReport(
+        mapping.psid,
+      );
+      await this.sendReportBubbles({
+        psid: mapping.psid,
+        userId: mapping.userId,
+        text: report,
+        messageType: 'SCHEDULED_LEARNING_REPORT',
+      });
+      return report;
+    } catch (error) {
+      if (error instanceof StudentReportRetryableError) {
+        throw error;
+      }
 
-    await this.outbound.sendTextViaPsid({
-      psid: mapping.psid,
-      userId: mapping.userId,
-      text: report,
-      messageType: 'SCHEDULED_LEARNING_REPORT',
-    });
+      if (error instanceof ProactiveMessenger24hSkippedError) {
+        return '';
+      }
 
-    return report;
+      throw error;
+    }
   }
 
   async sendLearningProgressReport(psid: string): Promise<string> {
     const userId = await this.resolveUserId(psid);
-    const report = await this.studentReportService.generateReport(psid);
-    await this.outbound.sendTextViaPsid({
-      psid,
-      userId,
-      text: report,
-      messageType: 'LEARNING_PROGRESS',
-    });
-    return report;
+
+    try {
+      const report = await this.studentReportService.generateReport(psid);
+      await this.sendReportBubbles({
+        psid,
+        userId,
+        text: report,
+        messageType: 'LEARNING_PROGRESS',
+      });
+      return report;
+    } catch (error) {
+      if (error instanceof StudentReportRetryableError) {
+        const retryMessage = buildStudentReportApiRetryMessage();
+        await this.sendReportBubbles({
+          psid,
+          userId,
+          text: retryMessage,
+          messageType: 'LEARNING_PROGRESS_API_DEFERRED',
+        });
+        return retryMessage;
+      }
+
+      if (error instanceof ProactiveMessenger24hSkippedError) {
+        return '';
+      }
+
+      throw error;
+    }
   }
 
   async sendReportToPsid(psid: string): Promise<string> {
     const userId = await this.resolveUserId(psid);
-    const report = await this.studentReportService.generateReport(psid);
-    await this.outbound.sendTextViaPsid({
-      psid,
-      userId,
-      text: report,
-      messageType: 'LEARNING_REPORT',
-    });
-    return report;
+
+    try {
+      const report = await this.studentReportService.generateReport(psid);
+      await this.sendReportBubbles({
+        psid,
+        userId,
+        text: report,
+        messageType: 'LEARNING_REPORT',
+      });
+      return report;
+    } catch (error) {
+      if (error instanceof StudentReportRetryableError) {
+        const retryMessage = buildStudentReportApiRetryMessage();
+        await this.sendReportBubbles({
+          psid,
+          userId,
+          text: retryMessage,
+          messageType: 'LEARNING_REPORT_API_DEFERRED',
+        });
+        return retryMessage;
+      }
+
+      if (error instanceof ProactiveMessenger24hSkippedError) {
+        return '';
+      }
+
+      throw error;
+    }
+  }
+
+  private async sendReportBubbles(params: {
+    psid: string;
+    userId?: number;
+    text: string;
+    messageType: string;
+  }): Promise<void> {
+    const { maxBubbles, maxCharsPerBubble } = readMessengerBubbleLimits(
+      this.configService,
+    );
+
+    try {
+      await this.outbound.sendTextBubblesViaPsid({
+        psid: params.psid,
+        userId: params.userId,
+        text: params.text,
+        messageType: params.messageType,
+        maxBubbles,
+        maxCharsPerBubble,
+      });
+    } catch (error) {
+      if (isProactiveMessenger24hError(error)) {
+        this.logger.warn(
+          `MESSENGER_24H_WINDOW psid=${params.psid} messageType=${params.messageType}`,
+        );
+        throw new ProactiveMessenger24hSkippedError(
+          params.psid,
+          params.messageType,
+        );
+      }
+
+      throw error;
+    }
   }
 
   async sendUpcomingStudySessionReminderPreview(
@@ -442,10 +538,7 @@ export class MessengerService {
     }
 
     if (event.message && !event.message.is_echo) {
-      if (
-        isUnsupportedUserMessage(event.message) &&
-        !event.postback
-      ) {
+      if (isUnsupportedUserMessage(event.message) && !event.postback) {
         const messageMid = event.message.mid;
         if (
           messageMid &&

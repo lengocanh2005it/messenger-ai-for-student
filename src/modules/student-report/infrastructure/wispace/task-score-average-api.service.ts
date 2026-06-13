@@ -4,6 +4,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { StudentReportNoScoreDataError } from '../../domain/errors/student-report-no-score-data.error';
+import { WispaceApiError } from '../../domain/errors/wispace-api.error';
 import { ConfigService } from '@nestjs/config';
 import { TaskScoreAverageRecord } from '../../domain/types/task-score-average.types';
 import { StudentCapacityInput } from '../../domain/types/student-capacity.types';
@@ -43,8 +44,11 @@ export class TaskScoreAverageApiService {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new InternalServerErrorException(
+      throw new WispaceApiError(
         `TaskScoreAverage API failed: HTTP ${response.status} ${response.statusText} - ${body}`,
+        response.status,
+        psid,
+        'TaskScoreAverage',
       );
     }
 
