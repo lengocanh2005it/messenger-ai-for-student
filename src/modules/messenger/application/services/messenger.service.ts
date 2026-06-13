@@ -47,6 +47,7 @@ import {
   isProactiveMessenger24hError,
   ProactiveMessenger24hSkippedError,
 } from '../utils/proactive-send.utils';
+import { MessengerMappingService } from './messenger-mapping.service';
 import { MessengerOutboundService } from './messenger-outbound.service';
 
 export { MessengerApiError } from './messenger-outbound.service';
@@ -64,6 +65,7 @@ export class MessengerService {
     @Inject(MESSENGER_REPOSITORY)
     private readonly repository: MessengerRepositoryPort,
     private readonly outbound: MessengerOutboundService,
+    private readonly messengerMappingService: MessengerMappingService,
     private readonly messengerChatQueueService: MessengerChatQueueService,
     private readonly studentReportService: StudentReportService,
     private readonly studyReminderService: StudyReminderService,
@@ -429,15 +431,7 @@ export class MessengerService {
     psid: string,
     context: MessengerLinkContext,
   ): Promise<void> {
-    await this.repository.upsertPsidUserLink({
-      psid,
-      userId: context.userId,
-      topic: context.topic,
-      cadence: context.cadence,
-    });
-    this.logger.log(
-      `Linked PSID ${psid} to userId=${context.userId}, topic=${context.topic}, cadence=${context.cadence}`,
-    );
+    await this.messengerMappingService.linkFromContext(psid, context);
   }
 
   private async handleEvent(event: MessengerWebhookEvent): Promise<boolean> {

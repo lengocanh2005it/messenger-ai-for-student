@@ -9,9 +9,15 @@ import {
 import { InternalApiKeyGuard } from '../../../../shared/common/guards/internal-api-key.guard';
 import { StudyReminderSyncService } from '../../../study-reminder/application/services/study-reminder-sync.service';
 import { StudyReminderWorkerService } from '../../../study-reminder/application/services/study-reminder-worker.service';
+import { MessengerMappingService } from '../../../messenger/application/services/messenger-mapping.service';
 import { ReportCronService } from '../../application/services/report-cron.service';
 
 interface SyncStudyCalendarBody {
+  userId: number;
+}
+
+interface RelinkMappingBody {
+  psid: string;
   userId: number;
 }
 
@@ -22,12 +28,34 @@ export class SchedulerController {
     private readonly reportCronService: ReportCronService,
     private readonly studyReminderSyncService: StudyReminderSyncService,
     private readonly studyReminderWorkerService: StudyReminderWorkerService,
+    private readonly messengerMappingService: MessengerMappingService,
   ) {}
 
   @Post('send-reports')
   @HttpCode(200)
   sendReports() {
     return this.reportCronService.sendScheduledReports({ forceSend: true });
+  }
+
+  @Post('mapping/relink')
+  @HttpCode(200)
+  relinkMessengerMapping(@Body() body: RelinkMappingBody) {
+    const userId = Number(body?.userId);
+    const psid = body?.psid?.trim();
+
+    if (!psid) {
+      throw new BadRequestException('psid is required');
+    }
+
+    if (!Number.isFinite(userId) || userId <= 0) {
+      throw new BadRequestException('userId must be a positive number');
+    }
+
+    return this.messengerMappingService.relinkPsidToUserId({
+      psid,
+      userId,
+      notifyUser: false,
+    });
   }
 
   @Post('study-calendar/sync')

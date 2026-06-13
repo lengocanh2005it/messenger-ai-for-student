@@ -15,11 +15,11 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **Q1** ✓ | QA E2E 4 luồng | 0.5 ngày | **Cao** — trước go-live |
 | **L1** ✓ | Tin không phải text → reply hướng dẫn | 0.5 ngày | Trung bình |
 | **L2** ✓ | Policy Send 24h cho báo cáo / nhắc lịch | 0.5–1 ngày | Trung bình |
-| **L3** | Mapping đổi `user_id` (PSID giữ nguyên) | 1 ngày | Thấp (hiếm) |
+| **L3** ✓ | Mapping đổi `user_id` (PSID giữ nguyên) | 1 ngày | Thấp (hiếm) |
 | **R1** ✓ | Báo cáo: empty score → tin thân thiện | 0.5 ngày | Trung bình |
 | **R2** ✓ | Báo cáo: chia bubble dài | 0.5 ngày | Thấp |
 | **R3** ✓ | Báo cáo: retry / dead-letter khi API lỗi | 1–1.5 ngày | Trung bình |
-| **R4** | Báo cáo 08:00: idempotency / cron leader (≥2 pod) | 1 ngày | Chỉ khi scale |
+| **R4** ✓ | Báo cáo 08:00: idempotency / cron leader (≥2 pod) | 1 ngày | Chỉ khi scale |
 | **S0** ✓ | Wispace wire `study-calendar/sync` | 0.5 ngày (Wispace) | **Cao** — tích hợp |
 | **S1** ✓ | Alert ops job `failed` / stuck nhắc lịch | 0.5 ngày | Trung bình |
 | **S2** | Adaptive dispatch poll (scale) | 1–2 ngày | Khi outbox lớn |
@@ -29,7 +29,7 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **I2** | Monitor tổng hợp (Slack/webhook ops) | 1 ngày | Khi có user thật |
 | **I3** | Bỏ fallback DB `UserCalendars` | 1 ngày | Khi API ổn định |
 
-**Thứ tự khuyến nghị:** ~~Q1/S0/I1/S1/L1/R1/L2/R2/R3~~ (✓) → L3/R4 + `CHAT_QUEUE_SHARED` khi scale → phần còn lại theo feedback user.
+**Thứ tự khuyến nghị:** ~~Q1/S0/I1/S1/L1/R1/L2/R2/R3/L3/R4~~ (✓) → `CHAT_QUEUE_SHARED` khi scale → phần còn lại theo feedback user.
 
 ```mermaid
 flowchart LR
@@ -50,6 +50,7 @@ flowchart LR
 | Hành vi | Code / ghi chú |
 |---------|-----------------|
 | Opt-in / `referral.ref` | `MessengerService` → `user_messenger_mappings` |
+| **Đổi `user_id` cùng PSID** | **L3** ✓ — `MessengerMappingService`, `MAPPING_USER_ID_UPDATED`, ops relink |
 | Đăng ký báo cáo trùng topic/cadence | `SUBSCRIPTION_ALREADY_ACTIVE` |
 | Postback dedupe 15s | `isDuplicatePostback` |
 | Chat chưa link | `MISSING_USER_REF` |
@@ -60,7 +61,6 @@ flowchart LR
 
 | Gap | Ảnh hưởng | Khắc phục | Phase |
 |-----|-----------|-----------|-------|
-| User đổi tài khoản WISPACE, **giữ PSID** | Mapping cũ `user_id` → dữ liệu/API sai user | Ops: script re-link hoặc API `POST` cập nhật mapping theo `ref` mới; product: khi `ref` khác `user_id` hiện tại → confirm + upsert | **L3** |
 | Webhook Meta retry; lỗi 1 event | Event khác vẫn xử lý (đúng); event lỗi mất | Log `failures[]` đủ; optional bảng `webhook_dead_letter` + replay script ops | **L3** (optional) |
 
 ---
@@ -80,13 +80,12 @@ flowchart LR
 | **Báo cáo bubble dài** | **R2** ✓ — `sendTextBubblesViaPsid` + `CHAT_MAX_BUBBLES` |
 | **Wispace API lỗi** | **R3** ✓ — 5xx defer/retry message; 4xx tin “chưa đủ dữ liệu” |
 | **Meta 24h proactive** | **L2** ✓ — `*_MESSENGER_24H` log; cron `windowClosed` / `deferred` |
+| **Multi-pod cron 08:00** | **R4** ✓ — `messenger_scheduled_report_claims`, advisory lock, `CRON_LEADER_*` |
 
 ### Gap & khắc phục
 
 | Gap | Ảnh hưởng | Khắc phục | Phase |
 |-----|-----------|-----------|-------|
-| Không idempotency proactive | Hiếm duplicate; cron 08:00 có `hasSentScheduledReportToday` | Đủ cho 1 pod; multi-pod: unique `(psid, report_date)` hoặc transaction trước Send | **R4** |
-| Cron 08:00 **mọi pod** | ≥2 instance → risk 2 báo cáo/ngày | `CRON_LEADER_ENABLED` + 1 pod leader, hoặc advisory lock PostgreSQL trong `sendScheduledReports` | **R4** |
 
 ---
 
@@ -135,7 +134,7 @@ Rate limit V1 + **H1–H7**, agent tools, history RAM/DB, delivery semantics H4.
 |-----------|------------|-----------|-------|
 | **1 instance POC** | Phù hợp | Giữ `CHAT_QUEUE_SHARED=false` | — |
 | **≥2 pod chat** | Queue/history tách pod | `CHAT_QUEUE_SHARED=true` + migration — H7 ✓ | Done (bật env) |
-| **≥2 pod cron báo cáo** | Risk gửi trùng 08:00 | **R4** cron leader / DB lock | **R4** |
+| **≥2 pod cron báo cáo** | ~~Risk gửi trùng 08:00~~ | **R4** ✓ claim + advisory lock + optional cron leader | Done |
 | **≥2 pod cron nhắc** | `claimJob` ✓ | Theo dõi; **S2** nếu DB chậm | **S2** |
 | Monitor / alert | Log + scripts | **I1** ✓ runbook + `ops:health`; **S1** ✓ failed/stuck jobs; **I2** webhook Slack | **I2** |
 | Wispace **schema** đổi | Fallback DB `UserCalendars` | API-only khi ổn định — **I3** | **I3** |

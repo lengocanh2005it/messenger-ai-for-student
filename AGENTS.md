@@ -294,6 +294,8 @@ Cursor dùng file này (`AGENTS.md`) + skills global `~/.cursor/skills-cursor/`.
 | Wispace wire sync sau đổi lịch | ✓ Gọi `POST /messenger/study-calendar/sync` + `X-Internal-Api-Key` |
 | Tên học viên cho LLM | ✓ `Users.DisplayName` → `Username` → `'bạn'` |
 | Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✓ `StudyReminderJobRepository.upsertPendingJob` reopen → `pending` |
+| Mapping đổi `user_id` cùng PSID (L3) | ✓ `MessengerMappingService`, `POST /messenger/mapping/relink`, `npm run messenger:relink` |
+| Multi-pod cron báo cáo 08:00 (R4) | ✓ Claim table + advisory lock + `CRON_LEADER_ENABLED` |
 | Chat hai chiều + rate limit V1 | ✓ Reserve/refund/burst/whitelist/hint |
 | Rate limit hardening H1–H7 | ✓ H2–H7 code; H1 = bật `CHAT_RATE_LIMIT_ENABLED` trên env prod |
 | Tier / event store (Phase 7–8) | ✗ Optional — [§5.8](docs/chat-rate-limit-quota.md) |

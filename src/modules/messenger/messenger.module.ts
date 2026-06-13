@@ -15,6 +15,7 @@ import { MessengerChatHistoryService } from './application/services/messenger-ch
 import { MessengerChatQueueService } from './application/services/messenger-chat-queue.service';
 import { MessengerChatQueueWorkerService } from './application/services/messenger-chat-queue-worker.service';
 import { MessengerChatSharedConfigService } from './application/services/messenger-chat-shared-config.service';
+import { MessengerMappingService } from './application/services/messenger-mapping.service';
 import { MessengerService } from './application/services/messenger.service';
 import { MessengerProfileService } from './infrastructure/meta/messenger-profile.service';
 import { MESSENGER_CHAT_SHARED_STATE_REPOSITORY } from './domain/repositories/messenger-chat-shared-state.repository.port';
@@ -45,12 +46,13 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     MessengerAgentService,
     MessengerAgentToolsService,
     MessengerProfileService,
+    MessengerMappingService,
     MessengerChatSharedStateRepository,
     {
       provide: MESSENGER_CHAT_SHARED_STATE_REPOSITORY,
       useExisting: MessengerChatSharedStateRepository,
     },
   ],
-  exports: [MessengerOutboundModule, MessengerService],
+  exports: [MessengerOutboundModule, MessengerService, MessengerMappingService],
 })
 export class MessengerModule {}

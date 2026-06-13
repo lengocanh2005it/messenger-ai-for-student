@@ -1,12 +1,15 @@
 import { Module } from '@nestjs/common';
 import { CommonModule } from '../../shared/common/common.module';
 import { ChatRateLimitModule } from '../chat-rate-limit/chat-rate-limit.module';
+import { DatabaseModule } from '../../infrastructure/database/database.module';
 import { MessengerModule } from '../messenger/messenger.module';
 import { MessengerOutboundModule } from '../messenger/messenger-outbound.module';
 import { StudentReportModule } from '../student-report/student-report.module';
 import { StudyReminderModule } from '../study-reminder/study-reminder.module';
 import { OpsHealthCronService } from './application/services/ops-health-cron.service';
 import { OpsHealthService } from './application/services/ops-health.service';
+import { ReportCronLeaderService } from './application/services/report-cron-leader.service';
+import { ReportCronLockService } from './application/services/report-cron-lock.service';
 import { ReportCronService } from './application/services/report-cron.service';
 import { ReportScheduleService } from './application/services/report-schedule.service';
 import { SchedulerController } from './presentation/controllers/scheduler.controller';
@@ -14,6 +17,7 @@ import { SchedulerController } from './presentation/controllers/scheduler.contro
 @Module({
   imports: [
     CommonModule,
+    DatabaseModule,
     ChatRateLimitModule,
     MessengerOutboundModule,
     MessengerModule,
@@ -23,6 +27,8 @@ import { SchedulerController } from './presentation/controllers/scheduler.contro
   controllers: [SchedulerController],
   providers: [
     ReportScheduleService,
+    ReportCronLeaderService,
+    ReportCronLockService,
     ReportCronService,
     OpsHealthService,
     OpsHealthCronService,

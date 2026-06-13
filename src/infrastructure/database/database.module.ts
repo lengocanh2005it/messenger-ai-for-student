@@ -8,6 +8,7 @@ import {
   MessengerChatQueueBufferEntity,
   MessengerChatWebhookSeenEntity,
   MessengerMessageLogEntity,
+  MessengerScheduledReportClaimEntity,
   StudyReminderJobEntity,
   UserEntity,
   UserMessengerMappingEntity,
@@ -24,6 +25,7 @@ import { getAppTypeOrmOptions } from './typeorm.options';
     TypeOrmModule.forFeature([
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,
+      MessengerScheduledReportClaimEntity,
       MessengerChatDailyUsageEntity,
       MessengerChatIdempotencyEntity,
       MessengerChatQueueBufferEntity,

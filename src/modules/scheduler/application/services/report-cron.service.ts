@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { ProactiveMessenger24hSkippedError } from '../../../messenger/application/utils/proactive-send.utils';
 import { MessengerService } from '../../../messenger/application/services/messenger.service';
@@ -7,6 +8,9 @@ import {
   type MessengerRepositoryPort,
 } from '../../../messenger/domain/repositories/messenger.repository.port';
 import { StudentReportRetryableError } from '../../../student-report/domain/errors/wispace-api.error';
+import { todayReportDate } from '../../../../shared/utils/report-date.utils';
+import { ReportCronLeaderService } from './report-cron-leader.service';
+import { ReportCronLockService } from './report-cron-lock.service';
 import { ReportScheduleService } from './report-schedule.service';
 
 @Injectable()
@@ -18,6 +22,9 @@ export class ReportCronService {
     private readonly messengerRepository: MessengerRepositoryPort,
     private readonly messengerService: MessengerService,
     private readonly reportScheduleService: ReportScheduleService,
+    private readonly reportCronLeaderService: ReportCronLeaderService,
+    private readonly reportCronLockService: ReportCronLockService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Cron('0 8 * * *', {
@@ -25,7 +32,20 @@ export class ReportCronService {
     timeZone: 'Asia/Ho_Chi_Minh',
   })
   async handleExamReminderCron(): Promise<void> {
-    await this.sendScheduledReports();
+    if (!this.reportCronLeaderService.shouldRunScheduledReportCron()) {
+      return;
+    }
+
+    const acquired = await this.reportCronLockService.tryAcquireDailyLock();
+    if (!acquired) {
+      return;
+    }
+
+    try {
+      await this.sendScheduledReports();
+    } finally {
+      await this.reportCronLockService.releaseDailyLock();
+    }
   }
 
   async sendScheduledReports(options?: { forceSend?: boolean }): Promise<{
@@ -34,6 +54,7 @@ export class ReportCronService {
     skipped: number;
     deferred: number;
     windowClosed: number;
+    claimSkipped: number;
     failed: number;
     schedule: {
       minDays: number;
@@ -43,6 +64,10 @@ export class ReportCronService {
   }> {
     const forceSend = options?.forceSend === true;
     const schedule = this.reportScheduleService.getExamReminderWindow();
+    const reportDate = todayReportDate(
+      this.configService.get<string>('CHAT_USAGE_TIMEZONE') ??
+        'Asia/Ho_Chi_Minh',
+    );
 
     if (forceSend) {
       this.logger.log(
@@ -60,6 +85,7 @@ export class ReportCronService {
     let skipped = 0;
     let deferred = 0;
     let windowClosed = 0;
+    let claimSkipped = 0;
 
     for (const mapping of mappings) {
       if (!mapping.psid) {
@@ -91,6 +117,20 @@ export class ReportCronService {
           );
           continue;
         }
+
+        const claimed =
+          await this.messengerRepository.tryClaimScheduledReport({
+            psid: mapping.psid,
+            userId: mapping.userId,
+            reportDate,
+          });
+        if (!claimed) {
+          claimSkipped += 1;
+          this.logger.log(
+            `Skip PSID ${mapping.psid}: report claim exists for ${reportDate} (R4)`,
+          );
+          continue;
+        }
       }
 
       try {
@@ -98,10 +138,34 @@ export class ReportCronService {
           await this.messengerService.sendScheduledReportForMapping(mapping);
         if (result) {
           sent += 1;
+          if (!forceSend) {
+            await this.messengerRepository.markScheduledReportClaimSent({
+              psid: mapping.psid,
+              reportDate,
+            });
+          }
         } else {
           windowClosed += 1;
+          if (!forceSend) {
+            await this.messengerRepository.releaseScheduledReportClaim({
+              psid: mapping.psid,
+              reportDate,
+            });
+          }
         }
       } catch (error) {
+        if (!forceSend) {
+          if (
+            error instanceof StudentReportRetryableError ||
+            error instanceof ProactiveMessenger24hSkippedError
+          ) {
+            await this.messengerRepository.releaseScheduledReportClaim({
+              psid: mapping.psid,
+              reportDate,
+            });
+          }
+        }
+
         if (error instanceof StudentReportRetryableError) {
           deferred += 1;
           this.logger.warn(
@@ -136,6 +200,7 @@ export class ReportCronService {
       skipped,
       deferred,
       windowClosed,
+      claimSkipped,
       failed: failures.length,
       schedule,
       failures,
