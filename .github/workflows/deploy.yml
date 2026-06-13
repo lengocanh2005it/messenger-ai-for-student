@@ -1,0 +1,174 @@
+name: Deploy NestJS Backend to VPS
+
+on:
+  push:
+    branches:
+      - main  
+  workflow_dispatch:
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🚀 Starting Backend Deployment
+        run: echo "Starting NestJS backend deployment to VPS..."
+
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 📦 Build Application
+        run: npm run build
+
+      - name: 📦 Create Backend Archive
+        run: |
+          zip -r messenger-bot-publish.zip dist package.json package-lock.json
+
+      - name: 📤 Upload Backend to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "messenger-bot-publish.zip"
+          target: "/root/messenger-bot/"
+
+      - name: 🔧 Deploy Backend on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -e
+
+            [ -f ~/.bashrc ] && source ~/.bashrc
+            [ -f ~/.profile ] && source ~/.profile
+            [ -f /etc/profile ] && source /etc/profile
+            
+            # Load NVM (Node Version Manager) if present
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+            DEPLOY_PATH="/root/messenger-bot"
+            PUBLISH_PATH="$DEPLOY_PATH/publish"
+            PORT=5007
+            
+            echo "Searching for node..."
+            if command -v node &> /dev/null; then
+              NODE_EXEC=$(command -v node)
+            elif [ -f "/usr/bin/node" ]; then
+              NODE_EXEC="/usr/bin/node"
+            elif [ -f "/usr/local/bin/node" ]; then
+              NODE_EXEC="/usr/local/bin/node"
+            else
+              NODE_EXEC=$(find /usr /opt /root -name "node" -type f 2>/dev/null | grep -E "bin/node$" | head -1)
+            fi
+            
+            if [ -z "$NODE_EXEC" ] || [ ! -f "$NODE_EXEC" ]; then
+              echo "❌ ERROR: node not found"
+              exit 1
+            fi
+            echo "✓ Found node at: $NODE_EXEC"
+            
+            echo '------ 1. Stopping Running Application ------'
+            PID=$(lsof -ti:$PORT 2>/dev/null || true)
+            if [ ! -z "$PID" ]; then
+              echo "Found process on port $PORT (PID: $PID), stopping..."
+              kill -TERM $PID 2>/dev/null || true
+              sleep 3
+              # Force kill if still running
+              if ps -p $PID > /dev/null 2>&1; then
+                echo "Force killing process..."
+                kill -9 $PID 2>/dev/null || true
+              fi
+              echo "✓ Stopped running application"
+            else
+              echo "No running application found on port $PORT"
+            fi
+            
+            echo '------ 2. Verifying Files ------'
+            cd "$DEPLOY_PATH" || exit 1
+            if [ ! -f "messenger-bot-publish.zip" ]; then
+              echo "❌ ERROR: messenger-bot-publish.zip not found in $DEPLOY_PATH"
+              ls -la
+              exit 1
+            fi
+            echo "✓ Found messenger-bot-publish.zip ($(du -h messenger-bot-publish.zip | cut -f1))"
+            
+            echo '------ 3. Preparing Environment & Backup ------'
+            # Save existing .env configuration if present
+            if [ -f "$PUBLISH_PATH/.env" ]; then
+              echo "Saving existing .env file..."
+              cp "$PUBLISH_PATH/.env" "$DEPLOY_PATH/.env.backup"
+            fi
+            
+            echo '------ 4. Cleaning Old Deployment ------'
+            rm -rf "$PUBLISH_PATH"
+            mkdir -p "$PUBLISH_PATH"
+            echo "✓ Cleaned old deployment"
+            
+            echo '------ 5. Extracting New Version ------'
+            unzip -o messenger-bot-publish.zip -d "$PUBLISH_PATH"
+            if [ $? -ne 0 ]; then
+              echo "❌ ERROR: Failed to extract zip file"
+              exit 1
+            fi
+            rm messenger-bot-publish.zip
+            echo "✓ Extracted successfully"
+            
+            # Restore .env
+            if [ -f "$DEPLOY_PATH/.env.backup" ]; then
+              echo "Restoring .env file..."
+              mv "$DEPLOY_PATH/.env.backup" "$PUBLISH_PATH/.env"
+            elif [ -f "$DEPLOY_PATH/.env" ]; then
+              echo "Copying .env from root..."
+              cp "$DEPLOY_PATH/.env" "$PUBLISH_PATH/.env"
+            else
+              echo "⚠️ WARNING: No .env file found in $DEPLOY_PATH. Please create it manually inside $PUBLISH_PATH or $DEPLOY_PATH."
+            fi
+            
+            echo '------ 6. Installing Production Dependencies ------'
+            cd "$PUBLISH_PATH" || exit 1
+            npm ci --omit=dev
+            
+            echo '------ 7. Starting Application ------'
+            # Start app in background. Note: DB_MIGRATIONS_RUN=true in your .env will auto-run migrations on startup.
+            PORT=$PORT nohup $NODE_EXEC dist/main.js > nohup.out 2>&1 &
+            APP_PID=$!
+            echo "✓ Started node with PID: $APP_PID"
+            
+            echo '------ 8. Waiting for Application ------'
+            sleep 8
+            
+            echo '------ 9. Verifying Application ------'
+            if ps -p $APP_PID > /dev/null 2>&1; then
+              echo "✅ Application is running (PID: $APP_PID)"
+              echo "Recent logs:"
+              tail -30 nohup.out
+            else
+              echo "❌ Application process died"
+              echo "Full logs:"
+              cat nohup.out
+              exit 1
+            fi
+            
+            echo '✅ Backend Deployment Complete!'
+
+      - name: ✅ Backend Deployment Status
+        if: success()
+        run: echo "Backend deployed successfully! 🎉"
+
+      - name: ❌ Backend Deployment Failed
+        if: failure()
+        run: echo "Backend deployment failed 😢"
