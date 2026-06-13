@@ -4,6 +4,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -24,12 +25,18 @@ import { UserDisplayNameService } from '../../../study-reminder/application/serv
 import { NormalizedStudySession } from '../../../study-reminder/domain/entities/study-schedule.types';
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
+import { MESSENGER_CHAT_SHARED_STATE_REPOSITORY } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
+import type { MessengerChatSharedStateRepositoryPort } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
 import {
   MessengerWebhookEvent,
   MessengerWebhookPayload,
   UserMessengerMapping,
 } from '../../domain/entities/messenger.types';
+import { ChatRateLimitConfigService } from '../../../chat-rate-limit/application/services/chat-rate-limit-config.service';
 import { MessengerChatQueueService } from './messenger-chat-queue.service';
+import { MessengerChatSharedConfigService } from './messenger-chat-shared-config.service';
+import { buildChatMissingMidMessage, buildUnsupportedMessageTypeReply } from '../messages/chat-delivery.messages';
+import { isUnsupportedUserMessage } from '../utils/webhook-message.utils';
 import { MessengerOutboundService } from './messenger-outbound.service';
 
 export { MessengerApiError } from './messenger-outbound.service';
@@ -52,6 +59,12 @@ export class MessengerService {
     private readonly studyReminderService: StudyReminderService,
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
     private readonly userDisplayNameService: UserDisplayNameService,
+    private readonly chatRateLimitConfig: ChatRateLimitConfigService,
+    @Optional()
+    private readonly sharedConfig?: MessengerChatSharedConfigService,
+    @Optional()
+    @Inject(MESSENGER_CHAT_SHARED_STATE_REPOSITORY)
+    private readonly sharedState?: MessengerChatSharedStateRepositoryPort,
   ) {}
 
   verifyWebhook(token?: string, challenge?: string): string {
@@ -379,7 +392,7 @@ export class MessengerService {
       }
 
       const messageMid = event.message.mid;
-      if (messageMid && this.isDuplicateMessageMid(messageMid)) {
+      if (messageMid && (await this.isDuplicateMessageMid(messageMid, psid))) {
         this.logger.log(
           `Skipping duplicate message mid=${messageMid} for PSID ${psid}`,
         );
@@ -404,6 +417,20 @@ export class MessengerService {
         return true;
       }
 
+      if (!messageMid && this.chatRateLimitConfig.shouldEnforceForPsid(psid)) {
+        this.logger.warn(
+          `Chat text without message.mid psid=${psid}; not enqueued (H5)`,
+        );
+        this.signalMessageSeen(psid);
+        await this.outbound.sendTextViaPsid({
+          psid,
+          userId,
+          text: buildChatMissingMidMessage(),
+          messageType: 'CHAT_MISSING_MID',
+        });
+        return true;
+      }
+
       this.messengerChatQueueService.enqueue({
         psid,
         userId,
@@ -412,6 +439,37 @@ export class MessengerService {
         idempotencyKey: messageMid,
       });
       return true;
+    }
+
+    if (event.message && !event.message.is_echo) {
+      if (
+        isUnsupportedUserMessage(event.message) &&
+        !event.postback
+      ) {
+        const messageMid = event.message.mid;
+        if (
+          messageMid &&
+          (await this.isDuplicateMessageMid(messageMid, psid))
+        ) {
+          this.logger.log(
+            `Skipping duplicate unsupported message mid=${messageMid} for PSID ${psid}`,
+          );
+          return true;
+        }
+
+        this.logger.log(
+          `Unsupported message type (L1) for PSID ${psid}; sending text-only guidance`,
+        );
+        this.signalMessageSeen(psid);
+        const userId = await this.resolveUserId(psid, event);
+        await this.outbound.sendTextViaPsid({
+          psid,
+          userId,
+          text: buildUnsupportedMessageTypeReply(),
+          messageType: 'UNSUPPORTED_MESSAGE_TYPE',
+        });
+        return true;
+      }
     }
 
     this.logger.log(`Ignored unsupported event for PSID ${psid}`);
@@ -512,7 +570,15 @@ export class MessengerService {
     await this.outbound.sendSenderAction(psid, 'typing_on');
   }
 
-  private isDuplicateMessageMid(mid: string): boolean {
+  private async isDuplicateMessageMid(
+    mid: string,
+    psid: string,
+  ): Promise<boolean> {
+    if (this.sharedConfig?.isSharedQueueEnabled() && this.sharedState) {
+      const isNew = await this.sharedState.tryMarkWebhookSeen(mid, psid);
+      return !isNew;
+    }
+
     const now = Date.now();
     const lastSeen = this.recentMessageMids.get(mid);
 

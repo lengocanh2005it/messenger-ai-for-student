@@ -1,5 +1,8 @@
 export { MessengerChatDailyUsageEntity } from './messenger-chat-daily-usage.entity';
+export { MessengerChatHistoryEntity } from './messenger-chat-history.entity';
 export { MessengerChatIdempotencyEntity } from './messenger-chat-idempotency.entity';
+export { MessengerChatQueueBufferEntity } from './messenger-chat-queue-buffer.entity';
+export { MessengerChatWebhookSeenEntity } from './messenger-chat-webhook-seen.entity';
 export { MessengerMessageLogEntity } from './messenger-message-log.entity';
 export { StudyReminderJobEntity } from './study-reminder-job.entity';
 export { UserMessengerMappingEntity } from './user-messenger-mapping.entity';

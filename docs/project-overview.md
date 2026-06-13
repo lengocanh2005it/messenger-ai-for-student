@@ -31,11 +31,11 @@ Service NestJS kết nối **WISPACE** (nền tảng học IELTS Writing) với 
 ### 1.4. Chat tự do + rate limit (FREE_FORM)
 
 - User đã link WISPACE có thể **nhắn text** → bot trả lời qua LLM agent (`MessengerChatQueueService` debounce → `MessengerAgentService`).
-- **Quota ngày** theo `(psid, usage_date)` ICT — bảng `messenger_chat_daily_usage`; **idempotency** `message.mid` — bảng `messenger_chat_idempotency`.
-- **Burst:** tối đa `CHAT_BURST_PER_MINUTE` lượt/phút (đếm reserve gần nhất).
-- **Menu postback**, nhắc lịch cron, báo cáo proactive — **không** trừ quota chat.
-- Bật enforcement: `CHAT_RATE_LIMIT_ENABLED=true`. Tắt nhanh / QA: `false` hoặc `CHAT_RATE_LIMIT_WHITELIST_PSIDS`.
-- Chi tiết: [chat-rate-limit-quota.md](./chat-rate-limit-quota.md).
+- **Quota ngày** theo `(psid, usage_date)` ICT — `messenger_chat_daily_usage`; idempotency `message.mid` — `messenger_chat_idempotency`.
+- **Burst** `CHAT_BURST_PER_MINUTE`/phút; **hard cap** concurrent (H3); **hint** “còn X lượt” (Phase 6).
+- Menu postback, nhắc lịch cron, báo cáo proactive — **không** trừ quota.
+- **1 instance:** `CHAT_QUEUE_SHARED=false` (debounce RAM). **≥2 pod:** `CHAT_QUEUE_SHARED=true` (H7).
+- Chi tiết + runbook: [chat-rate-limit-quota.md](./chat-rate-limit-quota.md), mục 12 dưới.
 
 ---
 
@@ -64,6 +64,8 @@ flowchart TB
     LOG["messenger_message_logs"]
     USAGE["messenger_chat_daily_usage"]
     IDEM["messenger_chat_idempotency"]
+    QBUF["messenger_chat_queue_buffer\n(H7)"]
+    HIST["messenger_chat_history\n(H7)"]
     JOBS["study_reminder_jobs"]
     CAL["UserCalendars\n(Wispace)"]
   end
@@ -172,6 +174,9 @@ demo_send_message_fb/
 | `messenger_message_logs` | Audit tin đã gửi / lỗi |
 | `messenger_chat_daily_usage` | Counter quota chat FREE_FORM theo `(psid, usage_date)` |
 | `messenger_chat_idempotency` | Idempotency `message.mid` khi reserve quota |
+| `messenger_chat_queue_buffer` | Debounce queue shared cross-pod (H7, khi `CHAT_QUEUE_SHARED=true`) |
+| `messenger_chat_history` | Context LLM chat shared cross-pod (H7) |
+| `messenger_chat_webhook_seen` | Dedupe webhook `mid` cross-pod (H7) |
 | `study_reminder_jobs` | Hàng đợi nhắc lịch (`pending` → `sent` / …) |
 
 ### Bảng Wispace (đọc, không migration trong repo)
@@ -220,6 +225,8 @@ Cron nội bộ (sync 30 phút, dispatch 1 phút) **không** qua HTTP — không
 | `study-reminder-sync` | Mỗi 30 phút | `StudyReminderWorkerService` |
 | `study-reminder-dispatch` | Mỗi 1 phút | `StudyReminderWorkerService` |
 | `study-reminder-cleanup` | `0 0 3 * * *` (03:00) | Xóa job terminal cũ |
+| `messenger-chat-queue-flush` | Mỗi 2 giây (khi `CHAT_QUEUE_SHARED=true`) | Poll buffer DB → flush |
+| `messenger-chat-webhook-dedupe-cleanup` | Mỗi 15 phút (khi shared) | Purge `messenger_chat_webhook_seen` cũ |
 
 Sync study reminder cũng chạy **lúc server start** (`onModuleInit`).
 
@@ -247,8 +254,8 @@ Xem `.env.example`. Nhóm chính:
 - **OpenAI:** `OPENAI_API_KEY`, `OPENAI_MODEL`
 - **Wispace API:** `WISPACE_API_USER_CALENDAR_URL`, `WISPACE_API_USER_GOALS_URL`, `WISPACE_API_TASK_SCORE_URL` — auth bằng header `x-psid`
 - **Study reminder:** `STUDY_REMINDER_*` — **bắt buộc**, không hardcode fallback trong code
-- **Chat rate limit:** `CHAT_RATE_LIMIT_ENABLED`, `CHAT_FREE_FORM_DAILY_LIMIT`, `CHAT_BURST_PER_MINUTE`, `CHAT_USAGE_TIMEZONE`, `CHAT_RATE_LIMIT_WHITELIST_PSIDS`, `CHAT_QUOTA_REMAINING_HINT_THRESHOLD` (optional)
-- **Chat queue:** `CHAT_DEBOUNCE_MS`, `CHAT_MAX_BUBBLES`, `CHAT_BUBBLE_MAX_CHARS`
+- **Chat rate limit:** `CHAT_RATE_LIMIT_ENABLED`, `CHAT_FREE_FORM_DAILY_LIMIT`, `CHAT_BURST_PER_MINUTE`, `CHAT_USAGE_TIMEZONE`, `CHAT_RATE_LIMIT_WHITELIST_PSIDS`, `CHAT_QUOTA_REMAINING_HINT_THRESHOLD`, `CHAT_IDEMPOTENCY_STUCK_RESERVED_MS` (H2), `CHAT_MERGED_TEXT_MAX_CHARS` / `CHAT_BURST_COUNT_REFUNDED` (H5), `CHAT_IDEMPOTENCY_RETENTION_DAYS` (H6)
+- **Chat queue:** `CHAT_DEBOUNCE_MS`, `CHAT_MAX_BUBBLES`, `CHAT_BUBBLE_MAX_CHARS`, `CHAT_QUEUE_SHARED` (H7), `CHAT_QUEUE_PROCESSING_STUCK_MS`, `CHAT_WEBHOOK_DEDUPE_RETENTION_MS`, `CHAT_HISTORY_TTL_MS`, `CHAT_HISTORY_MAX_MESSAGES`
 - **Ops API:** `INTERNAL_API_KEY` — header `X-Internal-Api-Key` cho sync / send-reports / profile setup
 - **Báo cáo thi:** `WISPACE_REPORT_DAYS_BEFORE_EXAM_MIN/MAX`
 - **DB:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_MIGRATIONS_RUN`
@@ -268,18 +275,20 @@ npm run study-reminder:sync-only
 npm run study-reminder:jobs    # In jobs trong DB
 npm run chat-quota:status      # Tra quota chat (psid / userId / ngày)
 npm run chat-quota:status -- --psid=<psid> --date=2026-06-15
+npm run chat-quota:recover-stuck   # H2: refund stuck reserved
+npm run chat-quota:cleanup         # H6: xóa idempotency completed/refunded cũ
 ```
 
 ---
 
 ## 10. Phạm vi POC & hạn chế
 
-- **Một instance** — cron chạy trên mọi process; scale ngang cần review claim job / cron leader.
+- **Một instance** — cron chạy trên mọi process; scale ngang: bật `CHAT_QUEUE_SHARED=true` (H7) + `CHAT_RATE_LIMIT_ENABLED=true` (H3 hard cap).
 - **Chỉ Messenger** — user chưa map `psid` không nhận tin.
 - **Tích hợp lịch học** — Wispace gọi `POST /messenger/study-calendar/sync` khi đổi lịch; cron 30 phút là dự phòng.
 - **API UserCalendar** — cần `WISPACE_API_USER_CALENDAR_URL`; fallback DB khi API lỗi.
 - **Wispace chưa wire** gọi sync API — cần thêm HTTP call + header `X-Internal-Api-Key` sau mỗi lần đổi lịch.
-- **Rate limit chat** — mặc định `CHAT_RATE_LIMIT_ENABLED=false`; bật sau QA. Khuyến nghị POC: **15–20 lượt/ngày**, burst **3/phút** (xem mục 12).
+- **Rate limit chat** — V1 + H1–H7 ✓; gap còn lại toàn dự án: [edge-cases-roadmap.md](./edge-cases-roadmap.md)
 
 Trade-off chi tiết nhắc lịch học: mục 11 trong [study-session-reminder.md](./study-session-reminder.md).
 
@@ -292,7 +301,7 @@ Trade-off chi tiết nhắc lịch học: mục 11 trong [study-session-reminder
 | FREE_FORM / ngày | 15–20 | `CHAT_FREE_FORM_DAILY_LIMIT` |
 | Burst | 3/phút | `CHAT_BURST_PER_MINUTE` |
 | Timezone reset | 00:00 ICT | `CHAT_USAGE_TIMEZONE=Asia/Ho_Chi_Minh` |
-| Bật enforcement | Sau QA | `CHAT_RATE_LIMIT_ENABLED=true` |
+| Bật enforcement | Prod POC | `CHAT_RATE_LIMIT_ENABLED=true` |
 | PSID QA unlimited | Tùy team | `CHAT_RATE_LIMIT_WHITELIST_PSIDS` (comma-separated) |
 
 **Ops tra quota:**
@@ -306,6 +315,35 @@ npm run chat-quota:status -- --user-id=143 --date=2026-06-15
 **Tắt nhanh khi sự cố:** đặt `CHAT_RATE_LIMIT_ENABLED=false` và restart — không cần revert code.
 
 **Không trừ quota:** menu postback, nhắc lịch cron, báo cáo 08:00, tin `CHAT_QUOTA_DENIED` / lỗi hệ thống.
+
+**Hardening H1–H7:** ✓ done — H2 recover stuck, H3 hard cap, H4 send semantics, H5 abuse caps, H6 retention/logs, H7 shared queue. Chi tiết: [§5.10](./chat-rate-limit-quota.md#510-edge-cases-thực-tế--roadmap-hardening-h1h7).
+
+**Recover stuck reserved (H2):**
+
+```bash
+npm run chat-quota:status              # xem stuckReserved + idempotency stats
+npm run chat-quota:recover-stuck -- --dry-run
+npm run chat-quota:recover-stuck
+```
+
+**Retention idempotency (H6):**
+
+```bash
+npm run chat-quota:cleanup -- --dry-run
+npm run chat-quota:cleanup
+# override: npm run chat-quota:cleanup -- --retention-days=60
+```
+
+Log grep (H6): `CHAT_QUOTA_DENY`, `CHAT_QUOTA_REFUND`, `CHAT_QUOTA_RECOVERED`.
+
+**Scale ≥2 instance (H7):**
+
+```env
+CHAT_QUEUE_SHARED=true
+npm run migration:run
+```
+
+Mỗi pod chạy cron poll buffer 2s; debounce/history/`mid` dedupe lưu PostgreSQL.
 
 Chi tiết kiến trúc: [chat-rate-limit-quota.md](./chat-rate-limit-quota.md).
 

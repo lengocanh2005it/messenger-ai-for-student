@@ -1,10 +1,15 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MessengerLinkContext } from '../../../../shared/config/poc.constants';
-import { mergeChatUserTexts } from '../../../../shared/utils/messenger-text.utils';
+import {
+  capMergedChatUserText,
+  mergeChatUserTexts,
+} from '../../../../shared/utils/messenger-text.utils';
 import { ChatRateLimitService } from '../../../chat-rate-limit/application/services/chat-rate-limit.service';
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
+import { MESSENGER_CHAT_SHARED_STATE_REPOSITORY } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
+import type { MessengerChatSharedStateRepositoryPort } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
 import { MessengerAgentService } from '../agent/messenger-agent.service';
 import type { ChatQuotaCheckResult } from '../../../chat-rate-limit/domain/entities/chat-quota.types';
 import {
@@ -13,7 +18,12 @@ import {
   shouldShowQuotaRemainingHint,
 } from '../messages/chat-quota.messages';
 import { MessengerChatHistoryService } from './messenger-chat-history.service';
-import { MessengerOutboundService } from './messenger-outbound.service';
+import { MessengerChatSharedConfigService } from './messenger-chat-shared-config.service';
+import {
+  MessengerOutboundService,
+  MessengerPartialSendError,
+} from './messenger-outbound.service';
+import { buildChatDeliveryErrorMessage } from '../messages/chat-delivery.messages';
 
 export interface EnqueueChatMessageInput {
   psid: string;
@@ -35,10 +45,22 @@ interface PsidChatQueueState {
   lastPendingIdempotencyKey?: string;
 }
 
+interface ChatBatchInput {
+  psid: string;
+  mergedText: string;
+  userId?: number;
+  linkContext?: MessengerLinkContext;
+  idempotencyKey?: string;
+}
+
 @Injectable()
 export class MessengerChatQueueService {
   private readonly logger = new Logger(MessengerChatQueueService.name);
   private readonly queues = new Map<string, PsidChatQueueState>();
+  private readonly sharedFlushTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
 
   constructor(
     private readonly configService: ConfigService,
@@ -48,6 +70,11 @@ export class MessengerChatQueueService {
     private readonly chatRateLimitService: ChatRateLimitService,
     @Inject(MESSENGER_REPOSITORY)
     private readonly messengerRepository: MessengerRepositoryPort,
+    @Optional()
+    private readonly sharedConfig?: MessengerChatSharedConfigService,
+    @Optional()
+    @Inject(MESSENGER_CHAT_SHARED_STATE_REPOSITORY)
+    private readonly sharedState?: MessengerChatSharedStateRepositoryPort,
   ) {}
 
   enqueue(input: EnqueueChatMessageInput): void {
@@ -57,6 +84,11 @@ export class MessengerChatQueueService {
     }
 
     void this.outbound.sendSenderAction(input.psid, 'mark_seen');
+
+    if (this.isSharedMode()) {
+      void this.enqueueShared(input, text);
+      return;
+    }
 
     let state = this.queues.get(input.psid);
     if (!state) {
@@ -89,6 +121,34 @@ export class MessengerChatQueueService {
     this.scheduleFlush(input.psid, state);
   }
 
+  /** H7: worker/cron entry for shared queue flush. */
+  async flushReady(psid: string): Promise<void> {
+    await this.flush(psid);
+  }
+
+  private async enqueueShared(
+    input: EnqueueChatMessageInput,
+    text: string,
+  ): Promise<void> {
+    try {
+      await this.sharedState!.appendChatBuffer({
+        psid: input.psid,
+        userText: text,
+        userId: input.userId,
+        linkContext: input.linkContext,
+        idempotencyKey: input.idempotencyKey,
+        debounceMs: this.getDebounceMs(),
+      });
+      this.scheduleSharedFlush(input.psid);
+    } catch (error) {
+      this.logger.error(
+        `Shared chat enqueue failed psid=${input.psid}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
   private scheduleFlush(psid: string, state: PsidChatQueueState): void {
     if (state.debounceTimer) {
       clearTimeout(state.debounceTimer);
@@ -99,22 +159,127 @@ export class MessengerChatQueueService {
     }, this.getDebounceMs());
   }
 
+  private scheduleSharedFlush(psid: string): void {
+    const existing = this.sharedFlushTimers.get(psid);
+    if (existing) {
+      clearTimeout(existing);
+    }
+
+    const timer = setTimeout(() => {
+      this.sharedFlushTimers.delete(psid);
+      void this.flush(psid);
+    }, this.getDebounceMs());
+
+    this.sharedFlushTimers.set(psid, timer);
+  }
+
   private async flush(psid: string): Promise<void> {
+    if (this.isSharedMode()) {
+      await this.flushShared(psid);
+      return;
+    }
+
+    await this.flushMemory(psid);
+  }
+
+  private async flushShared(psid: string): Promise<void> {
+    const snapshot = await this.sharedState!.claimReadyBuffer(
+      psid,
+      this.getDebounceMs(),
+      this.sharedConfig!.getProcessingStuckMs(),
+    );
+
+    if (!snapshot || snapshot.texts.length === 0) {
+      return;
+    }
+
+    const mergedText = capMergedChatUserText(
+      mergeChatUserTexts(snapshot.texts),
+      this.getMergedTextMaxChars(),
+    );
+
+    try {
+      await this.processChatBatch({
+        psid,
+        mergedText,
+        userId: snapshot.userId,
+        linkContext: snapshot.linkContext,
+        idempotencyKey: snapshot.lastIdempotencyKey,
+      });
+    } finally {
+      const hasPending = await this.sharedState!.completeChatBuffer({
+        psid,
+        debounceMs: this.getDebounceMs(),
+      });
+
+      if (hasPending) {
+        this.scheduleSharedFlush(psid);
+      }
+    }
+  }
+
+  private async flushMemory(psid: string): Promise<void> {
     const state = this.queues.get(psid);
     if (!state || state.processing || !state.texts.length) {
       return;
     }
 
     state.processing = true;
-    const mergedText = mergeChatUserTexts(state.texts);
+    const mergedText = capMergedChatUserText(
+      mergeChatUserTexts(state.texts),
+      this.getMergedTextMaxChars(),
+    );
     state.texts = [];
     const { userId, linkContext } = state;
     const idempotencyKey = state.lastIdempotencyKey;
     state.lastIdempotencyKey = undefined;
 
+    try {
+      await this.processChatBatch({
+        psid,
+        mergedText,
+        userId,
+        linkContext,
+        idempotencyKey,
+      });
+    } finally {
+      state.processing = false;
+
+      if (state.pendingWhileProcessing.length > 0) {
+        state.texts.push(...state.pendingWhileProcessing);
+        state.pendingWhileProcessing = [];
+        state.lastIdempotencyKey = state.lastPendingIdempotencyKey;
+        state.lastPendingIdempotencyKey = undefined;
+      }
+
+      if (state.texts.length > 0) {
+        this.scheduleFlush(psid, state);
+      } else if (
+        !state.debounceTimer &&
+        state.pendingWhileProcessing.length === 0
+      ) {
+        this.queues.delete(psid);
+      }
+    }
+  }
+
+  private async processChatBatch(input: ChatBatchInput): Promise<void> {
+    const { psid, mergedText, userId, linkContext, idempotencyKey } = input;
+
     let reservedUsageDate: string | undefined;
     let reservedIdempotencyKey: string | undefined;
     let reservedQuota: ChatQuotaCheckResult | undefined;
+    let mainReplyDelivered = false;
+    let quotaFinalized = false;
+
+    const finalizeQuota = async (): Promise<void> => {
+      if (quotaFinalized || !reservedIdempotencyKey) {
+        return;
+      }
+
+      await this.chatRateLimitService.markCompleted(reservedIdempotencyKey);
+      quotaFinalized = true;
+    };
 
     try {
       await this.outbound.sendSenderAction(psid, 'typing_on');
@@ -161,6 +326,11 @@ export class MessengerChatQueueService {
             status: 'SENT',
           });
         }
+      } else if (this.chatRateLimitService.shouldEnforceForPsid(psid)) {
+        this.logger.error(
+          `Chat flush without message.mid psid=${psid}; skipped (H5)`,
+        );
+        return;
       } else {
         this.logger.warn(
           `Chat flush without message.mid psid=${psid}; rate limit reserve skipped`,
@@ -172,83 +342,154 @@ export class MessengerChatQueueService {
         userId,
         userText: mergedText,
         linkContext,
-        history: this.chatHistory.getHistory(psid),
+        history: await this.chatHistory.getHistory(psid),
       });
 
-      if (reply.text.trim()) {
-        this.chatHistory.appendTurn(psid, mergedText, reply.text);
-        await this.outbound.sendTextBubblesViaPsid({
+      const assistantText = reply.text.trim();
+      if (assistantText) {
+        await this.chatHistory.appendTurn(psid, mergedText, assistantText);
+        mainReplyDelivered = await this.deliverMainReplyBubbles({
           psid,
           userId,
-          text: reply.text,
-          messageType: 'FREE_FORM_CHAT_OUT',
-          maxBubbles: this.getMaxBubbles(),
-          maxCharsPerBubble: this.getMaxCharsPerBubble(),
+          text: assistantText,
         });
+
+        if (mainReplyDelivered) {
+          await finalizeQuota();
+        }
+      } else if (reservedIdempotencyKey) {
+        await finalizeQuota();
       }
 
-      if (reply.richFollowUps.length > 0) {
-        await this.outbound.sendRichFollowUps({
-          psid,
-          userId,
-          followUps: reply.richFollowUps,
-        });
-      }
-
-      if (reservedQuota) {
-        await this.sendQuotaRemainingHintIfNeeded(psid, userId, reservedQuota);
-      }
-
-      if (reservedIdempotencyKey) {
-        await this.chatRateLimitService.markCompleted(reservedIdempotencyKey);
-      }
+      await this.deliverOptionalChatExtras({
+        psid,
+        userId,
+        richFollowUps: reply.richFollowUps,
+        reservedQuota,
+      });
     } catch (error) {
-      if (reservedIdempotencyKey && reservedUsageDate) {
-        await this.chatRateLimitService.refundFreeFormSlot(
-          psid,
-          reservedUsageDate,
-          reservedIdempotencyKey,
-        );
-      }
+      if (!quotaFinalized && !mainReplyDelivered) {
+        if (reservedIdempotencyKey && reservedUsageDate) {
+          await this.chatRateLimitService.refundFreeFormSlot(
+            psid,
+            reservedUsageDate,
+            reservedIdempotencyKey,
+          );
+        }
 
-      this.logger.error(
-        `Chat queue failed for psid=${psid}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-
-      try {
-        await this.outbound.sendTextViaPsid({
-          psid,
-          userId,
-          text: 'Xin lỗi, mình chưa xử lý được tin nhắn. Bạn thử gửi lại sau giây lát nhé.',
-          messageType: 'FREE_FORM_CHAT_ERROR',
-        });
-      } catch (sendError) {
         this.logger.error(
-          `Failed to send chat error fallback psid=${psid}: ${
-            sendError instanceof Error ? sendError.message : String(sendError)
+          `Chat queue failed before delivery psid=${psid}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+
+        await this.sendChatDeliveryFallback(psid, userId, error);
+      } else {
+        this.logger.error(
+          `Chat queue failed after partial delivery psid=${psid}: ${
+            error instanceof Error ? error.message : String(error)
           }`,
         );
       }
-    } finally {
-      state.processing = false;
+    }
+  }
 
-      if (state.pendingWhileProcessing.length > 0) {
-        state.texts.push(...state.pendingWhileProcessing);
-        state.pendingWhileProcessing = [];
-        state.lastIdempotencyKey = state.lastPendingIdempotencyKey;
-        state.lastPendingIdempotencyKey = undefined;
-      }
+  private isSharedMode(): boolean {
+    return this.sharedConfig?.isSharedQueueEnabled() === true;
+  }
 
-      if (state.texts.length > 0) {
-        this.scheduleFlush(psid, state);
-      } else if (
-        !state.debounceTimer &&
-        state.pendingWhileProcessing.length === 0
+  /** H4: mark quota consumed once the first main reply bubble is sent. */
+  private async deliverMainReplyBubbles(params: {
+    psid: string;
+    userId?: number;
+    text: string;
+  }): Promise<boolean> {
+    try {
+      const bubblesSent = await this.outbound.sendTextBubblesViaPsid({
+        psid: params.psid,
+        userId: params.userId,
+        text: params.text,
+        messageType: 'FREE_FORM_CHAT_OUT',
+        maxBubbles: this.getMaxBubbles(),
+        maxCharsPerBubble: this.getMaxCharsPerBubble(),
+      });
+
+      return bubblesSent > 0;
+    } catch (error) {
+      if (
+        error instanceof MessengerPartialSendError &&
+        error.bubblesSent > 0
       ) {
-        this.queues.delete(psid);
+        this.logger.warn(
+          `Partial main reply delivery psid=${params.psid} bubblesSent=${error.bubblesSent}`,
+        );
+        return true;
       }
+
+      throw error;
+    }
+  }
+
+  /** H4: follow-up / hint failures must not rollback the main reply or quota. */
+  private async deliverOptionalChatExtras(params: {
+    psid: string;
+    userId?: number;
+    richFollowUps: Awaited<
+      ReturnType<MessengerAgentService['reply']>
+    >['richFollowUps'];
+    reservedQuota?: ChatQuotaCheckResult;
+  }): Promise<void> {
+    if (params.richFollowUps.length > 0) {
+      try {
+        await this.outbound.sendRichFollowUps({
+          psid: params.psid,
+          userId: params.userId,
+          followUps: params.richFollowUps,
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Rich follow-up delivery failed psid=${params.psid}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    if (params.reservedQuota) {
+      try {
+        await this.sendQuotaRemainingHintIfNeeded(
+          params.psid,
+          params.userId,
+          params.reservedQuota,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Quota hint delivery failed psid=${params.psid}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+  }
+
+  private async sendChatDeliveryFallback(
+    psid: string,
+    userId: number | undefined,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      await this.outbound.sendTextViaPsid({
+        psid,
+        userId,
+        text: buildChatDeliveryErrorMessage(error),
+        messageType: 'FREE_FORM_CHAT_ERROR',
+      });
+    } catch (sendError) {
+      this.logger.error(
+        `Failed to send chat error fallback psid=${psid}: ${
+          sendError instanceof Error ? sendError.message : String(sendError)
+        }`,
+      );
     }
   }
 
@@ -270,6 +511,10 @@ export class MessengerChatQueueService {
       text: buildChatQuotaRemainingHintMessage(quota.remaining),
       messageType: 'CHAT_QUOTA_REMAINING_HINT',
     });
+  }
+
+  private getMergedTextMaxChars(): number {
+    return this.chatRateLimitService.getSettings().mergedTextMaxChars;
   }
 
   private getDebounceMs(): number {

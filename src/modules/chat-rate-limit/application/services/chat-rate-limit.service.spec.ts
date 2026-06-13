@@ -23,6 +23,9 @@ describe('ChatRateLimitService', () => {
           CHAT_USAGE_TIMEZONE: 'Asia/Ho_Chi_Minh',
           CHAT_RATE_LIMIT_WHITELIST_PSIDS: options.whitelistPsids ?? '',
           CHAT_QUOTA_REMAINING_HINT_THRESHOLD: '3',
+          CHAT_IDEMPOTENCY_STUCK_RESERVED_MS: '600000',
+          CHAT_MERGED_TEXT_MAX_CHARS: '4000',
+          CHAT_BURST_COUNT_REFUNDED: 'false',
         };
         return values[key];
       },
@@ -44,19 +47,25 @@ describe('ChatRateLimitService', () => {
         return Promise.resolve(count);
       }),
       tryReserveIdempotency: jest.fn(),
-      reserveFreeFormSlotInTransaction: jest.fn(({ idempotencyKey }) => {
-        reserveCallCount += 1;
-        if (idempotencyKeys.has(idempotencyKey)) {
-          return Promise.resolve({ status: 'idempotency_conflict' });
-        }
+      reserveFreeFormSlotInTransaction: jest.fn(
+        ({ idempotencyKey, dailyLimit = 15 }) => {
+          reserveCallCount += 1;
+          if (idempotencyKeys.has(idempotencyKey)) {
+            return Promise.resolve({ status: 'idempotency_conflict' });
+          }
 
-        idempotencyKeys.add(idempotencyKey);
-        count += 1;
-        return Promise.resolve({
-          status: 'reserved',
-          freeFormCount: count,
-        });
-      }),
+          if (count >= dailyLimit) {
+            return Promise.resolve({ status: 'daily_limit_exceeded' });
+          }
+
+          idempotencyKeys.add(idempotencyKey);
+          count += 1;
+          return Promise.resolve({
+            status: 'reserved',
+            freeFormCount: count,
+          });
+        },
+      ),
       refundReservedSlot: jest.fn(({ idempotencyKey }) => {
         if (!idempotencyKeys.has(idempotencyKey)) {
           return Promise.resolve(false);
@@ -73,6 +82,10 @@ describe('ChatRateLimitService', () => {
         Promise.resolve(options.burstCount ?? 0),
       ),
       updateIdempotencyStatus: jest.fn(() => Promise.resolve(true)),
+      getIdempotencyByKey: jest.fn(() => Promise.resolve(null)),
+      listStuckReserved: jest.fn(() => Promise.resolve([])),
+      recoverIdempotencyForRetry: jest.fn(() => Promise.resolve('not_found')),
+      recoverAllStuckReserved: jest.fn(() => Promise.resolve([])),
     };
 
     const service = new ChatRateLimitService(configService, repository);
@@ -160,13 +173,20 @@ describe('ChatRateLimitService', () => {
   });
 
   it('denies reserve on burst limit before daily transaction', async () => {
-    const { service, getCount, getReserveCallCount } = createService(true, 0, {
-      burstCount: 3,
-    });
+    const { service, getCount, getReserveCallCount, repository } =
+      createService(true, 0, {
+        burstCount: 3,
+      });
 
     const result = await service.reserveFreeFormSlot('psid-1', {
       idempotencyKey: 'mid-burst',
     });
+
+    expect(repository.countRecentReservations).toHaveBeenCalledWith(
+      'psid-1',
+      expect.any(Date),
+      { includeRefunded: false },
+    );
 
     expect(result).toMatchObject({
       allowed: false,
@@ -248,6 +268,83 @@ describe('ChatRateLimitService', () => {
       allowed: true,
       used: 0,
       remaining: 15,
+    });
+  });
+
+  it('re-reserves after recovering stale reserved idempotency on conflict', async () => {
+    const { service, repository } = createService(true, 0);
+    const reserveMock =
+      repository.reserveFreeFormSlotInTransaction as jest.Mock;
+    reserveMock
+      .mockResolvedValueOnce({ status: 'idempotency_conflict' })
+      .mockResolvedValueOnce({ status: 'reserved', freeFormCount: 1 });
+    (repository.recoverIdempotencyForRetry as jest.Mock).mockResolvedValue(
+      'reopened',
+    );
+
+    const result = await service.reserveFreeFormSlot('psid-1', {
+      idempotencyKey: 'mid-stuck',
+    });
+
+    expect(repository.recoverIdempotencyForRetry).toHaveBeenCalledWith(
+      'mid-stuck',
+      expect.any(Date),
+    );
+    expect(reserveMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      allowed: true,
+      used: 1,
+      quotaReserved: true,
+    });
+  });
+
+  it('still denies duplicate reserve when idempotency is in flight', async () => {
+    const { service, repository } = createService(true, 1);
+    (
+      repository.reserveFreeFormSlotInTransaction as jest.Mock
+    ).mockResolvedValue({ status: 'idempotency_conflict' });
+    (repository.recoverIdempotencyForRetry as jest.Mock).mockResolvedValue(
+      'in_flight',
+    );
+
+    const result = await service.reserveFreeFormSlot('psid-1', {
+      idempotencyKey: 'mid-flight',
+    });
+
+    expect(result).toMatchObject({
+      allowed: false,
+      reason: 'IDEMPOTENCY_CONFLICT',
+    });
+  });
+
+  it('recovers stuck reserved keys via ops helper', async () => {
+    const { service, repository } = createService(true, 2);
+    (repository.recoverAllStuckReserved as jest.Mock).mockResolvedValue([
+      'mid-a',
+      'mid-b',
+    ]);
+
+    await expect(service.recoverStuckReservedSlots()).resolves.toEqual({
+      recovered: ['mid-a', 'mid-b'],
+    });
+  });
+
+  it('denies reserve from transaction hard cap even if pre-check passed (H3)', async () => {
+    const { service, repository } = createService(true, 14);
+    (
+      repository.reserveFreeFormSlotInTransaction as jest.Mock
+    ).mockResolvedValue({ status: 'daily_limit_exceeded' });
+
+    const result = await service.reserveFreeFormSlot('psid-1', {
+      idempotencyKey: 'mid-cap',
+    });
+
+    expect(result).toMatchObject({
+      allowed: false,
+      used: 14,
+      limit: 15,
+      reason: 'DAILY_LIMIT',
+      quotaReserved: false,
     });
   });
 });

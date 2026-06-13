@@ -84,6 +84,38 @@ function readWhitelist() {
     .filter((psid) => psid.length > 0);
 }
 
+function readStuckReservedMs() {
+  const raw = process.env.CHAT_IDEMPOTENCY_STUCK_RESERVED_MS?.trim();
+  if (!raw) {
+    return 600_000;
+  }
+
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(
+      'CHAT_IDEMPOTENCY_STUCK_RESERVED_MS must be a positive number in .env',
+    );
+  }
+
+  return Math.floor(value);
+}
+
+function readRetentionDays() {
+  const raw = process.env.CHAT_IDEMPOTENCY_RETENTION_DAYS?.trim();
+  if (!raw) {
+    return 90;
+  }
+
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(
+      'CHAT_IDEMPOTENCY_RETENTION_DAYS must be a positive number in .env',
+    );
+  }
+
+  return Math.floor(value);
+}
+
 const args = parseArgs(process.argv.slice(2));
 const timezone =
   process.env.CHAT_USAGE_TIMEZONE?.trim() ?? 'Asia/Ho_Chi_Minh';
@@ -94,6 +126,9 @@ const remainingHintThreshold = readPositiveNumber(
   'CHAT_QUOTA_REMAINING_HINT_THRESHOLD',
   3,
 );
+const stuckReservedMs = readStuckReservedMs();
+const retentionDays = readRetentionDays();
+const stuckBefore = new Date(Date.now() - stuckReservedMs);
 
 const pool = new pg.Pool({
   host: process.env.DB_HOST,
@@ -150,9 +185,109 @@ try {
       FROM messenger_chat_idempotency
       WHERE ($1::varchar IS NULL OR psid = $1)
         AND reserved_at > NOW() - INTERVAL '1 minute'
+        AND status IN ('reserved', 'completed')
     `,
     [args.psid],
   );
+
+  const stuckResult = await pool.query(
+    `
+      SELECT
+        idempotency_key,
+        psid,
+        user_id,
+        usage_date,
+        reserved_at
+      FROM messenger_chat_idempotency
+      WHERE status = 'reserved'
+        AND reserved_at < $1
+        AND ($2::varchar IS NULL OR psid = $2)
+      ORDER BY reserved_at ASC
+      LIMIT 50
+    `,
+    [stuckBefore, args.psid],
+  );
+
+  const idempotencyStatsResult = await pool.query(
+    `
+      SELECT status, COUNT(*)::int AS count
+      FROM messenger_chat_idempotency
+      WHERE ($1::varchar IS NULL OR psid = $1)
+        AND ($2::int IS NULL OR user_id = $2)
+        AND usage_date = $3::date
+      GROUP BY status
+      ORDER BY status ASC
+    `,
+    [args.psid, args.userId, usageDate],
+  );
+
+  const retentionEligibleResult = await pool.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM messenger_chat_idempotency
+      WHERE status IN ('completed', 'refunded')
+        AND reserved_at < NOW() - ($1::int * INTERVAL '1 day')
+    `,
+    [retentionDays],
+  );
+
+  const idempotencyTotalResult = await pool.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM messenger_chat_idempotency
+    `,
+  );
+
+  const denyLogsResult = await pool.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM messenger_message_logs
+      WHERE message_type = 'CHAT_QUOTA_DENIED'
+        AND ($1::varchar IS NULL OR psid = $1)
+        AND ($2::int IS NULL OR user_id = $2)
+        AND created_at::date = $3::date
+    `,
+    [args.psid, args.userId, usageDate],
+  );
+
+  let sharedQueueStats = null;
+  try {
+    const bufferStats = await pool.query(
+      `
+        SELECT
+          COUNT(*)::int AS total_buffers,
+          COUNT(*) FILTER (WHERE processing = true)::int AS processing_buffers,
+          COUNT(*) FILTER (
+            WHERE processing = false
+              AND flush_after_at IS NOT NULL
+              AND flush_after_at <= NOW()
+              AND jsonb_array_length(texts) > 0
+          )::int AS ready_buffers
+        FROM messenger_chat_queue_buffer
+        WHERE ($1::varchar IS NULL OR psid = $1)
+      `,
+      [args.psid],
+    );
+    const historyStats = await pool.query(
+      `
+        SELECT COUNT(*)::int AS history_rows
+        FROM messenger_chat_history
+        WHERE ($1::varchar IS NULL OR psid = $1)
+      `,
+      [args.psid],
+    );
+
+    sharedQueueStats = {
+      queueSharedEnv: process.env.CHAT_QUEUE_SHARED === 'true',
+      buffers: bufferStats.rows[0] ?? null,
+      historyRows: historyStats.rows[0]?.history_rows ?? 0,
+    };
+  } catch {
+    sharedQueueStats = {
+      queueSharedEnv: process.env.CHAT_QUEUE_SHARED === 'true',
+      note: 'messenger_chat_queue_buffer not available (run migration:run)',
+    };
+  }
 
   const summary = dailyUsageResult.rows.map((row) => ({
     psid: row.psid,
@@ -177,18 +312,36 @@ try {
           dailyLimit,
           burstPerMinute,
           remainingHintThreshold,
+          stuckReservedMs,
+          retentionDays,
           timezone,
           whitelistedPsids: readWhitelist(),
+        },
+        observability: {
+          idempotencyByStatus: idempotencyStatsResult.rows,
+          idempotencyTableTotal: idempotencyTotalResult.rows[0]?.count ?? 0,
+          retentionEligibleCount: retentionEligibleResult.rows[0]?.count ?? 0,
+          chatQuotaDeniedLogsToday: denyLogsResult.rows[0]?.count ?? 0,
+          sharedQueue: sharedQueueStats,
+          logGrepHints: [
+            'CHAT_QUOTA_DENY',
+            'CHAT_QUOTA_REFUND',
+            'CHAT_QUOTA_RECOVERED',
+          ],
         },
         runbook: {
           recommendedPoc: {
             dailyLimit: '15-20',
             burstPerMinute: 3,
           },
+          recoverStuck: 'npm run chat-quota:recover-stuck',
+          cleanupIdempotency: 'npm run chat-quota:cleanup',
           note: 'Bật CHAT_RATE_LIMIT_ENABLED=true trên production POC sau khi QA xong.',
         },
         summary,
         burstLastMinute: args.psid ? burstResult.rows[0]?.recent_count ?? 0 : null,
+        stuckReserved: stuckResult.rows,
+        stuckReservedBefore: stuckBefore.toISOString(),
         dailyUsage: dailyUsageResult.rows,
         idempotency: idempotencyResult.rows,
       },

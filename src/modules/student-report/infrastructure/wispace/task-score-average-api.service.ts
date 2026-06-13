@@ -3,6 +3,7 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
+import { StudentReportNoScoreDataError } from '../../domain/errors/student-report-no-score-data.error';
 import { ConfigService } from '@nestjs/config';
 import { TaskScoreAverageRecord } from '../../domain/types/task-score-average.types';
 import { StudentCapacityInput } from '../../domain/types/student-capacity.types';
@@ -21,9 +22,7 @@ export class TaskScoreAverageApiService {
     const records = await this.fetchTaskScoreAverages(psid);
 
     if (records.length === 0) {
-      throw new InternalServerErrorException(
-        `TaskScoreAverage API has no data for psid=${psid}`,
-      );
+      throw new StudentReportNoScoreDataError(psid);
     }
 
     const goals = await this.userGoalsApiService.getUserGoals(psid);

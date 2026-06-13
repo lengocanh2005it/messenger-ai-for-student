@@ -18,6 +18,8 @@
     "study-reminder:sync-only": "npm run build && node --env-file=.env scripts/sync-study-reminder-jobs.mjs --sync-only",
     "study-reminder:jobs": "node --env-file=.env scripts/show-study-reminder-jobs.mjs",
     "chat-quota:status": "node --env-file=.env scripts/chat-quota-status.mjs",
+    "chat-quota:recover-stuck": "node --env-file=.env scripts/chat-quota-recover-stuck.mjs",
+    "chat-quota:cleanup": "node --env-file=.env scripts/chat-quota-cleanup-idempotency.mjs",
     "migration:run": "npm run build && node --env-file=.env ./node_modules/typeorm/cli.js migration:run -d dist/infrastructure/database/data-source.js",
     "migration:revert": "npm run build && node --env-file=.env ./node_modules/typeorm/cli.js migration:revert -d dist/infrastructure/database/data-source.js",
     "migration:show": "npm run build && node --env-file=.env ./node_modules/typeorm/cli.js migration:show -d dist/infrastructure/database/data-source.js",

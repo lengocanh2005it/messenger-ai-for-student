@@ -1,4 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { MESSENGER_CHAT_SHARED_STATE_REPOSITORY } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
+import type { MessengerChatSharedStateRepositoryPort } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
+import { MessengerChatSharedConfigService } from './messenger-chat-shared-config.service';
 
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant';
@@ -17,7 +20,22 @@ export class MessengerChatHistoryService {
 
   private readonly store = new Map<string, ChatHistoryState>();
 
-  getHistory(psid: string): ChatHistoryMessage[] {
+  constructor(
+    @Optional()
+    private readonly sharedConfig?: MessengerChatSharedConfigService,
+    @Optional()
+    @Inject(MESSENGER_CHAT_SHARED_STATE_REPOSITORY)
+    private readonly sharedState?: MessengerChatSharedStateRepositoryPort,
+  ) {}
+
+  async getHistory(psid: string): Promise<ChatHistoryMessage[]> {
+    if (this.isShared()) {
+      return this.sharedState!.getChatHistory(
+        psid,
+        this.sharedConfig!.getHistoryTtlMs(),
+      );
+    }
+
     this.evictStale();
 
     const state = this.store.get(psid);
@@ -33,14 +51,28 @@ export class MessengerChatHistoryService {
     return [...state.messages];
   }
 
-  appendTurn(psid: string, userText: string, assistantText: string): void {
+  async appendTurn(
+    psid: string,
+    userText: string,
+    assistantText: string,
+  ): Promise<void> {
     const user = userText.trim();
     const assistant = assistantText.trim();
     if (!user || !assistant) {
       return;
     }
 
-    const existing = this.getHistory(psid);
+    if (this.isShared()) {
+      await this.sharedState!.appendChatHistoryTurn(
+        psid,
+        user,
+        assistant,
+        this.sharedConfig!.getHistoryMaxMessages(),
+      );
+      return;
+    }
+
+    const existing = await this.getHistory(psid);
     const messages = [
       ...existing,
       { role: 'user' as const, content: user },
@@ -53,8 +85,17 @@ export class MessengerChatHistoryService {
     });
   }
 
-  clear(psid: string): void {
+  async clear(psid: string): Promise<void> {
+    if (this.isShared()) {
+      await this.sharedState!.clearChatHistory(psid);
+      return;
+    }
+
     this.store.delete(psid);
+  }
+
+  private isShared(): boolean {
+    return this.sharedConfig?.isSharedQueueEnabled() === true;
   }
 
   private evictStale(): void {

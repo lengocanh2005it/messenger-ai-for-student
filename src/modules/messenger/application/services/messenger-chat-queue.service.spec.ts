@@ -10,6 +10,10 @@ import {
 } from '../messages/chat-quota.messages';
 import type { MessengerChatHistoryService } from './messenger-chat-history.service';
 import type { MessengerOutboundService } from './messenger-outbound.service';
+import {
+  MessengerApiError,
+  MessengerPartialSendError,
+} from './messenger-outbound.service';
 import { MessengerChatQueueService } from './messenger-chat-queue.service';
 
 describe('MessengerChatQueueService', () => {
@@ -25,10 +29,10 @@ describe('MessengerChatQueueService', () => {
     ...overrides,
   });
 
-  const createService = () => {
+  const createService = (options: { shouldEnforce?: boolean } = {}) => {
     const sendSenderAction = jest.fn(() => Promise.resolve());
     const sendTextViaPsid = jest.fn(() => Promise.resolve());
-    const sendTextBubblesViaPsid = jest.fn(() => Promise.resolve());
+    const sendTextBubblesViaPsid = jest.fn(() => Promise.resolve(1));
     const sendRichFollowUps = jest.fn(() => Promise.resolve());
     const outbound = {
       sendSenderAction,
@@ -59,6 +63,7 @@ describe('MessengerChatQueueService', () => {
       reserveFreeFormSlot,
       markCompleted,
       refundFreeFormSlot,
+      shouldEnforceForPsid: jest.fn(() => options.shouldEnforce ?? false),
       getSettings: jest.fn(() => ({
         enabled: true,
         freeFormDailyLimit: 15,
@@ -66,6 +71,9 @@ describe('MessengerChatQueueService', () => {
         timezone: 'Asia/Ho_Chi_Minh',
         whitelistedPsids: [],
         remainingHintThreshold: 3,
+        stuckReservedMs: 600_000,
+        mergedTextMaxChars: 100,
+        burstCountsRefunded: false,
       })),
     } as unknown as ChatRateLimitService;
 
@@ -80,6 +88,7 @@ describe('MessengerChatQueueService', () => {
           CHAT_DEBOUNCE_MS: '0',
           CHAT_MAX_BUBBLES: '4',
           CHAT_BUBBLE_MAX_CHARS: '640',
+          CHAT_MERGED_TEXT_MAX_CHARS: '100',
         };
         return values[key];
       },
@@ -97,6 +106,7 @@ describe('MessengerChatQueueService', () => {
     return {
       service,
       sendTextViaPsid,
+      sendTextBubblesViaPsid,
       reply,
       reserveFreeFormSlot,
       markCompleted,
@@ -331,5 +341,146 @@ describe('MessengerChatQueueService', () => {
         messageType: 'CHAT_QUOTA_REMAINING_HINT',
       }),
     );
+  });
+
+  it('refunds quota when Send API fails before any main bubble (H4)', async () => {
+    const {
+      service,
+      sendTextBubblesViaPsid,
+      refundFreeFormSlot,
+      markCompleted,
+    } = createService();
+    sendTextBubblesViaPsid.mockRejectedValue(
+      new MessengerApiError('Send failed', 500, 'Error', '{}'),
+    );
+
+    service.enqueue({
+      psid: 'psid-1',
+      userText: 'Hello',
+      idempotencyKey: 'mid-send-fail',
+    });
+
+    await jest.runOnlyPendingTimersAsync();
+
+    expect(refundFreeFormSlot).toHaveBeenCalledWith(
+      'psid-1',
+      '2026-06-15',
+      'mid-send-fail',
+    );
+    expect(markCompleted).not.toHaveBeenCalled();
+  });
+
+  it('keeps quota when at least one main bubble was delivered (H4)', async () => {
+    const {
+      service,
+      sendTextBubblesViaPsid,
+      refundFreeFormSlot,
+      markCompleted,
+    } = createService();
+    sendTextBubblesViaPsid.mockRejectedValue(
+      new MessengerPartialSendError(
+        1,
+        new MessengerApiError('Send failed', 500, 'Error', '{}'),
+      ),
+    );
+
+    service.enqueue({
+      psid: 'psid-1',
+      userText: 'Hello',
+      idempotencyKey: 'mid-partial',
+    });
+
+    await jest.runOnlyPendingTimersAsync();
+
+    expect(markCompleted).toHaveBeenCalledWith('mid-partial');
+    expect(refundFreeFormSlot).not.toHaveBeenCalled();
+  });
+
+  it('does not refund when quota hint fails after main reply (H4)', async () => {
+    const { service, sendTextViaPsid, refundFreeFormSlot, markCompleted } =
+      createService();
+    sendTextViaPsid.mockImplementation((params: { messageType: string }) => {
+      if (params.messageType === 'CHAT_QUOTA_REMAINING_HINT') {
+        return Promise.reject(new Error('hint send failed'));
+      }
+
+      return Promise.resolve();
+    });
+
+    service.enqueue({
+      psid: 'psid-1',
+      userText: 'Hello',
+      idempotencyKey: 'mid-hint-fail',
+    });
+
+    await jest.runOnlyPendingTimersAsync();
+
+    expect(markCompleted).toHaveBeenCalledWith('mid-hint-fail');
+    expect(refundFreeFormSlot).not.toHaveBeenCalled();
+  });
+
+  it('sends 24h window guidance when Send API rejects outside window (H4)', async () => {
+    const { service, sendTextBubblesViaPsid, sendTextViaPsid } =
+      createService();
+    sendTextBubblesViaPsid.mockRejectedValue(
+      new MessengerApiError(
+        'Send failed',
+        400,
+        'Bad Request',
+        '{"error":{"code":10,"message":"Outside the allowed window"}}',
+      ),
+    );
+
+    service.enqueue({
+      psid: 'psid-1',
+      userText: 'Hello',
+      idempotencyKey: 'mid-window',
+    });
+
+    await jest.runOnlyPendingTimersAsync();
+
+    expect(sendTextViaPsid).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageType: 'FREE_FORM_CHAT_ERROR',
+        text: expect.stringContaining('24 giờ'),
+      }),
+    );
+  });
+
+  it('caps merged debounce text before LLM (H5)', async () => {
+    const { service, reply } = createService();
+
+    service.enqueue({
+      psid: 'psid-1',
+      userText: 'a'.repeat(80),
+      idempotencyKey: 'mid-1',
+    });
+    service.enqueue({
+      psid: 'psid-1',
+      userText: 'b'.repeat(80),
+      idempotencyKey: 'mid-2',
+    });
+
+    await jest.runOnlyPendingTimersAsync();
+
+    const userText = reply.mock.calls[0]?.[0]?.userText as string;
+    expect(userText.length).toBeLessThanOrEqual(100);
+    expect(userText).toContain('…');
+  });
+
+  it('skips flush without mid when rate limit enforces (H5)', async () => {
+    const { service, reply, reserveFreeFormSlot } = createService({
+      shouldEnforce: true,
+    });
+
+    service.enqueue({
+      psid: 'psid-1',
+      userText: 'Hello',
+    });
+
+    await jest.runOnlyPendingTimersAsync();
+
+    expect(reserveFreeFormSlot).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalled();
   });
 });

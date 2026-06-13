@@ -22,6 +22,17 @@ export class MessengerApiError extends Error {
   }
 }
 
+/** H4: at least one bubble was delivered before a later Send API failure. */
+export class MessengerPartialSendError extends MessengerApiError {
+  constructor(
+    readonly bubblesSent: number,
+    cause: MessengerApiError,
+  ) {
+    super(cause.message, cause.status, cause.statusText, cause.responseBody);
+    this.name = 'MessengerPartialSendError';
+  }
+}
+
 export type MessengerSenderAction = 'mark_seen' | 'typing_on' | 'typing_off';
 
 @Injectable()
@@ -48,7 +59,7 @@ export class MessengerOutboundService implements MessageSenderPort {
     userId?: number;
     maxBubbles?: number;
     maxCharsPerBubble?: number;
-  }): Promise<void> {
+  }): Promise<number> {
     const bubbles = splitMessengerBubbles(
       params.text,
       params.maxBubbles ?? 4,
@@ -56,20 +67,34 @@ export class MessengerOutboundService implements MessageSenderPort {
     );
 
     if (!bubbles.length) {
-      return;
+      return 0;
     }
 
+    let sentCount = 0;
+
     for (const [index, bubble] of bubbles.entries()) {
-      await this.sendTextViaPsid({
-        psid: params.psid,
-        userId: params.userId,
-        text: bubble,
-        messageType:
-          bubbles.length > 1
-            ? `${params.messageType}_PART_${index + 1}_OF_${bubbles.length}`
-            : params.messageType,
-      });
+      try {
+        await this.sendTextViaPsid({
+          psid: params.psid,
+          userId: params.userId,
+          text: bubble,
+          messageType:
+            bubbles.length > 1
+              ? `${params.messageType}_PART_${index + 1}_OF_${bubbles.length}`
+              : params.messageType,
+        });
+        sentCount += 1;
+      } catch (error) {
+        const apiError = this.toMessengerApiError(params.psid, error);
+        if (sentCount > 0) {
+          throw new MessengerPartialSendError(sentCount, apiError);
+        }
+
+        throw apiError;
+      }
     }
+
+    return sentCount;
   }
 
   async sendRichFollowUps(params: {
@@ -234,6 +259,20 @@ export class MessengerOutboundService implements MessageSenderPort {
       });
       throw error;
     }
+  }
+
+  private toMessengerApiError(psid: string, error: unknown): MessengerApiError {
+    if (error instanceof MessengerApiError) {
+      return error;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    return new MessengerApiError(
+      `Messenger Send API failed for PSID ${psid}: ${message}`,
+      0,
+      'Error',
+      message,
+    );
   }
 
   private async callSendApiByPsid(
