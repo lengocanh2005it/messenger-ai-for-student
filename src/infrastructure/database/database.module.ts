@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
+  MessengerChatDailyUsageEntity,
+  MessengerChatIdempotencyEntity,
   MessengerMessageLogEntity,
   StudyReminderJobEntity,
   UserEntity,
@@ -19,6 +21,8 @@ import { getAppTypeOrmOptions } from './typeorm.options';
     TypeOrmModule.forFeature([
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,
+      MessengerChatDailyUsageEntity,
+      MessengerChatIdempotencyEntity,
       StudyReminderJobEntity,
       UserEntity,
     ]),

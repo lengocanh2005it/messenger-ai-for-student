@@ -1,6 +1,8 @@
 import { join } from 'path';
 import { DataSourceOptions } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import { MessengerChatDailyUsageEntity } from './entities/messenger-chat-daily-usage.entity';
+import { MessengerChatIdempotencyEntity } from './entities/messenger-chat-idempotency.entity';
 import { MessengerMessageLogEntity } from './entities/messenger-message-log.entity';
 import { StudyReminderJobEntity } from './entities/study-reminder-job.entity';
 import { UserMessengerMappingEntity } from './entities/user-messenger-mapping.entity';
@@ -34,6 +36,8 @@ export function getTypeOrmOptions(
     entities: [
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,
+      MessengerChatDailyUsageEntity,
+      MessengerChatIdempotencyEntity,
       StudyReminderJobEntity,
       ...(options?.includeUsers ? [UserEntity] : []),
     ],

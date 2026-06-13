@@ -8,6 +8,7 @@ import { MessengerModule } from './modules/messenger/messenger.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { StudentReportModule } from './modules/student-report/student-report.module';
 import { StudyReminderModule } from './modules/study-reminder/study-reminder.module';
+import { ChatRateLimitModule } from './modules/chat-rate-limit/chat-rate-limit.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { StudyReminderModule } from './modules/study-reminder/study-reminder.mod
     StudyReminderModule,
     MessengerModule,
     SchedulerModule,
+    ChatRateLimitModule,
   ],
   controllers: [AppController],
   providers: [AppService],

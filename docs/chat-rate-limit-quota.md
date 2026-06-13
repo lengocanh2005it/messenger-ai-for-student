@@ -24,8 +24,9 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | Chat AI hai chiều (`MessengerChatQueueService` → agent + tools) | ✓ Đã có |
 | Dedupe webhook `message.mid` (in-memory, TTL 1h) | ✓ Đã có — `MessengerService.isDuplicateMessageMid` |
 | Dedupe postback (`psid:payload`, TTL 15s) | ✓ Đã có |
-| Rate limit / `messenger_chat_daily_usage` | ✗ Chưa — chỉ tài liệu này |
-| Idempotency **DB** cho quota (survive restart / multi-instance) | ✗ Chưa |
+| Rate limit / `messenger_chat_daily_usage` | ✓ V1 — `ChatRateLimitModule` |
+| Idempotency DB cho quota (`message.mid`) | ✓ V1 — `messenger_chat_idempotency` |
+| Burst / whitelist / ops script | ✓ Phase 4–5 |
 
 Luồng chat text hiện tại: webhook → dedupe `mid` (RAM) → enqueue → debounce → LLM → Send API. **Chưa** trừ quota.
 
@@ -542,19 +543,19 @@ class ChatRateLimitService {
 | Production nhẹ | 30 | 5/phút |
 | Whitelist QA | unlimited (config `psid` list) | — |
 
-### 5.7. Checklist triển khai
+### 5.7. Checklist triển khai (V1 — done)
 
-- [ ] Migration `messenger_chat_daily_usage`
-- [ ] Migration `messenger_chat_idempotency` (hoặc unique `message.mid` trên log IN)
-- [ ] Entity + repository + `ChatRateLimitService` (`reserve` / `refund` / `markCompleted`)
-- [ ] Wire **`MessengerChatQueueService.flush()`** — reserve + idempotency **trước** LLM; refund trong `catch`
-- [ ] Giữ dedupe RAM `isDuplicateMessageMid` ở webhook (fast path)
-- [ ] Quy ước debounce: **1 lượt / 1 flush**; document idempotency key khi merge burst
-- [ ] `message_type` mới: `FREE_FORM_CHAT_IN`, `FREE_FORM_CHAT_OUT`, `CHAT_QUOTA_DENIED`
-- [ ] Env: `CHAT_FREE_FORM_DAILY_LIMIT`, `CHAT_BURST_PER_MINUTE`, `CHAT_USAGE_TIMEZONE`
-- [ ] Script ops: query usage + idempotency theo `psid` / `user_id` / ngày
-- [ ] Test: retry webhook cùng `mid` → count không tăng; LLM fail → refund
-- [ ] Cập nhật [project-overview.md](./project-overview.md) khi merge code
+- [x] Migration `messenger_chat_daily_usage`
+- [x] Migration `messenger_chat_idempotency` (hoặc unique `message.mid` trên log IN)
+- [x] Entity + repository + `ChatRateLimitService` (`reserve` / `refund` / `markCompleted`)
+- [x] Wire **`MessengerChatQueueService.flush()`** — reserve + idempotency **trước** LLM; refund trong `catch`
+- [x] Giữ dedupe RAM `isDuplicateMessageMid` ở webhook (fast path)
+- [x] Quy ước debounce: **1 lượt / 1 flush**; document idempotency key khi merge burst
+- [x] `message_type` mới: `FREE_FORM_CHAT_IN`, `FREE_FORM_CHAT_OUT`, `CHAT_QUOTA_DENIED`
+- [x] Env: `CHAT_FREE_FORM_DAILY_LIMIT`, `CHAT_BURST_PER_MINUTE`, `CHAT_USAGE_TIMEZONE`
+- [x] Script ops: `npm run chat-quota:status` — query usage + idempotency theo `psid` / `user_id` / ngày
+- [x] Test: retry webhook cùng `mid` → count không tăng; LLM fail → refund
+- [x] Cập nhật [project-overview.md](./project-overview.md) khi merge code
 
 ### 5.8. Lộ trình sau (optional — sau V1 production)
 

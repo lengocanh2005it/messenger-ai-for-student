@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CommonModule } from '../../shared/common/common.module';
+import { ChatRateLimitModule } from '../chat-rate-limit/chat-rate-limit.module';
 import { StudentReportModule } from '../student-report/student-report.module';
 import { StudyReminderModule } from '../study-reminder/study-reminder.module';
 import { MessengerAgentToolsService } from './application/agent/messenger-agent-tools.service';
@@ -15,6 +16,7 @@ import { MessengerController } from './presentation/controllers/messenger.contro
   imports: [
     CommonModule,
     MessengerOutboundModule,
+    ChatRateLimitModule,
     StudentReportModule,
     StudyReminderModule,
   ],
