@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UserGoalsApiService } from '../../../student-report/infrastructure/wispace/user-goals-api.service';
+import { WispaceApiError } from '../../../student-report/domain/errors/wispace-api.error';
 import {
   CreateUserCalendarInput,
   UserCalendarRecord,
@@ -14,6 +15,19 @@ import {
   normalizeCreatedCalendarRecord,
   normalizeUserCalendarRecords,
 } from './user-calendar-record.normalizer';
+import { withRetry } from '../../../../shared/common/with-retry';
+
+function isWispaceRetryable(error: unknown): boolean {
+  if (
+    error !== null &&
+    typeof error === 'object' &&
+    'isRetryable' in error &&
+    typeof (error as { isRetryable: unknown }).isRetryable === 'function'
+  ) {
+    return (error as { isRetryable: () => boolean }).isRetryable();
+  }
+  return error instanceof TypeError;
+}
 
 @Injectable()
 export class UserCalendarApiService {
@@ -26,14 +40,38 @@ export class UserCalendarApiService {
 
   async listCalendars(psid: string): Promise<UserCalendarRecord[]> {
     const url = this.getBaseUrl();
+    const maxRetries = this.readPositiveInt('WISPACE_API_MAX_RETRIES', 3);
+    const baseDelayMs = this.readPositiveInt(
+      'WISPACE_API_RETRY_BASE_DELAY_MS',
+      500,
+    );
+
+    return withRetry(() => this.doListCalendars(url, psid), {
+      maxRetries,
+      baseDelayMs,
+      shouldRetry: isWispaceRetryable,
+      onRetry: (attempt, max, err) =>
+        this.logger.warn(
+          `UserCalendar retry ${attempt}/${max} (psid=${psid}): ${err instanceof Error ? err.message : String(err)}`,
+        ),
+    });
+  }
+
+  private async doListCalendars(
+    url: string,
+    psid: string,
+  ): Promise<UserCalendarRecord[]> {
     const response = await fetch(url, {
       headers: this.userGoalsApiService.buildWispaceHeaders(psid),
     });
 
     if (!response.ok) {
       const body = await response.text();
-      throw new InternalServerErrorException(
+      throw new WispaceApiError(
         `UserCalendar API failed: HTTP ${response.status} ${response.statusText} - ${body}`,
+        response.status,
+        psid,
+        'UserCalendar',
       );
     }
 
@@ -102,6 +140,15 @@ export class UserCalendarApiService {
         `UserCalendar API delete failed: HTTP ${response.status} ${response.statusText} - ${body}`,
       );
     }
+  }
+
+  private readPositiveInt(key: string, defaultValue: number): number {
+    const raw = this.configService.get<string>(key)?.trim();
+    if (!raw) return defaultValue;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0
+      ? Math.floor(value)
+      : defaultValue;
   }
 
   private getBaseUrl(): string {

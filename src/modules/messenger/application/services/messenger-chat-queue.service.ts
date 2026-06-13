@@ -416,10 +416,7 @@ export class MessengerChatQueueService {
 
       return bubblesSent > 0;
     } catch (error) {
-      if (
-        error instanceof MessengerPartialSendError &&
-        error.bubblesSent > 0
-      ) {
+      if (error instanceof MessengerPartialSendError && error.bubblesSent > 0) {
         this.logger.warn(
           `Partial main reply delivery psid=${params.psid} bubblesSent=${error.bubblesSent}`,
         );

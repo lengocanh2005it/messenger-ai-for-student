@@ -38,4 +38,7 @@ export interface StudyReminderJobRepositoryPort {
   }): Promise<void>;
 
   resetStuckProcessingJobs(cutoff: Date): Promise<number>;
+
+  /** Returns the soonest time any pending/retryable job becomes actionable (after `after`). */
+  findNextDueTime(after: Date): Promise<Date | null>;
 }

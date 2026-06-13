@@ -14,7 +14,9 @@ export class OpsHealthCronService {
   })
   async handleDailyOpsHealthCron(): Promise<void> {
     if (!this.opsHealthService.isAlertCronEnabled()) {
-      this.logger.log('OPS_HEALTH_ALERT_ENABLED=false; skip daily ops health cron');
+      this.logger.log(
+        'OPS_HEALTH_ALERT_ENABLED=false; skip daily ops health cron',
+      );
       return;
     }
 

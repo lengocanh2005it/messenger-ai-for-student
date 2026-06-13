@@ -28,9 +28,7 @@ interface QueueBufferRow {
 }
 
 @Injectable()
-export class MessengerChatSharedStateRepository
-  implements MessengerChatSharedStateRepositoryPort
-{
+export class MessengerChatSharedStateRepository implements MessengerChatSharedStateRepositoryPort {
   constructor(
     @InjectRepository(MessengerChatQueueBufferEntity)
     private readonly queueBufferRepo: Repository<MessengerChatQueueBufferEntity>,
@@ -41,10 +39,7 @@ export class MessengerChatSharedStateRepository
     private readonly configService: ConfigService,
   ) {}
 
-  async tryMarkWebhookSeen(
-    messageMid: string,
-    psid: string,
-  ): Promise<boolean> {
+  async tryMarkWebhookSeen(messageMid: string, psid: string): Promise<boolean> {
     const rows: Array<{ message_mid: string }> =
       await this.webhookSeenRepo.manager.query(
         `
@@ -263,9 +258,7 @@ export class MessengerChatSharedStateRepository
     });
   }
 
-  async completeChatBuffer(
-    input: CompleteChatBufferInput,
-  ): Promise<boolean> {
+  async completeChatBuffer(input: CompleteChatBufferInput): Promise<boolean> {
     return this.queueBufferRepo.manager.transaction(async (manager) => {
       const rows: QueueBufferRow[] = await manager.query(
         `
@@ -382,27 +375,51 @@ export class MessengerChatSharedStateRepository
       return;
     }
 
-    const existing = await this.getChatHistory(
-      psid,
-      this.readHistoryTtlMs(),
-    );
-    const messages = [
-      ...existing,
-      { role: 'user' as const, content: user },
-      { role: 'assistant' as const, content: assistant },
-    ].slice(-maxMessages);
+    const ttlMs = this.readHistoryTtlMs();
 
-    await this.chatHistoryRepo.manager.query(
-      `
-        INSERT INTO messenger_chat_history (psid, messages, updated_at)
-        VALUES ($1, $2::jsonb, now())
-        ON CONFLICT (psid)
-        DO UPDATE SET
-          messages = EXCLUDED.messages,
-          updated_at = now()
-      `,
-      [psid, JSON.stringify(messages)],
-    );
+    await this.chatHistoryRepo.manager.transaction(async (manager) => {
+      // Serialize concurrent writes for the same psid (e.g., stuck-recovery
+      // triggering two flushes simultaneously). Transaction-scoped lock —
+      // auto-released on commit/rollback.
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `chat_history:${psid}`,
+      ]);
+
+      const row = await manager.findOne(MessengerChatHistoryEntity, {
+        where: { psid },
+        select: { messages: true, updatedAt: true },
+      });
+
+      let existing: ChatHistoryMessage[] = [];
+      if (row) {
+        if (Date.now() - row.updatedAt.getTime() > ttlMs) {
+          await manager.delete(MessengerChatHistoryEntity, { psid });
+        } else {
+          existing = row.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          }));
+        }
+      }
+
+      const messages = [
+        ...existing,
+        { role: 'user' as const, content: user },
+        { role: 'assistant' as const, content: assistant },
+      ].slice(-maxMessages);
+
+      await manager.query(
+        `
+          INSERT INTO messenger_chat_history (psid, messages, updated_at)
+          VALUES ($1, $2::jsonb, now())
+          ON CONFLICT (psid)
+          DO UPDATE SET
+            messages = EXCLUDED.messages,
+            updated_at = now()
+        `,
+        [psid, JSON.stringify(messages)],
+      );
+    });
   }
 
   async clearChatHistory(psid: string): Promise<void> {

@@ -1,10 +1,12 @@
 export { MessengerChatDailyUsageEntity } from './messenger-chat-daily-usage.entity';
+export { MessengerWebhookDeadLetterEntity } from './messenger-webhook-dead-letter.entity';
 export { MessengerChatHistoryEntity } from './messenger-chat-history.entity';
 export { MessengerChatIdempotencyEntity } from './messenger-chat-idempotency.entity';
 export { MessengerChatQueueBufferEntity } from './messenger-chat-queue-buffer.entity';
 export { MessengerChatWebhookSeenEntity } from './messenger-chat-webhook-seen.entity';
 export { MessengerMessageLogEntity } from './messenger-message-log.entity';
 export { MessengerScheduledReportClaimEntity } from './messenger-scheduled-report-claim.entity';
+export { ReportSendJobEntity } from './report-send-job.entity';
 export { StudyReminderJobEntity } from './study-reminder-job.entity';
 export { UserMessengerMappingEntity } from './user-messenger-mapping.entity';
 export { UserEntity } from './user.entity';

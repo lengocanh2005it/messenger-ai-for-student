@@ -207,11 +207,12 @@ Tất cả endpoint dưới đây yêu cầu header **`X-Internal-Api-Key`** (ho
 | Method | Path | Body | Mô tả |
 |--------|------|------|--------|
 | POST | `/messenger/study-calendar/sync` | `{ "userId": number }` | **Wispace gọi** sau POST/DELETE `UserCalendar` |
-| POST | `/messenger/send-reports` | — | Gửi báo cáo (bỏ qua cửa sổ ngày thi) |
+| POST | `/messenger/send-reports` | `{ "psid"?: string, "allowDuplicate"?: boolean }` | Ops gửi báo cáo: bypass cửa sổ thi; mặc định skip đã gửi hôm nay |
+| POST | `/messenger/send-reports/retry-dispatch` | — | Chạy tay dispatch outbox R5 |
 | POST | `/messenger/sync-study-reminders` | — | Sync toàn bộ user (ops / cron dự phòng) |
 | POST | `/messenger/send-study-reminders` | — | Sync + dispatch job đến hạn |
 | POST | `/messenger/profile/setup` | — | Cấu hình menu bot (ops) |
-| POST | `/messenger/test-send` | `{ "psid": string }` | Gửi thử báo cáo (ops) |
+| POST | `/messenger/test-send` | `{ "psid": string, "allowDuplicate"?: boolean }` | Gửi thử báo cáo (ops); mặc định skip nếu đã có cron hôm nay |
 
 Cron nội bộ (sync 30 phút, dispatch 1 phút) **không** qua HTTP — không cần API key.
 

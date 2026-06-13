@@ -19,7 +19,9 @@ import {
 } from '../../../../shared/config/poc.constants';
 import { StudentReportService } from '../../../student-report/application/services/student-report.service';
 import { StudentReportRetryableError } from '../../../student-report/domain/errors/wispace-api.error';
-import { buildStudentReportApiRetryMessage } from '../../../student-report/application/messages/student-report.messages';
+import {
+  buildStudentReportApiRetryMessage,
+} from '../../../student-report/application/messages/student-report.messages';
 import { getNoUpcomingStudySessionMessage } from '../../../study-reminder/application/messages/study-reminder.messages';
 import { StudyReminderScheduleService } from '../../../study-reminder/application/services/study-reminder-schedule.service';
 import { StudyReminderService } from '../../../study-reminder/application/services/study-reminder.service';
@@ -29,6 +31,8 @@ import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.reposi
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
 import { MESSENGER_CHAT_SHARED_STATE_REPOSITORY } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
 import type { MessengerChatSharedStateRepositoryPort } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
+import { MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY } from '../../domain/repositories/messenger-webhook-dead-letter.repository.port';
+import type { MessengerWebhookDeadLetterRepositoryPort } from '../../domain/repositories/messenger-webhook-dead-letter.repository.port';
 import {
   MessengerWebhookEvent,
   MessengerWebhookPayload,
@@ -77,6 +81,9 @@ export class MessengerService {
     @Optional()
     @Inject(MESSENGER_CHAT_SHARED_STATE_REPOSITORY)
     private readonly sharedState?: MessengerChatSharedStateRepositoryPort,
+    @Optional()
+    @Inject(MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY)
+    private readonly deadLetterRepository?: MessengerWebhookDeadLetterRepositoryPort,
   ) {}
 
   verifyWebhook(token?: string, challenge?: string): string {
@@ -115,15 +122,56 @@ export class MessengerService {
           const handled = await this.handleEvent(event);
           processed += handled ? 1 : 0;
         } catch (error) {
-          failures.push({
-            psid: event.sender?.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+
+          failures.push({ psid: event.sender?.id, error: errorMessage });
+
+          this.logger.warn(
+            `Webhook event for PSID ${event.sender?.id ?? 'unknown'} failed — saving to dead-letter: ${errorMessage}`,
+          );
+
+          if (this.deadLetterRepository) {
+            await this.deadLetterRepository
+              .save({
+                psid: event.sender?.id ?? null,
+                messageMid: event.message?.mid ?? null,
+                rawPayload: event as object,
+                errorMessage,
+              })
+              .catch((saveErr: unknown) => {
+                this.logger.error(
+                  `Failed to save dead-letter entry: ${
+                    saveErr instanceof Error ? saveErr.message : String(saveErr)
+                  }`,
+                );
+              });
+          }
         }
       }
     }
 
     return { processed, failures };
+  }
+
+  /**
+   * Replay a single stored dead-letter event.
+   * Calls handleEvent directly — failures are NOT re-saved to dead-letter
+   * (the caller, typically the retry cron, is responsible for tracking retries).
+   */
+  async replayWebhookEvent(
+    rawPayload: object,
+  ): Promise<{ handled: boolean; error?: string }> {
+    const event = rawPayload as MessengerWebhookEvent;
+    try {
+      const handled = await this.handleEvent(event);
+      return { handled };
+    } catch (error) {
+      return {
+        handled: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async registerForScheduledReports(
@@ -230,7 +278,21 @@ export class MessengerService {
     }
   }
 
-  async sendReportToPsid(psid: string): Promise<string> {
+  async sendReportToPsid(
+    psid: string,
+    options?: { allowDuplicate?: boolean },
+  ): Promise<{ report: string; skipped: boolean }> {
+    if (!options?.allowDuplicate) {
+      const alreadySent =
+        await this.repository.hasSentScheduledReportToday(psid);
+      if (alreadySent) {
+        this.logger.log(
+          `Skip test-send psid=${psid}: scheduled report already sent today (R5)`,
+        );
+        return { report: '', skipped: true };
+      }
+    }
+
     const userId = await this.resolveUserId(psid);
 
     try {
@@ -241,7 +303,7 @@ export class MessengerService {
         text: report,
         messageType: 'LEARNING_REPORT',
       });
-      return report;
+      return { report, skipped: false };
     } catch (error) {
       if (error instanceof StudentReportRetryableError) {
         const retryMessage = buildStudentReportApiRetryMessage();
@@ -251,11 +313,11 @@ export class MessengerService {
           text: retryMessage,
           messageType: 'LEARNING_REPORT_API_DEFERRED',
         });
-        return retryMessage;
+        return { report: retryMessage, skipped: false };
       }
 
       if (error instanceof ProactiveMessenger24hSkippedError) {
-        return '';
+        return { report: '', skipped: false };
       }
 
       throw error;

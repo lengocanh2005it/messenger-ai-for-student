@@ -35,7 +35,10 @@ export class OpsHealthService {
   }
 
   async collectSnapshot(): Promise<OpsHealthSnapshot> {
-    const failedHours = this.readPositiveNumber('OPS_ALERT_FAILED_JOBS_HOURS', 24);
+    const failedHours = this.readPositiveNumber(
+      'OPS_ALERT_FAILED_JOBS_HOURS',
+      24,
+    );
     const stuckProcessingMinutes = this.readPositiveNumber(
       'OPS_ALERT_STUCK_PROCESSING_MINUTES',
       10,
@@ -78,7 +81,9 @@ export class OpsHealthService {
 
     if (snapshot.alerts.length > 0) {
       for (const alert of snapshot.alerts) {
-        this.logger.warn(`OPS_HEALTH_ALERT code=${alert.code} ${alert.message}`);
+        this.logger.warn(
+          `OPS_HEALTH_ALERT code=${alert.code} ${alert.message}`,
+        );
       }
 
       this.logger.warn(
@@ -98,7 +103,10 @@ export class OpsHealthService {
     studyReminder: OpsHealthSnapshot['studyReminder'];
   }): OpsHealthAlert[] {
     const alerts: OpsHealthAlert[] = [];
-    const minFailedJobs = this.readPositiveNumber('OPS_ALERT_MIN_FAILED_JOBS', 1);
+    const minFailedJobs = this.readPositiveNumber(
+      'OPS_ALERT_MIN_FAILED_JOBS',
+      1,
+    );
     const minStuckReserved = this.readPositiveNumber(
       'OPS_ALERT_MIN_STUCK_RESERVED',
       1,

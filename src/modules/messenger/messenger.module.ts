@@ -4,7 +4,10 @@ import {
   MessengerChatHistoryEntity,
   MessengerChatQueueBufferEntity,
   MessengerChatWebhookSeenEntity,
+  MessengerWebhookDeadLetterEntity,
 } from '../../infrastructure/database/entities';
+import { MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY } from './domain/repositories/messenger-webhook-dead-letter.repository.port';
+import { MessengerWebhookDeadLetterRepository } from './infrastructure/persistence/messenger-webhook-dead-letter.repository';
 import { CommonModule } from '../../shared/common/common.module';
 import { ChatRateLimitModule } from '../chat-rate-limit/chat-rate-limit.module';
 import { StudentReportModule } from '../student-report/student-report.module';
@@ -14,6 +17,7 @@ import { MessengerAgentService } from './application/agent/messenger-agent.servi
 import { MessengerChatHistoryService } from './application/services/messenger-chat-history.service';
 import { MessengerChatQueueService } from './application/services/messenger-chat-queue.service';
 import { MessengerChatQueueWorkerService } from './application/services/messenger-chat-queue-worker.service';
+import { MessengerWebhookDeadLetterCronService } from './application/services/messenger-webhook-dead-letter-cron.service';
 import { MessengerChatSharedConfigService } from './application/services/messenger-chat-shared-config.service';
 import { MessengerMappingService } from './application/services/messenger-mapping.service';
 import { MessengerService } from './application/services/messenger.service';
@@ -34,6 +38,7 @@ import { MessengerController } from './presentation/controllers/messenger.contro
       MessengerChatQueueBufferEntity,
       MessengerChatHistoryEntity,
       MessengerChatWebhookSeenEntity,
+      MessengerWebhookDeadLetterEntity,
     ]),
   ],
   controllers: [MessengerController],
@@ -52,6 +57,12 @@ import { MessengerController } from './presentation/controllers/messenger.contro
       provide: MESSENGER_CHAT_SHARED_STATE_REPOSITORY,
       useExisting: MessengerChatSharedStateRepository,
     },
+    MessengerWebhookDeadLetterRepository,
+    {
+      provide: MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY,
+      useExisting: MessengerWebhookDeadLetterRepository,
+    },
+    MessengerWebhookDeadLetterCronService,
   ],
   exports: [MessengerOutboundModule, MessengerService, MessengerMappingService],
 })

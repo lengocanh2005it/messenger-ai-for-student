@@ -18,7 +18,8 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **L3** ✓ | Mapping đổi `user_id` (PSID giữ nguyên) | 1 ngày | Thấp (hiếm) |
 | **R1** ✓ | Báo cáo: empty score → tin thân thiện | 0.5 ngày | Trung bình |
 | **R2** ✓ | Báo cáo: chia bubble dài | 0.5 ngày | Thấp |
-| **R3** ✓ | Báo cáo: retry / dead-letter khi API lỗi | 1–1.5 ngày | Trung bình |
+| **R3** ✓ | Báo cáo: phân loại lỗi Wispace (defer cron / UX menu) | 1–1.5 ngày | Trung bình |
+| **R5** ✓ | Báo cáo: outbox retry 5xx (như nhắc lịch) | 1–1.5 ngày | Khi Wispace hay 503 |
 | **R4** ✓ | Báo cáo 08:00: idempotency / cron leader (≥2 pod) | 1 ngày | Chỉ khi scale |
 | **S0** ✓ | Wispace wire `study-calendar/sync` | 0.5 ngày (Wispace) | **Cao** — tích hợp |
 | **S1** ✓ | Alert ops job `failed` / stuck nhắc lịch | 0.5 ngày | Trung bình |
@@ -26,10 +27,11 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **C1** | Tier quota theo gói Wispace | 2+ ngày | Product sau |
 | **C2** | Event store / billing LLM | 2+ ngày | Product sau |
 | **I1** ✓ | Alert / grep `CHAT_QUOTA_*` + runbook | 0.5 ngày | Trung bình |
+| **DL** ✓ | Dead-letter webhook + auto-retry cron | 1.5 ngày | Multi-pod / production |
 | **I2** | Monitor tổng hợp (Slack/webhook ops) | 1 ngày | Khi có user thật |
 | **I3** | Bỏ fallback DB `UserCalendars` | 1 ngày | Khi API ổn định |
 
-**Thứ tự khuyến nghị:** ~~Q1/S0/I1/S1/L1/R1/L2/R2/R3/L3/R4~~ (✓) → `CHAT_QUEUE_SHARED` khi scale → phần còn lại theo feedback user.
+**Thứ tự khuyến nghị:** ~~Q1/S0/I1/S1/L1/R1/L2/R2/R3/L3/R4/R5~~ (✓) → `CHAT_QUEUE_SHARED` khi scale → phần còn lại theo feedback user.
 
 ```mermaid
 flowchart LR
@@ -61,7 +63,7 @@ flowchart LR
 
 | Gap | Ảnh hưởng | Khắc phục | Phase |
 |-----|-----------|-----------|-------|
-| Webhook Meta retry; lỗi 1 event | Event khác vẫn xử lý (đúng); event lỗi mất | Log `failures[]` đủ; optional bảng `webhook_dead_letter` + replay script ops | **L3** (optional) |
+| ~~Webhook Meta retry; lỗi 1 event~~ | ~~Event khác vẫn xử lý (đúng); event lỗi mất~~ | **DL** ✓ — `messenger_webhook_dead_letters` + auto-retry cron 5 phút + advisory lock + script ops | Done |
 
 ---
 
@@ -75,17 +77,67 @@ flowchart LR
 | Skip đã gửi hôm nay | `hasSentScheduledReportToday` |
 | Lỗi từng user không chặn batch | `report-cron.service` try/catch per mapping |
 | Thiếu OpenAI key | Fallback template |
-| Menu + ops `send-reports` | `forceSend` bypass window |
+| Menu + ops `send-reports` | `forceSend` bypass cửa sổ; mặc định **skip** đã gửi hôm nay; `{ psid }` gửi một user |
 | **TaskScoreAverage rỗng** | **R1** — `StudentReportNoScoreDataError` → tin hướng dẫn làm bài, không throw |
 | **Báo cáo bubble dài** | **R2** ✓ — `sendTextBubblesViaPsid` + `CHAT_MAX_BUBBLES` |
-| **Wispace API lỗi** | **R3** ✓ — 5xx defer/retry message; 4xx tin “chưa đủ dữ liệu” |
+| **Wispace API lỗi** | **R3** ✓ + **R5** ✓ — 5xx: outbox `report_send_jobs`, cron retry 15 phút đến `daysUntilExam >= 0`; menu tin “thử lại sau”; 4xx tin “chưa đủ dữ liệu” |
 | **Meta 24h proactive** | **L2** ✓ — `*_MESSENGER_24H` log; cron `windowClosed` / `deferred` |
 | **Multi-pod cron 08:00** | **R4** ✓ — `messenger_scheduled_report_claims`, advisory lock, `CRON_LEADER_*` |
+| **Outbox retry báo cáo 5xx** | **R5** ✓ — `report_send_jobs`, `ReportSendRetryDispatchService` cron `*/15` ICT |
 
 ### Gap & khắc phục
 
 | Gap | Ảnh hưởng | Khắc phục | Phase |
 |-----|-----------|-----------|-------|
+| Menu 503 — chỉ UX, không auto-retry | User phải bấm lại «Xem tiến độ» | Chấp nhận POC; optional hẹn retry postback | Backlog |
+
+### 2.1 R3 + R5 — Hành vi báo cáo (đã có ✓)
+
+**R5** bổ sung outbox `report_send_jobs` (unique `psid` + `exam_date`): cron 08:00 ghi job khi 5xx → poll **15 phút** retry đến khi gửi thành công hoặc `daysUntilExam < 0` / hết `REPORT_SEND_MAX_RETRIES`.
+
+#### So sánh nhanh
+
+| | Nhắc lịch | Báo cáo cron + R5 outbox | Menu «Xem tiến độ» |
+|--|-----------|--------------------------|---------------------|
+| Wispace **5xx** | Retry backoff phút, `study_reminder_jobs` | **R5** — `report_send_jobs`, retry đến ngày trước thi (`daysUntilExam >= 0`) | Tin `*_API_DEFERRED`; user tự bấm lại |
+| Ngày cuối cửa sổ + 503 | Retry trong ngày | **R5** — retry 8:15, 8:30… và **ngày 13** (1 ngày trước thi) nếu còn retry | — |
+
+Code: `ReportSendJobRepository`, `ReportSendRetryDispatchService`, `ReportCronService.retryQueued`, env `REPORT_SEND_*`.
+
+#### Ví dụ — Lan thi **ngày 14**, 503 ngày cuối cửa sổ (đã fix R5)
+
+| Thời điểm | Việc xảy ra |
+|-----------|-------------|
+| **12** 8:00 | Cron 503 → job `report_send_jobs`, `next_retry_at` 8:15 |
+| **12** 8:15 | Retry dispatch → OK → Lan nhận báo cáo ✓ |
+| (hoặc 503 cả ngày 12) | **13** 8:15 retry vẫn chạy (`daysUntilExam=1`) → có cơ hội gửi dù cron 8:00 ngày 13 skip cửa sổ |
+
+#### R5 — env
+
+```env
+REPORT_SEND_MAX_RETRIES=3
+REPORT_SEND_RETRY_BACKOFF_MINUTES=15
+REPORT_SEND_RETRY_POLL_MINUTES=15   # khớp cron */15 ICT
+```
+
+Ops dự phòng (không trùng báo cáo):
+
+```bash
+# Một user bị deferred / R5 hết retry
+POST /messenger/send-reports
+{ "psid": "<PSID>" }
+
+# Chạy tay outbox retry
+POST /messenger/send-reports/retry-dispatch
+
+# Gửi lại cả lô (skip người đã nhận hôm nay)
+POST /messenger/send-reports
+{}
+
+# Bắt buộc gửi lại dù đã nhận (hiếm)
+POST /messenger/send-reports
+{ "allowDuplicate": true }
+```
 
 ---
 
@@ -133,10 +185,11 @@ Rate limit V1 + **H1–H7**, agent tools, history RAM/DB, delivery semantics H4.
 | Edge case | Hiện trạng | Khắc phục | Phase |
 |-----------|------------|-----------|-------|
 | **1 instance POC** | Phù hợp | Giữ `CHAT_QUEUE_SHARED=false` | — |
-| **≥2 pod chat** | Queue/history tách pod | `CHAT_QUEUE_SHARED=true` + migration — H7 ✓ | Done (bật env) |
+| **≥2 pod chat** | Queue/history tách pod | `CHAT_QUEUE_SHARED=true` + migration — H7 ✓; `appendChatHistoryTurn` atomic ✓ | Done (bật env) |
 | **≥2 pod cron báo cáo** | ~~Risk gửi trùng 08:00~~ | **R4** ✓ claim + advisory lock + optional cron leader | Done |
-| **≥2 pod cron nhắc** | `claimJob` ✓ | Theo dõi; **S2** nếu DB chậm | **S2** |
-| Monitor / alert | Log + scripts | **I1** ✓ runbook + `ops:health`; **S1** ✓ failed/stuck jobs; **I2** webhook Slack | **I2** |
+| **≥2 pod cron nhắc** | `claimJob` ✓ + **cron pg_advisory_lock** ✓ | `upsertPendingJob` TOCTOU fixed ✓ (`pg_advisory_xact_lock`) | Done |
+| Cron webhook dedupe cleanup multi-pod | N×DELETE | **pg_advisory_lock** ✓ — chỉ 1 pod chạy mỗi 15 phút | Done |
+| Monitor / alert | Log + scripts | **I1** ✓ runbook + `ops:health`; **S1** ✓ failed/stuck jobs; **DL** ✓ dead-letter cron; **I2** Slack alert | **I2** |
 | Wispace **schema** đổi | Fallback DB `UserCalendars` | API-only khi ổn định — **I3** | **I3** |
 
 ### I1 — Ops alert nhẹ (không cần Prometheus) ✓

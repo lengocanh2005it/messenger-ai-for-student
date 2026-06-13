@@ -81,13 +81,22 @@ export class MessengerController {
     @Body()
     body: {
       psid: string;
+      allowDuplicate?: boolean;
     },
   ) {
-    const report = await this.messengerService.sendReportToPsid(body.psid);
+    const psid = body?.psid?.trim();
+    if (!psid) {
+      throw new BadRequestException('psid is required');
+    }
+
+    const result = await this.messengerService.sendReportToPsid(psid, {
+      allowDuplicate: body.allowDuplicate === true,
+    });
 
     return {
       ok: true,
-      message: report,
+      skipped: result.skipped,
+      message: result.report,
     };
   }
 

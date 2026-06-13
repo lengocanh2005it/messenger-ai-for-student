@@ -59,11 +59,7 @@ describe('MessengerChatQueueService shared mode (H7)', () => {
     jest.runOnlyPendingTimers();
     await flushMicrotasks();
 
-    expect(claimReadyBuffer).toHaveBeenCalledWith(
-      'psid-shared',
-      0,
-      300_000,
-    );
+    expect(claimReadyBuffer).toHaveBeenCalledWith('psid-shared', 0, 300_000);
 
     jest.useRealTimers();
   });

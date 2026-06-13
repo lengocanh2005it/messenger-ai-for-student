@@ -29,6 +29,7 @@ export class StudyReminderDispatchService {
     failed: number;
     retried: number;
     resetStuck: number;
+    nextDueAt: Date | null;
     failures: Array<{ jobId: number; psid: string; error: string }>;
   }> {
     const settings = this.studyReminderScheduleService.getOutboxSettings();
@@ -141,6 +142,10 @@ export class StudyReminderDispatchService {
       );
     }
 
+    const nextDueAt = await this.studyReminderJobRepository
+      .findNextDueTime(now)
+      .catch(() => null);
+
     return {
       claimed,
       sent,
@@ -148,6 +153,7 @@ export class StudyReminderDispatchService {
       failed,
       retried,
       resetStuck,
+      nextDueAt,
       failures,
     };
   }

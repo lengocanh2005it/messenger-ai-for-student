@@ -6,6 +6,20 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { WispaceApiError } from '../../domain/errors/wispace-api.error';
 import { UserGoalsRecord } from '../../domain/types/user-goals.types';
+import { withRetry } from '../../../../shared/common/with-retry';
+
+/** Retry on 5xx Wispace errors or transient network failures. Never retry 4xx. */
+function isWispaceRetryable(error: unknown): boolean {
+  if (
+    error !== null &&
+    typeof error === 'object' &&
+    'isRetryable' in error &&
+    typeof (error as { isRetryable: unknown }).isRetryable === 'function'
+  ) {
+    return (error as { isRetryable: () => boolean }).isRetryable();
+  }
+  return error instanceof TypeError; // network / DNS error
+}
 
 @Injectable()
 export class UserGoalsApiService {
@@ -18,6 +32,20 @@ export class UserGoalsApiService {
       this.configService.get<string>('WISPACE_API_USER_GOALS_URL') ??
       'https://backend.aihubproduction.com/api/User/goals';
 
+    return withRetry(() => this.fetchUserGoals(url, psid), {
+      ...this.retryOptions(),
+      shouldRetry: isWispaceRetryable,
+      onRetry: (attempt, max, err) =>
+        this.logger.warn(
+          `User/goals retry ${attempt}/${max} (psid=${psid}): ${err instanceof Error ? err.message : String(err)}`,
+        ),
+    });
+  }
+
+  private async fetchUserGoals(
+    url: string,
+    psid: string,
+  ): Promise<UserGoalsRecord> {
     const response = await fetch(url, {
       headers: this.buildWispaceHeaders(psid),
     });
@@ -37,6 +65,26 @@ export class UserGoalsApiService {
       `User goals API returned targetScore=${data.targetScore}, examDate=${data.examDate} (psid=${psid})`,
     );
     return data;
+  }
+
+  private retryOptions() {
+    const maxRetries = Number(
+      this.configService.get<string>('WISPACE_API_MAX_RETRIES') ?? '3',
+    );
+    const baseDelayMs = Number(
+      this.configService.get<string>('WISPACE_API_RETRY_BASE_DELAY_MS') ??
+        '500',
+    );
+    return {
+      maxRetries:
+        Number.isFinite(maxRetries) && maxRetries >= 0
+          ? Math.floor(maxRetries)
+          : 3,
+      baseDelayMs:
+        Number.isFinite(baseDelayMs) && baseDelayMs > 0
+          ? Math.floor(baseDelayMs)
+          : 500,
+    };
   }
 
   parseExamDate(examDate: string): string {

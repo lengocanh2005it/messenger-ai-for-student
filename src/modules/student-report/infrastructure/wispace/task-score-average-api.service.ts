@@ -9,6 +9,19 @@ import { ConfigService } from '@nestjs/config';
 import { TaskScoreAverageRecord } from '../../domain/types/task-score-average.types';
 import { StudentCapacityInput } from '../../domain/types/student-capacity.types';
 import { UserGoalsApiService } from './user-goals-api.service';
+import { withRetry } from '../../../../shared/common/with-retry';
+
+function isWispaceRetryable(error: unknown): boolean {
+  if (
+    error !== null &&
+    typeof error === 'object' &&
+    'isRetryable' in error &&
+    typeof (error as { isRetryable: unknown }).isRetryable === 'function'
+  ) {
+    return (error as { isRetryable: () => boolean }).isRetryable();
+  }
+  return error instanceof TypeError;
+}
 
 @Injectable()
 export class TaskScoreAverageApiService {
@@ -38,6 +51,27 @@ export class TaskScoreAverageApiService {
       this.configService.get<string>('WISPACE_API_TASK_SCORE_URL') ??
       'https://backend.aihubproduction.com/api/TaskScoreAverage';
 
+    const maxRetries = this.readPositiveInt('WISPACE_API_MAX_RETRIES', 3);
+    const baseDelayMs = this.readPositiveInt(
+      'WISPACE_API_RETRY_BASE_DELAY_MS',
+      500,
+    );
+
+    return withRetry(() => this.doFetchTaskScoreAverages(url, psid), {
+      maxRetries,
+      baseDelayMs,
+      shouldRetry: isWispaceRetryable,
+      onRetry: (attempt, max, err) =>
+        this.logger.warn(
+          `TaskScoreAverage retry ${attempt}/${max} (psid=${psid}): ${err instanceof Error ? err.message : String(err)}`,
+        ),
+    });
+  }
+
+  private async doFetchTaskScoreAverages(
+    url: string,
+    psid: string,
+  ): Promise<TaskScoreAverageRecord[]> {
     const response = await fetch(url, {
       headers: this.userGoalsApiService.buildWispaceHeaders(psid),
     });
@@ -57,6 +91,15 @@ export class TaskScoreAverageApiService {
       `TaskScoreAverage API returned ${data.length} record(s) (psid=${psid})`,
     );
     return data;
+  }
+
+  private readPositiveInt(key: string, defaultValue: number): number {
+    const raw = this.configService.get<string>(key)?.trim();
+    if (!raw) return defaultValue;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0
+      ? Math.floor(value)
+      : defaultValue;
   }
 
   private mapToCapacityInput(

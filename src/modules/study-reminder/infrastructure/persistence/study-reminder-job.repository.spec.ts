@@ -52,14 +52,22 @@ describe('StudyReminderJobRepository', () => {
     store = new Map();
     nextId = 1;
 
-    const jobRepo = {
-      findOne: jest.fn(({ where }: { where: Record<string, string> }) => {
-        return Promise.resolve(
-          store.get(`${where.psid}:${where.sessionKey}`) ?? null,
-        );
-      }),
+    const transactionManager = {
+      query: jest.fn().mockResolvedValue(undefined),
+      findOne: jest.fn(
+        (
+          _entity: typeof StudyReminderJobEntity,
+          { where }: { where: Record<string, string> },
+        ) =>
+          Promise.resolve(
+            store.get(`${where.psid}:${where.sessionKey}`) ?? null,
+          ),
+      ),
       create: jest.fn(
-        (data: Partial<StudyReminderJobEntity>) =>
+        (
+          _entity: typeof StudyReminderJobEntity,
+          data: Partial<StudyReminderJobEntity>,
+        ) =>
           ({
             id: nextId++,
             createdAt: new Date(),
@@ -67,11 +75,25 @@ describe('StudyReminderJobRepository', () => {
             ...data,
           }) as StudyReminderJobEntity,
       ),
-      save: jest.fn((entity: StudyReminderJobEntity) => {
-        const saved = { ...entity, updatedAt: new Date() };
-        store.set(`${saved.psid}:${saved.sessionKey}`, saved);
-        return Promise.resolve(saved);
-      }),
+      save: jest.fn(
+        (
+          _entity: typeof StudyReminderJobEntity,
+          entity: StudyReminderJobEntity,
+        ) => {
+          const saved = { ...entity, updatedAt: new Date() };
+          store.set(`${saved.psid}:${saved.sessionKey}`, saved);
+          return Promise.resolve(saved);
+        },
+      ),
+    };
+
+    const jobRepo = {
+      manager: {
+        transaction: jest.fn(
+          async <T>(callback: (manager: typeof transactionManager) => Promise<T>) =>
+            callback(transactionManager),
+        ),
+      },
     } as unknown as Repository<StudyReminderJobEntity>;
 
     repository = new StudyReminderJobRepository(jobRepo);

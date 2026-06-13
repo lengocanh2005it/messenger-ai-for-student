@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { StudyReminderJobEntity } from '../../../../infrastructure/database/entities/study-reminder-job.entity';
 import {
   StudyReminderJob,
@@ -18,15 +18,27 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
   async upsertPendingJob(
     input: UpsertStudyReminderJobInput,
   ): Promise<StudyReminderJob> {
-    const existing = await this.jobRepo.findOne({
-      where: {
-        psid: input.psid,
-        sessionKey: input.sessionKey,
-      },
+    return this.jobRepo.manager.transaction(async (manager) => {
+      // Serialize concurrent upserts for the same (psid, session_key) pair.
+      // pg_advisory_xact_lock is transaction-scoped — auto-released on commit/rollback.
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `srj:${input.psid}:${input.sessionKey}`,
+      ]);
+
+      return this.doUpsert(manager, input);
+    });
+  }
+
+  private async doUpsert(
+    manager: EntityManager,
+    input: UpsertStudyReminderJobInput,
+  ): Promise<StudyReminderJob> {
+    const existing = await manager.findOne(StudyReminderJobEntity, {
+      where: { psid: input.psid, sessionKey: input.sessionKey },
     });
 
     if (!existing) {
-      const created = this.jobRepo.create({
+      const created = manager.create(StudyReminderJobEntity, {
         psid: input.psid,
         userId: input.userId ?? null,
         sessionKey: input.sessionKey,
@@ -40,7 +52,7 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
         lastError: null,
         sentAt: null,
       });
-      const saved = await this.jobRepo.save(created);
+      const saved = await manager.save(StudyReminderJobEntity, created);
       return this.mapEntity(saved);
     }
 
@@ -50,13 +62,13 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
       }
 
       this.reopenToPending(existing, input);
-      const saved = await this.jobRepo.save(existing);
+      const saved = await manager.save(StudyReminderJobEntity, existing);
       return this.mapEntity(saved);
     }
 
     if (existing.status === 'cancelled') {
       this.reopenToPending(existing, input);
-      const saved = await this.jobRepo.save(existing);
+      const saved = await manager.save(StudyReminderJobEntity, existing);
       return this.mapEntity(saved);
     }
 
@@ -66,7 +78,7 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
       }
 
       this.reopenToPending(existing, input);
-      const saved = await this.jobRepo.save(existing);
+      const saved = await manager.save(StudyReminderJobEntity, existing);
       return this.mapEntity(saved);
     }
 
@@ -80,7 +92,7 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
       existing.lastError = null;
     }
 
-    const saved = await this.jobRepo.save(existing);
+    const saved = await manager.save(StudyReminderJobEntity, existing);
     return this.mapEntity(saved);
   }
 
@@ -272,6 +284,24 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
       .getMany();
 
     return entities.map((entity) => this.mapEntity(entity));
+  }
+
+  async findNextDueTime(after: Date): Promise<Date | null> {
+    const rows = await this.jobRepo.manager.query<
+      Array<{ next_due: Date | null }>
+    >(
+      `SELECT MIN(
+         CASE
+           WHEN next_retry_at IS NOT NULL AND next_retry_at > $1 THEN next_retry_at
+           WHEN remind_at > $1 THEN remind_at
+           ELSE NULL
+         END
+       ) AS next_due
+       FROM study_reminder_jobs
+       WHERE status IN ('pending', 'failed')`,
+      [after],
+    );
+    return rows[0]?.next_due ?? null;
   }
 
   async countStuckProcessing(olderThan: Date): Promise<number> {

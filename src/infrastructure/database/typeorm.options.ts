@@ -8,6 +8,7 @@ import { MessengerChatQueueBufferEntity } from './entities/messenger-chat-queue-
 import { MessengerChatWebhookSeenEntity } from './entities/messenger-chat-webhook-seen.entity';
 import { MessengerMessageLogEntity } from './entities/messenger-message-log.entity';
 import { MessengerScheduledReportClaimEntity } from './entities/messenger-scheduled-report-claim.entity';
+import { ReportSendJobEntity } from './entities/report-send-job.entity';
 import { StudyReminderJobEntity } from './entities/study-reminder-job.entity';
 import { UserMessengerMappingEntity } from './entities/user-messenger-mapping.entity';
 import { UserEntity } from './entities/user.entity';
@@ -41,6 +42,7 @@ export function getTypeOrmOptions(
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,
       MessengerScheduledReportClaimEntity,
+      ReportSendJobEntity,
       MessengerChatDailyUsageEntity,
       MessengerChatIdempotencyEntity,
       MessengerChatQueueBufferEntity,

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CommonModule } from '../../shared/common/common.module';
 import { StudyReminderJobEntity } from '../../infrastructure/database/entities/study-reminder-job.entity';
 import { UserEntity } from '../../infrastructure/database/entities/user.entity';
 import { MessengerOutboundModule } from '../messenger/messenger-outbound.module';
@@ -21,6 +22,7 @@ import { StudyReminderJobRepository } from './infrastructure/persistence/study-r
 
 @Module({
   imports: [
+    CommonModule,
     TypeOrmModule.forFeature([StudyReminderJobEntity, UserEntity]),
     MessengerOutboundModule,
     StudentReportModule,
