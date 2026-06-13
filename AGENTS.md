@@ -189,7 +189,7 @@ domain/entities|repositories/ → application/services|ports/ → infrastructure
 | UserCalendar API client | `study-reminder/infrastructure/wispace/user-calendar-api.service.ts` |
 | Gửi tin từ module khác | Inject `MESSAGE_SENDER`, không `MessengerService` |
 | Sync toàn bộ (ops) | `POST /messenger/sync-study-reminders`, `scripts/sync-study-reminder-jobs.mjs` |
-| Rate limit chat (tương lai) | Xem `docs/chat-rate-limit-quota.md` |
+| Rate limit chat | Thiết kế + roadmap phase §5.9 — [chat-rate-limit-quota.md](docs/chat-rate-limit-quota.md); code chưa |
 
 ---
 
