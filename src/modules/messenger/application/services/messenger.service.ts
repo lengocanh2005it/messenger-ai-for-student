@@ -409,6 +409,7 @@ export class MessengerService {
         userId,
         userText,
         linkContext: context ?? (await this.resolveLinkContext(psid, event)),
+        idempotencyKey: messageMid,
       });
       return true;
     }

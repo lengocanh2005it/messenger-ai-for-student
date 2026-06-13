@@ -1,11 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MessengerLinkContext } from '../../../../shared/config/poc.constants';
-import {
-  mergeChatUserTexts,
-  splitMessengerBubbles,
-} from '../../../../shared/utils/messenger-text.utils';
+import { mergeChatUserTexts } from '../../../../shared/utils/messenger-text.utils';
+import { ChatRateLimitService } from '../../../chat-rate-limit/application/services/chat-rate-limit.service';
+import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
+import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
 import { MessengerAgentService } from '../agent/messenger-agent.service';
+import type { ChatQuotaCheckResult } from '../../../chat-rate-limit/domain/entities/chat-quota.types';
+import {
+  buildChatQuotaDenyMessage,
+  buildChatQuotaRemainingHintMessage,
+  shouldShowQuotaRemainingHint,
+} from '../messages/chat-quota.messages';
 import { MessengerChatHistoryService } from './messenger-chat-history.service';
 import { MessengerOutboundService } from './messenger-outbound.service';
 
@@ -14,15 +20,19 @@ export interface EnqueueChatMessageInput {
   userId?: number;
   userText: string;
   linkContext?: MessengerLinkContext;
+  /** Meta message.mid — idempotency key for the last message in a debounce batch. */
+  idempotencyKey?: string;
 }
 
 interface PsidChatQueueState {
   texts: string[];
+  lastIdempotencyKey?: string;
   userId?: number;
   linkContext?: MessengerLinkContext;
   debounceTimer?: ReturnType<typeof setTimeout>;
   processing: boolean;
   pendingWhileProcessing: string[];
+  lastPendingIdempotencyKey?: string;
 }
 
 @Injectable()
@@ -35,6 +45,9 @@ export class MessengerChatQueueService {
     private readonly outbound: MessengerOutboundService,
     private readonly messengerAgentService: MessengerAgentService,
     private readonly chatHistory: MessengerChatHistoryService,
+    private readonly chatRateLimitService: ChatRateLimitService,
+    @Inject(MESSENGER_REPOSITORY)
+    private readonly messengerRepository: MessengerRepositoryPort,
   ) {}
 
   enqueue(input: EnqueueChatMessageInput): void {
@@ -60,6 +73,9 @@ export class MessengerChatQueueService {
 
     if (state.processing) {
       state.pendingWhileProcessing.push(text);
+      if (input.idempotencyKey) {
+        state.lastPendingIdempotencyKey = input.idempotencyKey;
+      }
       this.logger.log(
         `Queued chat while processing psid=${input.psid} (pending=${state.pendingWhileProcessing.length})`,
       );
@@ -67,6 +83,9 @@ export class MessengerChatQueueService {
     }
 
     state.texts.push(text);
+    if (input.idempotencyKey) {
+      state.lastIdempotencyKey = input.idempotencyKey;
+    }
     this.scheduleFlush(input.psid, state);
   }
 
@@ -90,9 +109,63 @@ export class MessengerChatQueueService {
     const mergedText = mergeChatUserTexts(state.texts);
     state.texts = [];
     const { userId, linkContext } = state;
+    const idempotencyKey = state.lastIdempotencyKey;
+    state.lastIdempotencyKey = undefined;
+
+    let reservedUsageDate: string | undefined;
+    let reservedIdempotencyKey: string | undefined;
+    let reservedQuota: ChatQuotaCheckResult | undefined;
 
     try {
       await this.outbound.sendSenderAction(psid, 'typing_on');
+
+      if (idempotencyKey) {
+        const quota = await this.chatRateLimitService.reserveFreeFormSlot(
+          psid,
+          {
+            userId,
+            idempotencyKey,
+          },
+        );
+
+        if (!quota.allowed) {
+          if (quota.reason === 'IDEMPOTENCY_CONFLICT') {
+            this.logger.log(
+              `Skipping duplicate chat flush mid=${idempotencyKey} psid=${psid}`,
+            );
+            return;
+          }
+
+          const denyReason =
+            quota.reason === 'BURST_LIMIT' ? 'BURST_LIMIT' : 'DAILY_LIMIT';
+
+          await this.outbound.sendTextViaPsid({
+            psid,
+            userId,
+            text: buildChatQuotaDenyMessage(denyReason, quota.limit),
+            messageType: 'CHAT_QUOTA_DENIED',
+          });
+          return;
+        }
+
+        if (quota.quotaReserved) {
+          reservedUsageDate = quota.usageDate;
+          reservedIdempotencyKey = idempotencyKey;
+          reservedQuota = quota;
+
+          await this.messengerRepository.logMessage({
+            userId,
+            psid,
+            messageType: 'FREE_FORM_CHAT_IN',
+            messageText: mergedText,
+            status: 'SENT',
+          });
+        }
+      } else {
+        this.logger.warn(
+          `Chat flush without message.mid psid=${psid}; rate limit reserve skipped`,
+        );
+      }
 
       const reply = await this.messengerAgentService.reply({
         psid,
@@ -121,7 +194,23 @@ export class MessengerChatQueueService {
           followUps: reply.richFollowUps,
         });
       }
+
+      if (reservedQuota) {
+        await this.sendQuotaRemainingHintIfNeeded(psid, userId, reservedQuota);
+      }
+
+      if (reservedIdempotencyKey) {
+        await this.chatRateLimitService.markCompleted(reservedIdempotencyKey);
+      }
     } catch (error) {
+      if (reservedIdempotencyKey && reservedUsageDate) {
+        await this.chatRateLimitService.refundFreeFormSlot(
+          psid,
+          reservedUsageDate,
+          reservedIdempotencyKey,
+        );
+      }
+
       this.logger.error(
         `Chat queue failed for psid=${psid}: ${
           error instanceof Error ? error.message : String(error)
@@ -148,6 +237,8 @@ export class MessengerChatQueueService {
       if (state.pendingWhileProcessing.length > 0) {
         state.texts.push(...state.pendingWhileProcessing);
         state.pendingWhileProcessing = [];
+        state.lastIdempotencyKey = state.lastPendingIdempotencyKey;
+        state.lastPendingIdempotencyKey = undefined;
       }
 
       if (state.texts.length > 0) {
@@ -159,6 +250,26 @@ export class MessengerChatQueueService {
         this.queues.delete(psid);
       }
     }
+  }
+
+  private async sendQuotaRemainingHintIfNeeded(
+    psid: string,
+    userId: number | undefined,
+    quota: ChatQuotaCheckResult,
+  ): Promise<void> {
+    const { remainingHintThreshold } = this.chatRateLimitService.getSettings();
+    if (
+      !shouldShowQuotaRemainingHint(quota.remaining, remainingHintThreshold)
+    ) {
+      return;
+    }
+
+    await this.outbound.sendTextViaPsid({
+      psid,
+      userId,
+      text: buildChatQuotaRemainingHintMessage(quota.remaining),
+      messageType: 'CHAT_QUOTA_REMAINING_HINT',
+    });
   }
 
   private getDebounceMs(): number {

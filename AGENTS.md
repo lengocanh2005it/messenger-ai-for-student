@@ -29,6 +29,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Ops HTTP (`/messenger/study-calendar/sync`, `send-reports`, …) cần header **`X-Internal-Api-Key`** hoặc `Authorization: Bearer …` khớp `INTERNAL_API_KEY`.
 - Cron nội bộ (sync 30 phút, dispatch 1 phút) chạy trong process — không qua API key.
 - Debug jobs nhắc lịch: `npm run study-reminder:jobs`.
+- Tra quota chat: `npm run chat-quota:status` (có `--psid`, `--user-id`, `--date`).
 - Bootstrap jobs lần đầu: `npm run study-reminder:sync`.
 
 ---
@@ -55,6 +56,7 @@ npm run db:explore-study-schedule
 npm run study-reminder:sync-only    # sync jobs, không migrate
 npm run study-reminder:sync         # build + migrate + sync + dispatch
 npm run study-reminder:jobs         # in jobs trong DB
+npm run chat-quota:status           # tra quota chat (psid / userId / ngày)
 ```
 
 ---
@@ -79,6 +81,9 @@ Trước khi kết thúc task: chạy `npm run build` và `npm run test`. Sửa 
 
 Spec hiện có:
 
+- `src/modules/chat-rate-limit/application/services/chat-rate-limit.service.spec.ts`
+- `src/modules/chat-rate-limit/infrastructure/persistence/chat-rate-limit.repository.spec.ts`
+- `src/modules/messenger/application/services/messenger-chat-queue.service.spec.ts`
 - `src/modules/study-reminder/application/services/study-reminder-schedule.service.spec.ts`
 - `src/modules/study-reminder/application/services/study-reminder-cleanup.service.spec.ts`
 - `src/shared/common/guards/internal-api-key.guard.spec.ts`
@@ -189,7 +194,7 @@ domain/entities|repositories/ → application/services|ports/ → infrastructure
 | UserCalendar API client | `study-reminder/infrastructure/wispace/user-calendar-api.service.ts` |
 | Gửi tin từ module khác | Inject `MESSAGE_SENDER`, không `MessengerService` |
 | Sync toàn bộ (ops) | `POST /messenger/sync-study-reminders`, `scripts/sync-study-reminder-jobs.mjs` |
-| Rate limit chat (tương lai) | Xem `docs/chat-rate-limit-quota.md` |
+| Rate limit chat | `ChatRateLimitService`, `MessengerChatQueueService.flush()`, [chat-rate-limit-quota.md](docs/chat-rate-limit-quota.md) |
 
 ---
 
@@ -218,6 +223,17 @@ Wispace đổi lịch → POST /messenger/study-calendar/sync { userId }
   → StudyReminderDispatchService (cron 1 phút)
   → StudyReminderService (LLM) + MESSAGE_SENDER (MessengerOutbound)
 ```
+
+### Chat tự do (FREE_FORM)
+
+```
+Webhook text → dedupe mid (RAM) → MessengerChatQueueService.enqueue
+  → debounce flush → ChatRateLimitService.reserve (DB idempotency + daily usage)
+  → MessengerAgentService (LLM) → Send API
+  → markCompleted; catch → refund
+```
+
+Postback menu và tin proactive **không** qua `ChatRateLimitService`. Bật chặn: `CHAT_RATE_LIMIT_ENABLED=true`.
 
 Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar`. Cron 30 phút chỉ là dự phòng — không thay webhook/event bus.
 
@@ -265,7 +281,7 @@ Cursor dùng file này (`AGENTS.md`) + skills global `~/.cursor/skills-cursor/`.
 | Wispace wire sync sau đổi lịch | ✗ Cần cấu hình key + gọi API từ Wispace |
 | Tên học viên cho LLM | ✓ `Users.DisplayName` → `Username` → `'bạn'` |
 | Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✓ `StudyReminderJobRepository.upsertPendingJob` reopen → `pending` |
-| Chat hai chiều + rate limit | ✗ Chỉ có tài liệu thiết kế |
+| Chat hai chiều + rate limit V1 | ✓ Reserve/refund/burst/whitelist; mặc định `CHAT_RATE_LIMIT_ENABLED=false` |
 
 Khi đóng gap: cập nhật `docs/study-session-reminder.md` và bảng trên.
 

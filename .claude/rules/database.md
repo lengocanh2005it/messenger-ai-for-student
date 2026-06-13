@@ -9,6 +9,8 @@ paths: src/infrastructure/database/**
 
 - `user_messenger_mappings` — `user_id` ↔ `psid`
 - `messenger_message_logs` — audit tin gửi/nhận
+- `messenger_chat_daily_usage` — quota chat FREE_FORM theo ngày
+- `messenger_chat_idempotency` — idempotency `message.mid`
 - `study_reminder_jobs` — outbox nhắc lịch
 
 ## Bảng Wispace (đọc only)
