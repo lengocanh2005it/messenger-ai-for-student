@@ -27,7 +27,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Study reminder: biến `STUDY_REMINDER_*` **bắt buộc** — dùng `readRequiredPositiveNumber`, không hardcode fallback trong code.
 - Wispace API auth bằng header **`x-psid`** (PSID Messenger), không dùng user access token.
 - Ops HTTP (`/messenger/study-calendar/sync`, `send-reports`, …) cần header **`X-Internal-Api-Key`** hoặc `Authorization: Bearer …` khớp `INTERNAL_API_KEY`.
-- Cron nội bộ (sync 30 phút, dispatch 1 phút) chạy trong process — không qua API key.
+- Cron nội bộ (sync 30 phút, dispatch adaptive S2) chạy trong process — không qua API key.
 - Debug jobs nhắc lịch: `npm run study-reminder:jobs` (`--failed`, `--stuck`, `--summary`).
 - Tra quota chat: `npm run chat-quota:status` (`--psid`, `--user-id`, `--date`, `--ops`).
 - Ops health I1+S1: `npm run ops:health` (cron 09:00 ICT trong app khi `OPS_HEALTH_ALERT_ENABLED=true`).
@@ -229,7 +229,7 @@ Trigger: cron 08:00, menu postback, hoặc `POST /messenger/send-reports`.
 Wispace đổi lịch → POST /messenger/study-calendar/sync { userId }
   → StudyReminderSyncService (GET UserCalendar, x-psid)
   → study_reminder_jobs
-  → StudyReminderDispatchService (cron 1 phút)
+  → StudyReminderDispatchService (adaptive poll S2)
   → StudyReminderService (LLM) + MESSAGE_SENDER (MessengerOutbound)
 ```
 

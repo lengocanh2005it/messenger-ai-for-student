@@ -99,7 +99,7 @@ flowchart TB
 | Đăng ký / webhook | Meta gửi POST `/webhook` | Lưu mapping, trả lời tin nhắn |
 | Báo cáo theo lịch thi | Cron 08:00 hoặc postback | LLM report → Messenger |
 | Đổi lịch học | Wispace `POST /messenger/study-calendar/sync` | Sync jobs theo `userId` |
-| Nhắc lịch học (tự động) | Cron sync 30 phút + dispatch 1 phút | Job queue → LLM reminder → Messenger |
+| Nhắc lịch học (tự động) | Cron sync 30 phút + dispatch adaptive (S2) | Job queue → LLM reminder → Messenger |
 | Chat tự do (text) | Webhook text → debounce queue | Reserve quota → LLM agent → Messenger |
 | Ops / test | `POST /messenger/*` | Sync toàn bộ, gửi thủ công |
 
@@ -214,7 +214,7 @@ Tất cả endpoint dưới đây yêu cầu header **`X-Internal-Api-Key`** (ho
 | POST | `/messenger/profile/setup` | — | Cấu hình menu bot (ops) |
 | POST | `/messenger/test-send` | `{ "psid": string, "allowDuplicate"?: boolean }` | Gửi thử báo cáo (ops); mặc định skip nếu đã có cron hôm nay |
 
-Cron nội bộ (sync 30 phút, dispatch 1 phút) **không** qua HTTP — không cần API key.
+Cron nội bộ (sync 30 phút, dispatch adaptive) **không** qua HTTP — không cần API key.
 
 ---
 
@@ -224,7 +224,7 @@ Cron nội bộ (sync 30 phút, dispatch 1 phút) **không** qua HTTP — không
 |-----|------|---------|
 | `exam-reminder-report` | `0 8 * * *` (08:00) | `ReportCronService` |
 | `study-reminder-sync` | Mỗi 30 phút | `StudyReminderWorkerService` |
-| `study-reminder-dispatch` | Mỗi 1 phút | `StudyReminderWorkerService` |
+| `study-reminder-dispatch` | Adaptive 30s–3.5 phút (`STUDY_REMINDER_POLL_*`) | `StudyReminderWorkerService` — S2 ✓ |
 | `study-reminder-cleanup` | `0 0 3 * * *` (03:00) | Xóa job terminal cũ |
 | `messenger-chat-queue-flush` | Mỗi 2 giây (khi `CHAT_QUEUE_SHARED=true`) | Poll buffer DB → flush |
 | `messenger-chat-webhook-dedupe-cleanup` | Mỗi 15 phút (khi shared) | Purge `messenger_chat_webhook_seen` cũ |

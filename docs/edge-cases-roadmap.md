@@ -23,7 +23,7 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **R4** ✓ | Báo cáo 08:00: idempotency / cron leader (≥2 pod) | 1 ngày | Chỉ khi scale |
 | **S0** ✓ | Wispace wire `study-calendar/sync` | 0.5 ngày (Wispace) | **Cao** — tích hợp |
 | **S1** ✓ | Alert ops job `failed` / stuck nhắc lịch | 0.5 ngày | Trung bình |
-| **S2** | Adaptive dispatch poll (scale) | 1–2 ngày | Khi outbox lớn |
+| **S2** ✓ | Adaptive dispatch poll (scale) | 1–2 ngày | Khi outbox lớn |
 | **C1** | Tier quota theo gói Wispace | 2+ ngày | Product sau |
 | **C2** | Event store / billing LLM | 2+ ngày | Product sau |
 | **I1** ✓ | Alert / grep `CHAT_QUOTA_*` + runbook | 0.5 ngày | Trung bình |
@@ -31,7 +31,7 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **I2** | Monitor tổng hợp (Slack/webhook ops) | 1 ngày | Khi có user thật |
 | **I3** | Bỏ fallback DB `UserCalendars` | 1 ngày | Khi API ổn định |
 
-**Thứ tự khuyến nghị:** ~~Q1/S0/I1/S1/L1/R1/L2/R2/R3/L3/R4/R5~~ (✓) → `CHAT_QUEUE_SHARED` khi scale → phần còn lại theo feedback user.
+**Thứ tự khuyến nghị:** ~~Q1/S0/I1/S1/L1/R1/L2/R2/R3/L3/R4/R5/S2~~ (✓) → `CHAT_QUEUE_SHARED` khi scale → phần còn lại theo feedback user.
 
 ```mermaid
 flowchart LR
@@ -150,17 +150,35 @@ Outbox `study_reminder_jobs`, retry/backoff, reset stuck `processing`, upsert đ
 | Hành vi | Ghi chú |
 |---------|---------|
 | **Wispace wire sync** | **S0** ✓ — `POST /messenger/study-calendar/sync` sau POST/DELETE `UserCalendar` |
+| **Adaptive dispatch poll** | **S2** ✓ — `StudyReminderWorkerService` vòng `setTimeout`; `findNextDueTime`; env `STUDY_REMINDER_POLL_*` |
 
 ### Gap & khắc phục
 
 | Gap | Ảnh hưởng | Khắc phục | Phase |
 |-----|-----------|-----------|-------|
-| Dispatch cron **1 phút** | Nhắc muộn ≤1 phút | Chấp nhận POC; hoặc giảm interval khi có job due trong 5 phút | **S2** |
 | Horizon **14 ngày** | Buổi xa chưa có job | Document; tăng `STUDY_REMINDER_SYNC_HORIZON_HOURS` nếu product cần | Config / doc |
 | User chưa link PSID | Không nhắc | By design — optional kênh khác (email) ngoài scope | — |
 | Job **failed** hết retry | Học viên không nhắc, ops không biết | **S1** ✓ — `study-reminder:jobs --failed`, cron `OPS_HEALTH_ALERT`, `npm run ops:health` | Done |
-| Outbox **phình** + poll 1 phút | DB tải khi scale | Cleanup đã có; adaptive poll + index `remind_at` — [§11.6](./study-session-reminder.md) | **S2** |
 | 24h window nhắc lịch | Send fail | **L2** ✓ — `STUDY_SESSION_REMINDER_*_MESSENGER_24H`, terminal fail | Done |
+
+### 3.1 S2 — Adaptive dispatch poll (đã có ✓)
+
+Thay cron cố định **1 phút**, worker dùng vòng lặp thích ứng:
+
+1. `dispatchDueReminders()` → trả `nextDueAt` (`findNextDueTime` — MIN `remind_at` / `next_retry_at`)
+2. Delay lần poll tiếp: `clamp(msTilDue - pollLeadMs, pollMinMs, pollMaxMs)`
+
+| Env | Mặc định | Ý nghĩa |
+|-----|----------|---------|
+| `STUDY_REMINDER_POLL_MIN_MS` | 30s | Poll nhanh nhất (job sắp due) |
+| `STUDY_REMINDER_POLL_MAX_MS` | 210s (3.5 phút) | Poll chậm nhất (không có job) |
+| `STUDY_REMINDER_POLL_LEAD_MS` | 60s | Wake sớm hơn job 1 phút |
+
+- **Không có job** → ~3.5 phút/lần (giảm tải DB khi scale)
+- **Job due sau 10 phút** → poll lại ~9 phút sau
+- Multi-pod: mỗi pod chạy loop riêng; `claimJob` atomic — không cần advisory lock dispatch
+
+Chi tiết: [study-session-reminder.md §11.6](./study-session-reminder.md#116-worker-dispatch-polling--trở-ngại-tải-db--giảm-rủi-ro).
 
 ---
 
@@ -252,6 +270,7 @@ npm run study-reminder:jobs
 |-----------------|----------|
 | Bất kỳ | Tick ✓ trong bảng phase đầu file này |
 | S0 | `AGENTS.md` Integration gaps, `study-session-reminder.md` |
+| S2 | `study-session-reminder.md` §11.6, `project-overview.md` §6 |
 | R4, H7 scale | `project-overview.md` §10 |
 | L1, R1, L2, R2, R3, … | Mục tương ứng trong file này → chuyển sang “Đã có” ✓ |
 
