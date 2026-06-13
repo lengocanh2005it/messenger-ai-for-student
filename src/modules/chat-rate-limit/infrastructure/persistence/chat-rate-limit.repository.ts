@@ -409,6 +409,42 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
     return recovered;
   }
 
+  async countStuckReserved(stuckBefore: Date): Promise<number> {
+    return this.idempotencyRepo
+      .createQueryBuilder('row')
+      .where(`row.status = 'reserved'`)
+      .andWhere('row.reserved_at < :stuckBefore', { stuckBefore })
+      .getCount();
+  }
+
+  async countIdempotencyByStatusForUsageDate(
+    usageDate: string,
+  ): Promise<Record<string, number>> {
+    const rows = await this.idempotencyRepo
+      .createQueryBuilder('row')
+      .select('row.status', 'status')
+      .addSelect('COUNT(*)::int', 'count')
+      .where('row.usage_date = :usageDate', { usageDate })
+      .groupBy('row.status')
+      .getRawMany<{ status: string; count: number }>();
+
+    return Object.fromEntries(rows.map((row) => [row.status, row.count]));
+  }
+
+  async countUsersAtOrAboveDailyLimit(
+    usageDate: string,
+    dailyLimit: number,
+  ): Promise<number> {
+    const row = await this.dailyUsageRepo
+      .createQueryBuilder('usage')
+      .select('COUNT(*)::int', 'count')
+      .where('usage.usage_date = :usageDate', { usageDate })
+      .andWhere('usage.free_form_count >= :dailyLimit', { dailyLimit })
+      .getRawOne<{ count: number }>();
+
+    return row?.count ?? 0;
+  }
+
   private mapIdempotency(row: {
     idempotency_key: string;
     psid: string;

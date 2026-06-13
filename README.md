@@ -38,8 +38,9 @@ Wispace sync lịch: `POST /messenger/study-calendar/sync` + header `X-Internal-
 
 ```bash
 npm run study-reminder:sync      # Bootstrap + sync jobs nhắc lịch
-npm run study-reminder:jobs      # Xem study_reminder_jobs
-npm run chat-quota:status        # Tra quota chat
+npm run study-reminder:jobs      # Xem study_reminder_jobs (--failed, --stuck)
+npm run ops:health               # I1+S1 ops snapshot
+npm run chat-quota:status        # Tra quota chat (--ops = fleet summary)
 npm run chat-quota:recover-stuck # H2: refund stuck reserved
 npm run chat-quota:cleanup       # H6: cleanup idempotency cũ
 npm run db:inspect

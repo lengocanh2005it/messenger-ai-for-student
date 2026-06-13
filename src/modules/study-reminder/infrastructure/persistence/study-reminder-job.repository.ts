@@ -223,6 +223,65 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
     return result.affected ?? 0;
   }
 
+  async countJobsByStatus(): Promise<Record<string, number>> {
+    const rows = await this.jobRepo
+      .createQueryBuilder('job')
+      .select('job.status', 'status')
+      .addSelect('COUNT(*)::int', 'count')
+      .groupBy('job.status')
+      .getRawMany<{ status: string; count: number }>();
+
+    return Object.fromEntries(rows.map((row) => [row.status, row.count]));
+  }
+
+  async countTerminalFailedSince(since: Date): Promise<number> {
+    return this.jobRepo
+      .createQueryBuilder('job')
+      .where(`job.status = 'failed'`)
+      .andWhere('job.retry_count >= job.max_retries')
+      .andWhere('job.updated_at >= :since', { since })
+      .getCount();
+  }
+
+  async findTerminalFailedSince(
+    since: Date,
+    limit: number,
+  ): Promise<StudyReminderJob[]> {
+    const entities = await this.jobRepo
+      .createQueryBuilder('job')
+      .where(`job.status = 'failed'`)
+      .andWhere('job.retry_count >= job.max_retries')
+      .andWhere('job.updated_at >= :since', { since })
+      .orderBy('job.updated_at', 'DESC')
+      .take(limit)
+      .getMany();
+
+    return entities.map((entity) => this.mapEntity(entity));
+  }
+
+  async findStuckProcessing(
+    olderThan: Date,
+    limit: number,
+  ): Promise<StudyReminderJob[]> {
+    const entities = await this.jobRepo
+      .createQueryBuilder('job')
+      .where(`job.status = 'processing'`)
+      .andWhere('job.updated_at <= :olderThan', { olderThan })
+      .orderBy('job.updated_at', 'ASC')
+      .take(limit)
+      .getMany();
+
+    return entities.map((entity) => this.mapEntity(entity));
+  }
+
+  async countStuckProcessing(olderThan: Date): Promise<number> {
+    return this.jobRepo
+      .createQueryBuilder('job')
+      .where(`job.status = 'processing'`)
+      .andWhere('job.updated_at <= :olderThan', { olderThan })
+      .getCount();
+  }
+
   private hasScheduleChanged(
     existing: StudyReminderJobEntity,
     input: UpsertStudyReminderJobInput,

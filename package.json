@@ -17,6 +17,7 @@
     "study-reminder:sync": "npm run build && npm run migration:run && node --env-file=.env scripts/sync-study-reminder-jobs.mjs",
     "study-reminder:sync-only": "npm run build && node --env-file=.env scripts/sync-study-reminder-jobs.mjs --sync-only",
     "study-reminder:jobs": "node --env-file=.env scripts/show-study-reminder-jobs.mjs",
+    "ops:health": "node --env-file=.env scripts/ops-daily-health.mjs",
     "chat-quota:status": "node --env-file=.env scripts/chat-quota-status.mjs",
     "chat-quota:recover-stuck": "node --env-file=.env scripts/chat-quota-recover-stuck.mjs",
     "chat-quota:cleanup": "node --env-file=.env scripts/chat-quota-cleanup-idempotency.mjs",

@@ -12,7 +12,7 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 
 | Phase | Tên | Effort ước lượng | Ưu tiên POC 1 instance |
 |-------|-----|------------------|-------------------------|
-| **Q1** | QA E2E 4 luồng | 0.5 ngày | **Cao** — trước go-live |
+| **Q1** ✓ | QA E2E 4 luồng | 0.5 ngày | **Cao** — trước go-live |
 | **L1** ✓ | Tin không phải text → reply hướng dẫn | 0.5 ngày | Trung bình |
 | **L2** | Policy Send 24h cho báo cáo / nhắc lịch | 0.5–1 ngày | Trung bình |
 | **L3** | Mapping đổi `user_id` (PSID giữ nguyên) | 1 ngày | Thấp (hiếm) |
@@ -20,16 +20,16 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **R2** | Báo cáo: chia bubble dài | 0.5 ngày | Thấp |
 | **R3** | Báo cáo: retry / dead-letter khi API lỗi | 1–1.5 ngày | Trung bình |
 | **R4** | Báo cáo 08:00: idempotency / cron leader (≥2 pod) | 1 ngày | Chỉ khi scale |
-| **S0** | Wispace wire `study-calendar/sync` | 0.5 ngày (Wispace) | **Cao** — tích hợp |
-| **S1** | Alert ops job `failed` / stuck nhắc lịch | 0.5 ngày | Trung bình |
+| **S0** ✓ | Wispace wire `study-calendar/sync` | 0.5 ngày (Wispace) | **Cao** — tích hợp |
+| **S1** ✓ | Alert ops job `failed` / stuck nhắc lịch | 0.5 ngày | Trung bình |
 | **S2** | Adaptive dispatch poll (scale) | 1–2 ngày | Khi outbox lớn |
 | **C1** | Tier quota theo gói Wispace | 2+ ngày | Product sau |
 | **C2** | Event store / billing LLM | 2+ ngày | Product sau |
-| **I1** | Alert / grep `CHAT_QUOTA_*` + runbook | 0.5 ngày | Trung bình |
+| **I1** ✓ | Alert / grep `CHAT_QUOTA_*` + runbook | 0.5 ngày | Trung bình |
 | **I2** | Monitor tổng hợp (Slack/webhook ops) | 1 ngày | Khi có user thật |
 | **I3** | Bỏ fallback DB `UserCalendars` | 1 ngày | Khi API ổn định |
 
-**Thứ tự khuyến nghị:** Q1 → S0 → I1/S1 → ~~L1/R1~~ (✓) → (scale) R4 + `CHAT_QUEUE_SHARED` → phần còn lại theo feedback user.
+**Thứ tự khuyến nghị:** ~~Q1~~ (✓) → ~~S0~~ (✓) → ~~I1/S1~~ (✓) → ~~L1/R1~~ (✓) → (scale) R4 + `CHAT_QUEUE_SHARED` → phần còn lại theo feedback user.
 
 ```mermaid
 flowchart LR
@@ -96,15 +96,18 @@ flowchart LR
 
 Outbox `study_reminder_jobs`, retry/backoff, reset stuck `processing`, upsert đổi giờ, cancel stale, preview menu, LLM fallback, `claimJob` multi-instance.
 
+| Hành vi | Ghi chú |
+|---------|---------|
+| **Wispace wire sync** | **S0** ✓ — `POST /messenger/study-calendar/sync` sau POST/DELETE `UserCalendar` |
+
 ### Gap & khắc phục
 
 | Gap | Ảnh hưởng | Khắc phục | Phase |
 |-----|-----------|-----------|-------|
-| **Wispace chưa gọi** `POST /messenger/study-calendar/sync` | Đổi lịch lệch tối đa ~30 phút | Wire HTTP từ Wispace sau POST/DELETE `UserCalendar` + `X-Internal-Api-Key` — [§3.6](./study-session-reminder.md) | **S0** (Wispace) |
 | Dispatch cron **1 phút** | Nhắc muộn ≤1 phút | Chấp nhận POC; hoặc giảm interval khi có job due trong 5 phút | **S2** |
 | Horizon **14 ngày** | Buổi xa chưa có job | Document; tăng `STUDY_REMINDER_SYNC_HORIZON_HOURS` nếu product cần | Config / doc |
 | User chưa link PSID | Không nhắc | By design — optional kênh khác (email) ngoài scope | — |
-| Job **failed** hết retry | Học viên không nhắc, ops không biết | Script/cron: `SELECT` failed 24h → log WARN hoặc webhook; mở rộng `study-reminder:jobs` | **S1** |
+| Job **failed** hết retry | Học viên không nhắc, ops không biết | **S1** ✓ — `study-reminder:jobs --failed`, cron `OPS_HEALTH_ALERT`, `npm run ops:health` | Done |
 | Outbox **phình** + poll 1 phút | DB tải khi scale | Cleanup đã có; adaptive poll + index `remind_at` — [§11.6](./study-session-reminder.md) | **S2** |
 | 24h window nhắc lịch | Send fail | Cùng **L2** — detect Meta error, `markFailed` có `last_error` rõ | **L2** |
 
@@ -122,7 +125,7 @@ Rate limit V1 + **H1–H7**, agent tools, history RAM/DB, delivery semantics H4.
 |-----|-----------|-----------|-------|
 | Tier theo gói Wispace | Mọi user cùng `CHAT_FREE_FORM_DAILY_LIMIT` | Phase 7: limit theo `user_id` / API gói — [§5.8](./chat-rate-limit-quota.md) | **C1** |
 | Event store / billing | Khó audit chi phí LLM theo tháng | `messenger_chat_events` + projection — Phase 8 | **C2** |
-| Tool đổi lịch qua chat | Phụ thuộc Wispace + đã link | Đã có tool; harden error message + sync sau đổi (**S0**) | **S0** |
+| Tool đổi lịch qua chat | Phụ thuộc đã link + sync Wispace | Đã có tool; harden error message khi API lỗi | — |
 
 ---
 
@@ -134,47 +137,55 @@ Rate limit V1 + **H1–H7**, agent tools, history RAM/DB, delivery semantics H4.
 | **≥2 pod chat** | Queue/history tách pod | `CHAT_QUEUE_SHARED=true` + migration — H7 ✓ | Done (bật env) |
 | **≥2 pod cron báo cáo** | Risk gửi trùng 08:00 | **R4** cron leader / DB lock | **R4** |
 | **≥2 pod cron nhắc** | `claimJob` ✓ | Theo dõi; **S2** nếu DB chậm | **S2** |
-| Monitor / alert | Log + scripts | Runbook grep; **I1** quota; **S1** failed jobs; **I2** webhook Slack | **I1**, **I2** |
+| Monitor / alert | Log + scripts | **I1** ✓ runbook + `ops:health`; **S1** ✓ failed/stuck jobs; **I2** webhook Slack | **I2** |
 | Wispace **schema** đổi | Fallback DB `UserCalendars` | API-only khi ổn định — **I3** | **I3** |
 
-### I1 — Ops alert nhẹ (không cần Prometheus)
+### I1 — Ops alert nhẹ (không cần Prometheus) ✓
 
 | Việc | Done khi |
 |------|----------|
 | Runbook grep `CHAT_QUOTA_DENY`, `REFUND`, `RECOVERED` | `project-overview.md` §12 |
-| `chat-quota:status` + `study-reminder:jobs --failed` (nếu thêm flag) | Script ops |
-| Cron nội bộ hoặc script hàng ngày in count failed | Team thấy spike |
+| `chat-quota:status --ops` + `study-reminder:jobs --failed` / `--stuck` | Script ops |
+| Cron 09:00 ICT + `npm run ops:health` | `OPS_HEALTH_ALERT` trong app log |
+
+### S1 — Nhắc lịch failed / stuck ✓
+
+| Việc | Done khi |
+|------|----------|
+| `npm run study-reminder:jobs -- --failed` | Terminal failed (retry hết) |
+| `npm run study-reminder:jobs -- --stuck` | Processing > 10 phút |
+| `npm run ops:health` / cron nội bộ | `OPS_HEALTH_ALERT` khi có spike |
 
 ---
 
-## Q1 — Checklist QA E2E (không cần code)
+## Q1 — Checklist QA E2E (không cần code) ✓
 
-Chạy **một lần** trước cohort user thật (Messenger + `.env` prod).
+Đã chạy manual test trước go-live (Messenger + `.env` prod).
 
 ### Q1.1 Link
 
-- [ ] Mở `m.me` có `ref={userId}` từ WISPACE
-- [ ] Kiểm tra `user_messenger_mappings` có `psid` + `user_id`
-- [ ] Menu persistent hiển thị (đã `profile/setup`)
+- [x] Mở `m.me` có `ref={userId}` từ WISPACE
+- [x] Kiểm tra `user_messenger_mappings` có `psid` + `user_id`
+- [x] Menu persistent hiển thị (đã `profile/setup`)
 
 ### Q1.2 Báo cáo
 
-- [ ] Postback “Xem tiến độ” → nhận tin, log `LEARNING_PROGRESS`
-- [ ] (Tuỳ chọn) User trong cửa sổ 2–3 ngày trước thi → cron hoặc `POST /messenger/send-reports`
+- [x] Postback “Xem tiến độ” → nhận tin, log `LEARNING_PROGRESS`
+- [x] (Tuỳ chọn) User trong cửa sổ 2–3 ngày trước thi → cron hoặc `POST /messenger/send-reports`
 
 ### Q1.3 Nhắc lịch
 
-- [ ] Có buổi trong `UserCalendar` trong horizon
-- [ ] `npm run study-reminder:jobs` thấy job `pending` → `remind_at` đúng
-- [ ] Sau sync (API hoặc cron) → đến giờ nhận tin nhắc
-- [ ] Postback preview “Nhắc lịch sắp tới” hoạt động
+- [x] Có buổi trong `UserCalendar` trong horizon
+- [x] `npm run study-reminder:jobs` thấy job `pending` → `remind_at` đúng
+- [x] Sau sync (API hoặc cron) → đến giờ nhận tin nhắc
+- [x] Postback preview “Nhắc lịch sắp tới” hoạt động
 
 ### Q1.4 Chat quota
 
-- [ ] `CHAT_RATE_LIMIT_ENABLED=true`
-- [ ] Nhắn text → bot reply, `chat-quota:status` tăng `used`
-- [ ] Burst / hết ngày → `CHAT_QUOTA_DENIED`
-- [ ] Menu postback **không** tăng quota
+- [x] `CHAT_RATE_LIMIT_ENABLED=true`
+- [x] Nhắn text → bot reply, `chat-quota:status` tăng `used`
+- [x] Burst / hết ngày → `CHAT_QUOTA_DENIED`
+- [x] Menu postback **không** tăng quota
 
 ```bash
 npm run chat-quota:status -- --psid=<PSID>

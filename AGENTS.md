@@ -28,8 +28,9 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Wispace API auth bằng header **`x-psid`** (PSID Messenger), không dùng user access token.
 - Ops HTTP (`/messenger/study-calendar/sync`, `send-reports`, …) cần header **`X-Internal-Api-Key`** hoặc `Authorization: Bearer …` khớp `INTERNAL_API_KEY`.
 - Cron nội bộ (sync 30 phút, dispatch 1 phút) chạy trong process — không qua API key.
-- Debug jobs nhắc lịch: `npm run study-reminder:jobs`.
-- Tra quota chat: `npm run chat-quota:status` (có `--psid`, `--user-id`, `--date`).
+- Debug jobs nhắc lịch: `npm run study-reminder:jobs` (`--failed`, `--stuck`, `--summary`).
+- Tra quota chat: `npm run chat-quota:status` (`--psid`, `--user-id`, `--date`, `--ops`).
+- Ops health I1+S1: `npm run ops:health` (cron 09:00 ICT trong app khi `OPS_HEALTH_ALERT_ENABLED=true`).
 - Bootstrap jobs lần đầu: `npm run study-reminder:sync`.
 
 ---
@@ -55,8 +56,9 @@ npm run db:inspect
 npm run db:explore-study-schedule
 npm run study-reminder:sync-only    # sync jobs, không migrate
 npm run study-reminder:sync         # build + migrate + sync + dispatch
-npm run study-reminder:jobs         # in jobs trong DB
-npm run chat-quota:status           # tra quota chat (psid / userId / ngày)
+npm run study-reminder:jobs         # in jobs trong DB (--failed, --stuck, --summary)
+npm run ops:health                  # I1+S1 combined ops snapshot
+npm run chat-quota:status           # tra quota chat (psid / userId / ngày / --ops)
 npm run chat-quota:recover-stuck    # H2: refund stuck reserved (optional --dry-run)
 npm run chat-quota:cleanup          # H6: xóa idempotency completed/refunded cũ (optional --dry-run)
 ```
@@ -289,7 +291,7 @@ Cursor dùng file này (`AGENTS.md`) + skills global `~/.cursor/skills-cursor/`.
 |-----|----------------|
 | `POST /messenger/study-calendar/sync` | ✓ Endpoint + sync theo `userId` |
 | Auth ops (`INTERNAL_API_KEY`) | ✓ Header `X-Internal-Api-Key` hoặc Bearer |
-| Wispace wire sync sau đổi lịch | ✗ Cần cấu hình key + gọi API từ Wispace |
+| Wispace wire sync sau đổi lịch | ✓ Gọi `POST /messenger/study-calendar/sync` + `X-Internal-Api-Key` |
 | Tên học viên cho LLM | ✓ `Users.DisplayName` → `Username` → `'bạn'` |
 | Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✓ `StudyReminderJobRepository.upsertPendingJob` reopen → `pending` |
 | Chat hai chiều + rate limit V1 | ✓ Reserve/refund/burst/whitelist/hint |

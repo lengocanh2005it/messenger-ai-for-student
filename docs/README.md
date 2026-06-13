@@ -25,12 +25,13 @@ X-Internal-Api-Key: {INTERNAL_API_KEY}
 
 Chi tiết: [study-session-reminder.md §3.6](./study-session-reminder.md#36-api-sync-khi-lịch-học-thay-đổi).
 
-## Ops chat quota (nhanh)
+## Ops (I1 + S1)
 
 ```bash
-npm run chat-quota:status
-npm run chat-quota:recover-stuck -- --dry-run
-npm run chat-quota:cleanup -- --dry-run
+npm run ops:health
+npm run chat-quota:status -- --ops
+npm run study-reminder:jobs -- --failed
+npm run study-reminder:jobs -- --stuck
 ```
 
-Scale ≥2 instance: `CHAT_QUEUE_SHARED=true` + `npm run migration:run` — xem [project-overview.md §12](./project-overview.md#12-runbook--rate-limit-chat-v1).
+Runbook đầy đủ: [project-overview.md §12](./project-overview.md#12-runbook--rate-limit-chat-v1).

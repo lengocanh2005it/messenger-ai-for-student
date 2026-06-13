@@ -4,6 +4,7 @@ import { MessengerChatDailyUsageEntity } from '../../infrastructure/database/ent
 import { MessengerChatIdempotencyEntity } from '../../infrastructure/database/entities/messenger-chat-idempotency.entity';
 import { ChatRateLimitConfigService } from './application/services/chat-rate-limit-config.service';
 import { ChatRateLimitService } from './application/services/chat-rate-limit.service';
+import { ChatQuotaOpsService } from './application/services/chat-quota-ops.service';
 import { CHAT_RATE_LIMIT_REPOSITORY } from './domain/repositories/chat-rate-limit.repository.port';
 import { ChatRateLimitRepository } from './infrastructure/persistence/chat-rate-limit.repository';
 
@@ -17,6 +18,7 @@ import { ChatRateLimitRepository } from './infrastructure/persistence/chat-rate-
   providers: [
     ChatRateLimitConfigService,
     ChatRateLimitService,
+    ChatQuotaOpsService,
     ChatRateLimitRepository,
     {
       provide: CHAT_RATE_LIMIT_REPOSITORY,
@@ -26,6 +28,7 @@ import { ChatRateLimitRepository } from './infrastructure/persistence/chat-rate-
   exports: [
     ChatRateLimitConfigService,
     ChatRateLimitService,
+    ChatQuotaOpsService,
     CHAT_RATE_LIMIT_REPOSITORY,
   ],
 })

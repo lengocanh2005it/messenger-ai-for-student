@@ -39,4 +39,8 @@ export interface MessengerRepositoryPort {
     status: 'SENT' | 'FAILED';
     errorMessage?: string;
   }): Promise<MessengerMessageLog>;
+  countMessageLogsByTypeSince(
+    messageType: string,
+    since: Date,
+  ): Promise<number>;
 }

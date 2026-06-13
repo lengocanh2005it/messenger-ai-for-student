@@ -482,8 +482,8 @@ Không có giải pháp nào hoàn hảo tuyệt đối. Hướng **outbox table
 
 | Vấn đề | Mô tả | Mức ảnh hưởng (hiện tại) |
 |--------|--------|---------------------------|
-| **Lịch và jobs không đồng bộ tức thì** | Snapshot tại lần sync cuối. Wispace quên gọi sync API → tối đa ~30 phút lệch (cron dự phòng) | Cao nếu Wispace chưa gọi API; thấp khi đã tích hợp mục 3.6 |
-| **Phụ thuộc tích hợp bên Wispace** | Wispace phải gọi `POST /messenger/study-calendar/sync` sau mỗi lần đổi lịch | Trung bình — API đã có, cần wire ở Wispace |
+| **Lịch và jobs không đồng bộ tức thì** | Snapshot tại lần sync cuối. Nếu Wispace quên gọi sync API → tối đa ~30 phút lệch (cron dự phòng) | Thấp — **S0 ✓** đã wire sync sau đổi lịch |
+| **Phụ thuộc tích hợp bên Wispace** | Wispace gọi `POST /messenger/study-calendar/sync` sau mỗi lần đổi lịch | **Đã xong (S0)** — giữ monitor nếu deploy môi trường mới |
 | **Coupling DB trực tiếp** | Service đọc thẳng bảng `UserCalendars` thay vì contract API ổn định | Trung bình — schema Wispace đổi có thể làm hỏng sync |
 | **Độ chính xác thời gian gửi** | Dispatch cron 1 phút → nhắc có thể muộn tối đa ~1 phút so với `remind_at` | Thấp — chấp nhận được với nhắc trước 30 phút |
 | **Horizon giới hạn** | Chỉ sync buổi trong `SYNC_HORIZON_HOURS` (14 ngày). Buổi xa hơn chưa có job cho đến lần sync sau khi vào cửa sổ | Thấp với lịch học theo tuần |
@@ -506,7 +506,7 @@ Không có giải pháp nào hoàn hảo tuyệt đối. Hướng **outbox table
 
 ### 11.4. Hướng cải thiện (theo thứ tự ưu tiên)
 
-1. **Wispace wire sync API** — `POST /messenger/study-calendar/sync` + header `X-Internal-Api-Key` (mục 3.6).
+1. ~~**Wispace wire sync API**~~ ✓ (S0) — `POST /messenger/study-calendar/sync` + header `X-Internal-Api-Key` (mục 3.6).
 2. **Bỏ fallback DB** khi API `UserCalendar` ổn định — single source qua `x-psid`.
 3. **Giám sát job `failed`** — alert khi `retry_count` hết hoặc job `processing` kẹt lâu.
 4. **Pre-generate hoặc cache nội dung LLM** lúc sync (tùy chọn) — giảm latency lúc dispatch, nội dung ổn định hơn.

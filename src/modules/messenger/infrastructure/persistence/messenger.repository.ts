@@ -313,6 +313,17 @@ export class MessengerRepository implements MessengerRepositoryPort {
     return count > 0;
   }
 
+  async countMessageLogsByTypeSince(
+    messageType: string,
+    since: Date,
+  ): Promise<number> {
+    return this.logRepo
+      .createQueryBuilder('log')
+      .where('log.message_type = :messageType', { messageType })
+      .andWhere('log.created_at >= :since', { since })
+      .getCount();
+  }
+
   async logMessage(params: {
     userId?: number;
     psid?: string;

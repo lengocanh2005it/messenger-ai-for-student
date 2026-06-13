@@ -5,6 +5,7 @@ function parseArgs(argv) {
     psid: null,
     userId: null,
     date: null,
+    ops: false,
   };
 
   for (const arg of argv) {
@@ -18,6 +19,8 @@ function parseArgs(argv) {
       args.userId = value;
     } else if (arg.startsWith('--date=')) {
       args.date = arg.slice('--date='.length).trim();
+    } else if (arg === '--ops') {
+      args.ops = true;
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
       process.exit(0);
@@ -36,6 +39,7 @@ Options:
   --psid=<psid>         Filter by Messenger PSID
   --user-id=<number>    Filter by WISPACE user_id
   --date=YYYY-MM-DD     Usage date (ICT calendar day). Default: today per CHAT_USAGE_TIMEZONE
+  --ops                 Fleet-wide I1 ops summary (ignore psid/user filters)
   -h, --help            Show this help
 `);
 }
@@ -141,6 +145,105 @@ const pool = new pg.Pool({
 });
 
 try {
+  if (args.ops) {
+    const denySince = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [
+      stuckReservedCount,
+      usersAtLimit,
+      denyLogs24h,
+      idempotencyFleet,
+      dailyUsageToday,
+    ] = await Promise.all([
+      pool.query(
+        `
+          SELECT COUNT(*)::int AS count
+          FROM messenger_chat_idempotency
+          WHERE status = 'reserved' AND reserved_at < $1::timestamptz
+        `,
+        [stuckBefore],
+      ),
+      pool.query(
+        `
+          SELECT COUNT(*)::int AS count
+          FROM messenger_chat_daily_usage
+          WHERE usage_date = $1::date
+            AND free_form_count >= $2::int
+        `,
+        [usageDate, dailyLimit],
+      ),
+      pool.query(
+        `
+          SELECT COUNT(*)::int AS count
+          FROM messenger_message_logs
+          WHERE message_type = 'CHAT_QUOTA_DENIED'
+            AND created_at >= $1::timestamptz
+        `,
+        [denySince],
+      ),
+      pool.query(
+        `
+          SELECT status, COUNT(*)::int AS count
+          FROM messenger_chat_idempotency
+          WHERE usage_date = $1::date
+          GROUP BY status
+          ORDER BY status ASC
+        `,
+        [usageDate],
+      ),
+      pool.query(
+        `
+          SELECT
+            COUNT(*)::int AS users_with_usage,
+            COALESCE(SUM(free_form_count), 0)::int AS total_messages
+          FROM messenger_chat_daily_usage
+          WHERE usage_date = $1::date
+        `,
+        [usageDate],
+      ),
+    ]);
+
+    console.log(
+      JSON.stringify(
+        {
+          mode: 'ops-summary',
+          generatedAt: new Date().toISOString(),
+          usageDate,
+          config: {
+            enabled: readEnabledFlag(),
+            dailyLimit,
+            burstPerMinute,
+            stuckReservedMs,
+            retentionDays,
+            timezone,
+          },
+          metrics: {
+            stuckReserved: stuckReservedCount.rows[0]?.count ?? 0,
+            usersAtDailyLimit: usersAtLimit.rows[0]?.count ?? 0,
+            denyLogs24h: denyLogs24h.rows[0]?.count ?? 0,
+            usersWithUsageToday:
+              dailyUsageToday.rows[0]?.users_with_usage ?? 0,
+            totalMessagesToday: dailyUsageToday.rows[0]?.total_messages ?? 0,
+            idempotencyByStatus: Object.fromEntries(
+              idempotencyFleet.rows.map((row) => [row.status, row.count]),
+            ),
+          },
+          logGrepHints: [
+            'CHAT_QUOTA_DENY',
+            'CHAT_QUOTA_REFUND',
+            'CHAT_QUOTA_RECOVERED',
+            'OPS_HEALTH_ALERT',
+          ],
+          runbook: {
+            dailyHealth: 'npm run ops:health',
+            recoverStuck: 'npm run chat-quota:recover-stuck -- --dry-run',
+            cleanup: 'npm run chat-quota:cleanup -- --dry-run',
+          },
+        },
+        null,
+        2,
+      ),
+    );
+  } else {
   const dailyUsageResult = await pool.query(
     `
       SELECT
@@ -349,6 +452,7 @@ try {
       2,
     ),
   );
+  }
 } finally {
   await pool.end();
 }

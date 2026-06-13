@@ -273,7 +273,11 @@ npm run db:explore-study-schedule
 npm run study-reminder:sync    # Build + migrate + sync + dispatch
 npm run study-reminder:sync-only
 npm run study-reminder:jobs    # In jobs trong DB
+npm run study-reminder:jobs -- --failed   # S1: terminal failed
+npm run study-reminder:jobs -- --stuck    # S1: processing kẹt
+npm run ops:health             # I1+S1 combined ops snapshot
 npm run chat-quota:status      # Tra quota chat (psid / userId / ngày)
+npm run chat-quota:status -- --ops   # I1 fleet summary
 npm run chat-quota:status -- --psid=<psid> --date=2026-06-15
 npm run chat-quota:recover-stuck   # H2: refund stuck reserved
 npm run chat-quota:cleanup         # H6: xóa idempotency completed/refunded cũ
@@ -285,9 +289,8 @@ npm run chat-quota:cleanup         # H6: xóa idempotency completed/refunded cũ
 
 - **Một instance** — cron chạy trên mọi process; scale ngang: bật `CHAT_QUEUE_SHARED=true` (H7) + `CHAT_RATE_LIMIT_ENABLED=true` (H3 hard cap).
 - **Chỉ Messenger** — user chưa map `psid` không nhận tin.
-- **Tích hợp lịch học** — Wispace gọi `POST /messenger/study-calendar/sync` khi đổi lịch; cron 30 phút là dự phòng.
+- **Tích hợp lịch học** — Wispace gọi `POST /messenger/study-calendar/sync` khi đổi lịch (S0 ✓); cron 30 phút là dự phòng.
 - **API UserCalendar** — cần `WISPACE_API_USER_CALENDAR_URL`; fallback DB khi API lỗi.
-- **Wispace chưa wire** gọi sync API — cần thêm HTTP call + header `X-Internal-Api-Key` sau mỗi lần đổi lịch.
 - **Rate limit chat** — V1 + H1–H7 ✓; gap còn lại toàn dự án: [edge-cases-roadmap.md](./edge-cases-roadmap.md)
 
 Trade-off chi tiết nhắc lịch học: mục 11 trong [study-session-reminder.md](./study-session-reminder.md).
@@ -334,7 +337,37 @@ npm run chat-quota:cleanup
 # override: npm run chat-quota:cleanup -- --retention-days=60
 ```
 
-Log grep (H6): `CHAT_QUOTA_DENY`, `CHAT_QUOTA_REFUND`, `CHAT_QUOTA_RECOVERED`.
+Log grep (H6 / I1): `CHAT_QUOTA_DENY`, `CHAT_QUOTA_REFUND`, `CHAT_QUOTA_RECOVERED`, `OPS_HEALTH_ALERT`, `OPS_HEALTH_OK`.
+
+**I1 — fleet ops summary:**
+
+```bash
+npm run chat-quota:status -- --ops
+npm run ops:health
+npm run ops:health -- --warn-only   # exit 1 khi có alert (cron ngoài)
+```
+
+Grep log app (Docker / PM2 / file):
+
+```bash
+grep CHAT_QUOTA_DENY /path/to/app.log | tail -20
+grep CHAT_QUOTA_REFUND /path/to/app.log | tail -20
+grep CHAT_QUOTA_RECOVERED /path/to/app.log | tail -20
+grep OPS_HEALTH_ALERT /path/to/app.log | tail -20
+```
+
+Cron nội bộ: `OpsHealthCronService` chạy **09:00 ICT** mỗi ngày (`OPS_HEALTH_ALERT_ENABLED=true`).
+
+**S1 — nhắc lịch failed / stuck:**
+
+```bash
+npm run study-reminder:jobs -- --summary
+npm run study-reminder:jobs -- --failed
+npm run study-reminder:jobs -- --stuck
+npm run study-reminder:jobs -- --failed --hours=48 --limit=20
+```
+
+Cùng snapshot I1+S1: `npm run ops:health`.
 
 **Scale ≥2 instance (H7):**
 
