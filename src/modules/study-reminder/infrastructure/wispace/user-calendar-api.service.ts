@@ -22,7 +22,7 @@ function isWispaceRetryable(error: unknown): boolean {
     error !== null &&
     typeof error === 'object' &&
     'isRetryable' in error &&
-    typeof (error as { isRetryable: unknown }).isRetryable === 'function'
+    typeof error.isRetryable === 'function'
   ) {
     return (error as { isRetryable: () => boolean }).isRetryable();
   }

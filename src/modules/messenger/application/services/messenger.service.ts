@@ -134,7 +134,7 @@ export class MessengerService {
               .save({
                 psid: event.sender?.id ?? null,
                 messageMid: event.message?.mid ?? null,
-                rawPayload: event as object,
+                rawPayload: event,
                 errorMessage,
               })
               .catch((saveErr: unknown) => {
