@@ -102,17 +102,14 @@ export class StudentReportService {
   private buildFallbackReport(
     input: StudentCapacityInput,
   ): StudentCapacityReport {
-    const examDate = new Date(input.exam_date);
-    const currentDate = new Date(input.current_date);
-    const daysLeft = Math.max(
-      0,
-      Math.ceil(
-        (examDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24),
-      ),
-    );
+    const headline = input.exam_has_passed
+      ? `Kỳ thi ngày ${input.exam_date_display} đã qua. Mục tiêu band ${input.target_band} — hãy xem lại tiến độ và lên kế hoạch tiếp theo.`
+      : input.days_until_exam === 0
+        ? `Hôm nay là ngày thi ${input.exam_date_display}, mục tiêu band ${input.target_band}.`
+        : `Bạn còn ${input.days_until_exam} ngày nữa đến kỳ thi ${input.exam_date_display}, mục tiêu band ${input.target_band}.`;
 
     return {
-      headline: `Bạn còn ${daysLeft} ngày nữa đến kỳ thi, mục tiêu band ${input.target_band}.`,
+      headline,
       streak: `Bạn đã làm ${input.total_essays_task1} bài Task 1 và ${input.total_essays_task2} bài Task 2.`,
       'tình trạng task 2': `Task 2 đang ở band ${input.task2_band} — khả năng lập luận tốt.`,
       'tình trạng task 1': `Task 1 đang ở band ${input.task1_band}, thấp hơn mục tiêu ${(input.target_band - input.task1_band).toFixed(1)} band — cần luyện mô tả biểu đồ.`,
