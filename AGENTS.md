@@ -22,7 +22,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 
 - Copy `.env.example` → `.env` và điền token thật trước khi chạy sync/cron.
 - Webhook Meta cần URL public (ngrok/tunnel) trỏ tới `POST /webhook`.
-- Sau lần deploy đầu: gọi `POST /messenger/profile/setup` (header `X-Internal-Api-Key`) để cấu hình menu bot.
+- Sau lần deploy đầu: gọi `POST /messenger/profile/setup` (header `X-Internal-Api-Key`) — menu prod chỉ **Đăng ký báo cáo** (báo cáo/nhắc lịch bot gửi tự động).
 - Sửa file trong `src/shared/prompts/*.system.txt` → **bắt buộc** `npm run build` (Nest copy assets sang `dist/shared/prompts/`).
 - Study reminder: biến `STUDY_REMINDER_*` **bắt buộc** — dùng `readRequiredPositiveNumber`, không hardcode fallback trong code.
 - Wispace API auth bằng header **`x-psid`** (PSID Messenger), không dùng user access token.

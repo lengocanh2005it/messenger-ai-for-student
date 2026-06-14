@@ -593,7 +593,7 @@ class ChatRateLimitService {
 ### 5.5. Tin nhắn khi hết quota (UX)
 
 > Hôm nay bạn đã dùng hết **15 lượt chat** với WISPACE. Lượt mới reset lúc **00:00** (giờ Việt Nam).  
-> Bạn vẫn có thể dùng **Menu**: Nhắc lịch học, Xem tiến độ, Đăng ký báo cáo.
+> Báo cáo và nhắc lịch vẫn gửi tự động. Menu prod chỉ còn **Đăng ký báo cáo**.
 
 `message_type`: `CHAT_QUOTA_DENIED`.
 

@@ -161,7 +161,7 @@ export class MessengerAgentService {
     return [
       'WISPACE đang bảo trì trợ lý AI tạm thời.',
       '',
-      'Bạn có thể thử hỏi: "Xem tiến độ học tập", "Lịch học sắp tới", hoặc "Đăng ký báo cáo".',
+      'Bạn có thể hỏi tự do về tiến độ, lịch học — WISPACE cũng gửi báo cáo và nhắc lịch tự động. Menu: «Đăng ký báo cáo».',
     ].join('\n');
   }
 

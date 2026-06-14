@@ -2,7 +2,7 @@
 export function buildStudentReportNoScoreDataMessage(): string {
   return (
     'Mình chưa thấy bài Writing nào được chấm trên WISPACE để tổng hợp báo cáo.\n\n' +
-    'Bạn làm thêm vài bài Task 1 / Task 2 trên app, rồi bấm lại «Xem tiến độ học tập» hoặc nhắn mình nhé.'
+    'Bạn làm thêm vài bài Task 1 / Task 2 trên app — WISPACE sẽ gửi báo cáo tự động, hoặc bạn nhắn mình nhé.'
   );
 }
 
@@ -18,6 +18,6 @@ export function buildStudentReportApiUnavailableMessage(): string {
 export function buildStudentReportApiRetryMessage(): string {
   return (
     'Hệ thống WISPACE đang bận nên mình chưa tổng hợp được báo cáo.\n\n' +
-    'Bạn thử bấm lại «Xem tiến độ học tập» sau 15–30 phút nhé.'
+    'Bạn thử lại sau 15–30 phút nhé.'
   );
 }

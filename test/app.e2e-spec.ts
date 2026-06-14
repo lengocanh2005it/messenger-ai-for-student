@@ -213,18 +213,8 @@ describe('AppController (e2e)', () => {
       payload: 'GET_STARTED',
     });
     expect(payload.greeting[0].text).toContain('WISPACE');
-    expect(payload.persistent_menu[0].call_to_actions).toHaveLength(3);
+    expect(payload.persistent_menu[0].call_to_actions).toHaveLength(1);
     expect(payload.persistent_menu[0].call_to_actions).toEqual([
-      {
-        type: 'postback',
-        title: 'Nhắc lịch học',
-        payload: 'VIEW_UPCOMING_STUDY_SESSION',
-      },
-      {
-        type: 'postback',
-        title: 'Xem tiến độ',
-        payload: 'VIEW_LEARNING_PROGRESS',
-      },
       {
         type: 'postback',
         title: 'Đăng ký báo cáo',

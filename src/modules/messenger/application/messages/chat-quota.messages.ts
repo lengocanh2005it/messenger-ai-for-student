@@ -2,7 +2,8 @@ export function buildChatQuotaDeniedMessage(dailyLimit: number): string {
   return (
     `Hôm nay bạn đã dùng hết ${dailyLimit} lượt chat với WISPACE. ` +
     `Lượt mới reset lúc 00:00 (giờ Việt Nam).\n` +
-    `Bạn vẫn có thể dùng Menu: Nhắc lịch học, Xem tiến độ, Đăng ký báo cáo.`
+    `Báo cáo tiến độ và nhắc lịch học WISPACE vẫn gửi tự động.\n` +
+    `Bạn vẫn có thể dùng Menu: Đăng ký báo cáo.`
   );
 }
 

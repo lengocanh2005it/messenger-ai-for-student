@@ -4,16 +4,6 @@ import { ConfigService } from '@nestjs/config';
 const PERSISTENT_MENU_ACTIONS = [
   {
     type: 'postback' as const,
-    title: 'Nhắc lịch học',
-    payload: 'VIEW_UPCOMING_STUDY_SESSION',
-  },
-  {
-    type: 'postback' as const,
-    title: 'Xem tiến độ',
-    payload: 'VIEW_LEARNING_PROGRESS',
-  },
-  {
-    type: 'postback' as const,
     title: 'Đăng ký báo cáo',
     payload: 'REGISTER_LEARNING_REPORT',
   },
@@ -33,7 +23,7 @@ export class MessengerProfileService {
       greeting: [
         {
           locale: 'default',
-          text: 'Chào bạn! Hỏi WISPACE về IELTS Writing, tiến độ học, lịch học hoặc báo cáo trước ngày thi — cứ nhắn tin tự nhiên nhé.',
+          text: 'Chào bạn! WISPACE sẽ gửi báo cáo tiến độ và nhắc lịch học qua Messenger. Bạn có thể hỏi tự do về IELTS Writing — hoặc dùng Menu để đăng ký nhận báo cáo trước ngày thi.',
         },
       ],
       persistent_menu: [
