@@ -4,6 +4,8 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  OnModuleDestroy,
+  OnModuleInit,
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -55,12 +57,13 @@ import { MessengerOutboundService } from './messenger-outbound.service';
 export { MessengerApiError } from './messenger-outbound.service';
 
 @Injectable()
-export class MessengerService {
+export class MessengerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessengerService.name);
   private readonly recentPostbacks = new Map<string, number>();
   private readonly recentMessageMids = new Map<string, number>();
   private static readonly POSTBACK_DEDUPE_MS = 15_000;
   private static readonly MESSAGE_MID_DEDUPE_MS = 60 * 60 * 1000;
+  private dedupeCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly configService: ConfigService,
@@ -83,6 +86,32 @@ export class MessengerService {
     @Inject(MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY)
     private readonly deadLetterRepository?: MessengerWebhookDeadLetterRepositoryPort,
   ) {}
+
+  onModuleInit(): void {
+    this.dedupeCleanupTimer = setInterval(
+      () => this.evictStaleDedupe(),
+      5 * 60 * 1000,
+    );
+  }
+
+  onModuleDestroy(): void {
+    if (this.dedupeCleanupTimer) {
+      clearInterval(this.dedupeCleanupTimer);
+      this.dedupeCleanupTimer = null;
+    }
+  }
+
+  private evictStaleDedupe(): void {
+    const now = Date.now();
+    for (const [k, ts] of this.recentMessageMids) {
+      if (now - ts > MessengerService.MESSAGE_MID_DEDUPE_MS)
+        this.recentMessageMids.delete(k);
+    }
+    for (const [k, ts] of this.recentPostbacks) {
+      if (now - ts > MessengerService.POSTBACK_DEDUPE_MS)
+        this.recentPostbacks.delete(k);
+    }
+  }
 
   verifyWebhook(token?: string, challenge?: string): string {
     if (token !== this.configService.get<string>('VERIFY_TOKEN')) {
@@ -559,11 +588,13 @@ export class MessengerService {
 
       if (!userId && !context) {
         this.signalMessageSeen(psid);
-        await this.outbound.sendTextViaPsid({
-          psid,
-          text: getMissingUserRefMessage(),
-          messageType: 'MISSING_USER_REF',
-        });
+        void this.outbound
+          .sendTextViaPsid({
+            psid,
+            text: getMissingUserRefMessage(),
+            messageType: 'MISSING_USER_REF',
+          })
+          .catch(() => undefined);
         return true;
       }
 
@@ -572,12 +603,14 @@ export class MessengerService {
           `Chat text without message.mid psid=${psid}; not enqueued (H5)`,
         );
         this.signalMessageSeen(psid);
-        await this.outbound.sendTextViaPsid({
-          psid,
-          userId,
-          text: buildChatMissingMidMessage(),
-          messageType: 'CHAT_MISSING_MID',
-        });
+        void this.outbound
+          .sendTextViaPsid({
+            psid,
+            userId,
+            text: buildChatMissingMidMessage(),
+            messageType: 'CHAT_MISSING_MID',
+          })
+          .catch(() => undefined);
         return true;
       }
 
@@ -609,12 +642,14 @@ export class MessengerService {
         );
         this.signalMessageSeen(psid);
         const userId = await this.resolveUserId(psid, event);
-        await this.outbound.sendTextViaPsid({
-          psid,
-          userId,
-          text: buildUnsupportedMessageTypeReply(),
-          messageType: 'UNSUPPORTED_MESSAGE_TYPE',
-        });
+        void this.outbound
+          .sendTextViaPsid({
+            psid,
+            userId,
+            text: buildUnsupportedMessageTypeReply(),
+            messageType: 'UNSUPPORTED_MESSAGE_TYPE',
+          })
+          .catch(() => undefined);
         return true;
       }
     }
@@ -737,15 +772,6 @@ export class MessengerService {
     }
 
     this.recentMessageMids.set(mid, now);
-
-    if (this.recentMessageMids.size > 2_000) {
-      for (const [entryKey, timestamp] of this.recentMessageMids) {
-        if (now - timestamp > MessengerService.MESSAGE_MID_DEDUPE_MS) {
-          this.recentMessageMids.delete(entryKey);
-        }
-      }
-    }
-
     return false;
   }
 
@@ -762,15 +788,6 @@ export class MessengerService {
     }
 
     this.recentPostbacks.set(key, now);
-
-    if (this.recentPostbacks.size > 500) {
-      for (const [entryKey, timestamp] of this.recentPostbacks) {
-        if (now - timestamp > MessengerService.POSTBACK_DEDUPE_MS) {
-          this.recentPostbacks.delete(entryKey);
-        }
-      }
-    }
-
     return false;
   }
 
