@@ -36,5 +36,5 @@ export function shouldShowQuotaRemainingHint(
   remaining: number,
   threshold: number,
 ): boolean {
-  return remaining <= threshold;
+  return remaining > 0 && remaining <= threshold;
 }

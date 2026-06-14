@@ -322,6 +322,27 @@ describe('MessengerChatQueueService', () => {
     });
   });
 
+  it('does not send remaining quota hint when remaining is zero', async () => {
+    const { service, sendTextViaPsid, reserveFreeFormSlot } = createService();
+    reserveFreeFormSlot.mockResolvedValue(
+      quotaAllowed({ used: 15, remaining: 0 }),
+    );
+
+    service.enqueue({
+      psid: 'psid-1',
+      userText: 'Hello',
+      idempotencyKey: 'mid-zero-hint',
+    });
+
+    await jest.runOnlyPendingTimersAsync();
+
+    expect(sendTextViaPsid).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageType: 'CHAT_QUOTA_REMAINING_HINT',
+      }),
+    );
+  });
+
   it('does not send remaining quota hint when remaining is above threshold', async () => {
     const { service, sendTextViaPsid, reserveFreeFormSlot } = createService();
     reserveFreeFormSlot.mockResolvedValue(

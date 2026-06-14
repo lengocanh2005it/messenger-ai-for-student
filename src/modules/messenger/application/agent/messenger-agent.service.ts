@@ -15,6 +15,8 @@ import {
 } from './messenger-agent-tools.service';
 import type { ChatHistoryMessage } from '../services/messenger-chat-history.service';
 import type { MessengerRichFollowUp } from '../../domain/entities/messenger-rich-message.types';
+import { isObviouslyOffTopic } from '../../../../shared/utils/messenger-scope.utils';
+import { buildWispaceScopeRedirectMessage } from '../messages/wispace-scope.messages';
 import { MESSENGER_AGENT_TOOLS } from './messenger-agent.tools';
 
 export interface MessengerAgentReply {
@@ -70,6 +72,13 @@ export class MessengerAgentService {
     );
     if (fastReschedule) {
       return fastReschedule;
+    }
+
+    if (isObviouslyOffTopic(input.userText)) {
+      return {
+        text: buildWispaceScopeRedirectMessage(),
+        richFollowUps: [],
+      };
     }
 
     const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
@@ -154,8 +163,8 @@ export class MessengerAgentService {
 
   private buildFallbackReply(userText: string): string {
     const trimmed = userText.trim();
-    if (!trimmed) {
-      return 'Bạn có thể hỏi về tiến độ học, lịch học sắp tới, hoặc đăng ký báo cáo trước ngày thi nhé.';
+    if (!trimmed || isObviouslyOffTopic(trimmed)) {
+      return buildWispaceScopeRedirectMessage();
     }
 
     return [
