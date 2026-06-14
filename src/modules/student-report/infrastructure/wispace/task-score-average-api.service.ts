@@ -10,6 +10,11 @@ import { TaskScoreAverageRecord } from '../../domain/types/task-score-average.ty
 import { StudentCapacityInput } from '../../domain/types/student-capacity.types';
 import { UserGoalsApiService } from './user-goals-api.service';
 import { withRetry } from '../../../../shared/common/with-retry';
+import {
+  formatExamDateDisplay,
+  resolveExamCountdown,
+} from '../../../../shared/utils/exam-date.utils';
+import { todayReportDate } from '../../../../shared/utils/report-date.utils';
 
 function isWispaceRetryable(error: unknown): boolean {
   if (
@@ -113,9 +118,19 @@ export class TaskScoreAverageApiService {
       record.task.toLowerCase().includes('task 2'),
     );
 
+    const examDate = this.userGoalsApiService.parseExamDate(goals.examDate);
+    const currentDate = todayReportDate();
+    const { daysUntilExam, examHasPassed } = resolveExamCountdown(
+      examDate,
+      currentDate,
+    );
+
     return {
-      exam_date: this.userGoalsApiService.parseExamDate(goals.examDate),
-      current_date: new Date().toISOString().slice(0, 10),
+      exam_date: examDate,
+      exam_date_display: formatExamDateDisplay(examDate),
+      current_date: currentDate,
+      days_until_exam: daysUntilExam,
+      exam_has_passed: examHasPassed,
       target_band: goals.targetScore,
       task1_band: this.roundBand(task1?.avgTotalScore),
       task2_band: this.roundBand(task2?.avgTotalScore),
