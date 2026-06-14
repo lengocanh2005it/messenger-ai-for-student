@@ -1,6 +1,24 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+const PERSISTENT_MENU_ACTIONS = [
+  {
+    type: 'postback' as const,
+    title: 'Nhắc lịch học',
+    payload: 'VIEW_UPCOMING_STUDY_SESSION',
+  },
+  {
+    type: 'postback' as const,
+    title: 'Xem tiến độ',
+    payload: 'VIEW_LEARNING_PROGRESS',
+  },
+  {
+    type: 'postback' as const,
+    title: 'Đăng ký báo cáo',
+    payload: 'REGISTER_LEARNING_REPORT',
+  },
+];
+
 @Injectable()
 export class MessengerProfileService {
   constructor(private readonly configService: ConfigService) {}
@@ -16,6 +34,13 @@ export class MessengerProfileService {
         {
           locale: 'default',
           text: 'Chào bạn! Hỏi WISPACE về IELTS Writing, tiến độ học, lịch học hoặc báo cáo trước ngày thi — cứ nhắn tin tự nhiên nhé.',
+        },
+      ],
+      persistent_menu: [
+        {
+          locale: 'default',
+          composer_input_disabled: false,
+          call_to_actions: PERSISTENT_MENU_ACTIONS,
         },
       ],
     });

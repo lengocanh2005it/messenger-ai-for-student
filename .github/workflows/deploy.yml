@@ -57,6 +57,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: messenger-bot-publish.zip
           target: /home/ngoc_anh/messenger-bot/
+          timeout: 180s
 
       - name: Deploy on VPS
         uses: appleboy/ssh-action@v1.2.0
