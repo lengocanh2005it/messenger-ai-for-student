@@ -24,9 +24,7 @@ export class AddMessengerIndexes1717747200007 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS "idx_mappings_psid_status"`,
-    );
+    await queryRunner.query(`DROP INDEX IF EXISTS "idx_mappings_psid_status"`);
     await queryRunner.query(
       `DROP INDEX IF EXISTS "idx_msg_logs_type_created_at"`,
     );

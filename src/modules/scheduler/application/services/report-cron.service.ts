@@ -186,9 +186,8 @@ export class ReportCronService {
     // Single Wispace API call — supplies both shouldSend and examDate
     let examDateForOutbox: string | undefined;
     try {
-      const userSchedule = await this.reportScheduleService.shouldSendReportToday(
-        mapping.psid,
-      );
+      const userSchedule =
+        await this.reportScheduleService.shouldSendReportToday(mapping.psid);
       examDateForOutbox = userSchedule.examDate;
 
       if (!forceSend && !userSchedule.shouldSend) {
@@ -323,7 +322,9 @@ export class ReportCronService {
       );
       return {
         ...ZERO,
-        failures: [{ token: mapping.notificationMessagesToken, error: message }],
+        failures: [
+          { token: mapping.notificationMessagesToken, error: message },
+        ],
       };
     }
   }
@@ -341,7 +342,10 @@ export class ReportCronService {
         if (r.status === 'fulfilled') {
           results.push(r.value);
         } else {
-          this.logger.error('Unexpected error in processMappingForReport', r.reason);
+          this.logger.error(
+            'Unexpected error in processMappingForReport',
+            r.reason,
+          );
         }
       }
     }
@@ -349,7 +353,9 @@ export class ReportCronService {
   }
 
   private readConcurrency(): number {
-    const raw = this.configService.get<string>('REPORT_SEND_CONCURRENCY')?.trim();
+    const raw = this.configService
+      .get<string>('REPORT_SEND_CONCURRENCY')
+      ?.trim();
     if (!raw) return 5;
     const value = parseInt(raw, 10);
     return Number.isFinite(value) && value > 0 ? value : 5;
