@@ -56,7 +56,8 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: messenger-bot-publish.zip
-          target: /root/messenger-bot/
+          target: /home/ngoc_anh/messenger-bot/
+          timeout: 180s
 
       - name: Deploy on VPS
         uses: appleboy/ssh-action@v1.2.0
@@ -69,7 +70,7 @@ jobs:
             set -euo pipefail
 
             APP_NAME="messenger-bot"
-            DEPLOY_PATH="/root/messenger-bot"
+            DEPLOY_PATH="/home/ngoc_anh/messenger-bot"
             PUBLISH_PATH="$DEPLOY_PATH/publish"
             STAGING_PATH="$DEPLOY_PATH/publish.next"
             PREV_PATH="$DEPLOY_PATH/publish.prev"

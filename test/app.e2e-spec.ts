@@ -195,8 +195,14 @@ describe('AppController (e2e)', () => {
         ok: true,
       });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, options] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const deleteCall = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(String(deleteCall[0])).toContain(
+      'https://graph.facebook.com/v25.0/me/messenger_profile',
+    );
+    expect(deleteCall[1].method).toBe('DELETE');
+
+    const [url, options] = fetchMock.mock.calls[1] as [URL, RequestInit];
     expect(String(url)).toContain(
       'https://graph.facebook.com/v25.0/me/messenger_profile',
     );
@@ -207,7 +213,24 @@ describe('AppController (e2e)', () => {
       payload: 'GET_STARTED',
     });
     expect(payload.greeting[0].text).toContain('WISPACE');
-    expect(payload.persistent_menu[0].call_to_actions).toHaveLength(2);
+    expect(payload.persistent_menu[0].call_to_actions).toHaveLength(3);
+    expect(payload.persistent_menu[0].call_to_actions).toEqual([
+      {
+        type: 'postback',
+        title: 'Nhắc lịch học',
+        payload: 'VIEW_UPCOMING_STUDY_SESSION',
+      },
+      {
+        type: 'postback',
+        title: 'Xem tiến độ',
+        payload: 'VIEW_LEARNING_PROGRESS',
+      },
+      {
+        type: 'postback',
+        title: 'Đăng ký báo cáo',
+        payload: 'REGISTER_LEARNING_REPORT',
+      },
+    ]);
   });
 
   afterEach(async () => {
