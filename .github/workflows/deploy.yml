@@ -73,11 +73,14 @@ jobs:
             PORT=5007
 
             load_shell() {
-              [ -f ~/.bashrc ] && source ~/.bashrc
-              [ -f ~/.profile ] && source ~/.profile
-              [ -f /etc/profile ] && source /etc/profile
+              # Non-interactive SSH + set -u breaks typical .bashrc (PS1, etc.)
+              set +u
+              [ -f /etc/profile ] && . /etc/profile >/dev/null 2>&1 || true
+              [ -f ~/.profile ] && . ~/.profile >/dev/null 2>&1 || true
+              [ -f ~/.bashrc ] && . ~/.bashrc >/dev/null 2>&1 || true
               export NVM_DIR="$HOME/.nvm"
-              [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+              [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" || true
+              set -u
             }
 
             resolve_node() {
