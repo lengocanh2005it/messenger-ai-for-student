@@ -19,23 +19,24 @@ npm ci
 
 Bắt buộc nếu `npm run test` báo `'jest' is not recognized` (thường do vừa `npm ci --omit=dev`).
 
-## Quality gate (thứ tự)
+## Quality gate
+
+**CI / deploy** (`.github/workflows/deploy.yml`):
+
+```bash
+npm run lint
+npm run test
+npm run build
+```
+
+**Local đầy đủ:**
 
 ```bash
 npm run format
 npm run verify
 ```
 
-`npm run verify` = `format:check` + `lint` + `typecheck` + `test` + `build`.
-
-Hoặc từng bước:
-
-```bash
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-```
+`npm run test` = Jest unit tests trong `src/**/*.spec.ts` (hiện 139 tests). `npm run verify` thêm `format:check` + `typecheck` trước test.
 
 ## Checks
 

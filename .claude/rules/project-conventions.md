@@ -43,14 +43,22 @@ POC NestJS Clean Architecture: Messenger webhook + báo cáo AI + nhắc lịch 
 2. **Cập nhật skill** trong `.claude/skills/` nếu workflow debug/verify/migration/prompt bị ảnh hưởng.
 3. **Chạy quality gate** trước khi báo xong task (cần `npm ci` đầy đủ dev deps):
 
+**CI / deploy** (khớp `.github/workflows/deploy.yml`):
+
 ```bash
-npm run format          # sửa format trước
+npm run lint
+npm run test
+npm run build
+```
+
+**Local đầy đủ** (thêm format + typecheck):
+
+```bash
+npm run format
 npm run verify          # format:check + lint + typecheck + test + build
 ```
 
-Hoặc từng bước: `npm run lint` → `npm run typecheck` → `npm run test` → `npm run build`.
-
-**Lưu ý:** `npm run test` fail với `'jest' is not recognized` nếu vừa chạy `npm ci --omit=dev` — chạy lại `npm ci`.
+**Lưu ý:** `npm run test` = Jest unit spec (`src/**/*.spec.ts`). Fail `'jest' is not recognized` → chạy lại `npm ci` (không dùng `npm ci --omit=dev` trước khi test).
 
 ## Ops nhanh (chat quota)
 

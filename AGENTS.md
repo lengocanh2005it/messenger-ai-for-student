@@ -84,15 +84,20 @@ npm run test:e2e            # test/app.e2e-spec.ts
 - Sửa guard ops API → `internal-api-key.guard.spec.ts`
 - Sửa parse `ref`/link `m.me` → `poc.constants.spec.ts`
 
-Trước khi kết thúc task (sửa code): **bắt buộc** cập nhật agent docs/skills liên quan (mục *Docs & skills khi đổi code*) và chạy:
+Trước khi kết thúc task (sửa code): **bắt buộc** cập nhật agent docs/skills liên quan (mục *Docs & skills khi đổi code*) và chạy test/build.
+
+**Tối thiểu — khớp CI deploy:**
 
 ```bash
-npm ci                     # đầy đủ dev deps; bắt buộc nếu vừa npm ci --omit=dev
-npm run format
-npm run verify             # hoặc: lint → typecheck → test → build từng lệnh
+npm ci                     # bắt buộc nếu vừa npm ci --omit=dev
+npm run lint
+npm run test               # Jest — lệnh test chuẩn của project
+npm run build
 ```
 
-Sửa lỗi format/lint/type/test/build cho đến khi pass. `npm run test:e2e` cần PostgreSQL thật — không nằm trong gate mặc định (CI/deploy dùng `npm run test`).
+**Local đầy đủ (khuyến nghị):** `npm run format` rồi `npm run verify`.
+
+Sửa lỗi lint/test/build cho đến khi pass. `npm run test:e2e` cần PostgreSQL thật — không nằm trong gate CI.
 
 Spec hiện có:
 
@@ -350,4 +355,4 @@ Khi đóng gap: cập nhật `docs/study-session-reminder.md` và bảng trên.
 - Chỉ commit khi user yêu cầu rõ ràng.
 - Không commit `.env` hoặc file chứa secrets.
 - Message commit: ngắn, mô tả **why** hơn **what**.
-- Trước PR: `npm run verify` pass.
+- Trước PR: `npm run lint`, `npm run test`, `npm run build` pass (CI); local khuyến nghị `npm run verify`.

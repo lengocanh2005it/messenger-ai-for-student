@@ -24,6 +24,7 @@ export function isMessenger24hWindowError(error: unknown): boolean {
 }
 
 function isOpenAiRateLimitError(error: unknown): boolean {
+  if (error instanceof MessengerApiError) return false;
   if (typeof error !== 'object' || error === null) return false;
   const e = error as Record<string, unknown>;
   if (e['name'] === 'RateLimitError') return true;
@@ -37,6 +38,7 @@ function isOpenAiRateLimitError(error: unknown): boolean {
 }
 
 function isOpenAiServerError(error: unknown): boolean {
+  if (error instanceof MessengerApiError) return false;
   if (typeof error !== 'object' || error === null) return false;
   const e = error as Record<string, unknown>;
   if (e['name'] === 'InternalServerError' || e['name'] === 'APIConnectionError')
