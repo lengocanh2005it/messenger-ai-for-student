@@ -53,7 +53,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: messenger-bot-publish.zip
-          target: /root/messenger-bot/
+          target: /home/ngoc_anh/messenger-bot/
 
       - name: Deploy on VPS
         uses: appleboy/ssh-action@v1.2.0
@@ -66,7 +66,7 @@ jobs:
             set -euo pipefail
 
             APP_NAME="messenger-bot"
-            DEPLOY_PATH="/root/messenger-bot"
+            DEPLOY_PATH="/home/ngoc_anh/messenger-bot"
             PUBLISH_PATH="$DEPLOY_PATH/publish"
             STAGING_PATH="$DEPLOY_PATH/publish.next"
             PREV_PATH="$DEPLOY_PATH/publish.prev"
@@ -91,7 +91,7 @@ jobs:
               elif [ -x /usr/local/bin/node ]; then
                 echo /usr/local/bin/node
               else
-                find /usr /opt /root -name node -type f 2>/dev/null | grep -E 'bin/node$' | head -1
+                find /usr /opt /home/ngoc_anh -name node -type f 2>/dev/null | grep -E 'bin/node$' | head -1
               fi
             }
 
