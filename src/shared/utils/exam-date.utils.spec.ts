@@ -1,6 +1,8 @@
 import {
   daysBetweenCalendarDates,
   formatExamDateDisplay,
+  parseExamDateToIso,
+  rawDaysUntilExam,
   resolveExamCountdown,
 } from './exam-date.utils';
 
@@ -38,5 +40,16 @@ describe('exam-date.utils', () => {
 
   it('calculates calendar day differences without timezone drift', () => {
     expect(daysBetweenCalendarDates('2026-06-14', '2026-06-10')).toBe(-4);
+  });
+
+  it('parses slash, iso date, and iso datetime exam formats', () => {
+    expect(parseExamDateToIso('10/06/2026')).toBe('2026-06-10');
+    expect(parseExamDateToIso('2026-06-10')).toBe('2026-06-10');
+    expect(parseExamDateToIso('2026-06-10T00:00:00.000Z')).toBe('2026-06-10');
+  });
+
+  it('computes raw days until exam for cron scheduling', () => {
+    expect(rawDaysUntilExam('2026-06-15', '2026-06-14')).toBe(1);
+    expect(rawDaysUntilExam('2026-06-10', '2026-06-14')).toBe(-4);
   });
 });

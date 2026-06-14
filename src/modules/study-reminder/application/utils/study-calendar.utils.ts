@@ -151,6 +151,26 @@ export function getLocalDateFromEventDate(
   return formatLocalDate(parseLocalDatePartsFromEventDate(eventDate, timezone));
 }
 
+export function formatStoredCalendarDate(
+  value: Date | string,
+  timezone: string,
+): string {
+  if (value instanceof Date) {
+    return formatLocalDate(getLocalDateParts(value, timezone));
+  }
+
+  const trimmed = String(value).trim();
+  if (LOCAL_DATE_PATTERN.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    return getLocalDateFromEventDate(trimmed, timezone);
+  }
+
+  return trimmed;
+}
+
 export function addDaysToLocalDate(
   localDate: string,
   days: number,

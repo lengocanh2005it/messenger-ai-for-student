@@ -37,3 +37,31 @@ export function formatExamDateDisplay(isoDate: string): string {
   const [, year, month, day] = match;
   return `${day}/${month}/${year}`;
 }
+
+export function parseExamDateToIso(examDate: string): string {
+  const trimmed = examDate.trim();
+  const slashMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
+  if (slashMatch) {
+    const [, day, month, year] = slashMatch;
+    return `${year}-${month}-${day}`;
+  }
+
+  const isoDateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (isoDateMatch) {
+    return trimmed;
+  }
+
+  const isoDateTimeMatch = /^(\d{4})-(\d{2})-(\d{2})[T\s]/.exec(trimmed);
+  if (isoDateTimeMatch) {
+    return `${isoDateTimeMatch[1]}-${isoDateTimeMatch[2]}-${isoDateTimeMatch[3]}`;
+  }
+
+  throw new Error(`Unsupported examDate format: ${examDate}`);
+}
+
+export function rawDaysUntilExam(
+  examDate: string,
+  currentDate: string,
+): number {
+  return daysBetweenCalendarDates(currentDate, examDate);
+}
