@@ -3,172 +3,294 @@ name: Deploy NestJS Backend to VPS
 on:
   push:
     branches:
-      - main  
+      - main
   workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   deploy-backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - name: 🚀 Starting Backend Deployment
-        run: echo "Starting NestJS backend deployment to VPS..."
-
-      - name: 📥 Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 🛠️ Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: npm
 
-      - name: 📦 Install Dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: 📦 Build Application
+      - name: Test
+        run: npm run test
+
+      - name: Build application
         run: npm run build
 
-      - name: 📦 Create Backend Archive
+      - name: Prune to production dependencies
+        run: npm ci --omit=dev
+
+      - name: Create deployment archive
         run: |
-          zip -r messenger-bot-publish.zip dist package.json package-lock.json
+          zip -rq messenger-bot-publish.zip \
+            dist package.json package-lock.json node_modules ecosystem.config.cjs
+          du -h messenger-bot-publish.zip
 
-      - name: 📤 Upload Backend to VPS
-        uses: appleboy/scp-action@v0.1.7
+      - name: Upload archive to VPS
+        uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "messenger-bot-publish.zip"
-          target: "/root/messenger-bot/"
+          source: messenger-bot-publish.zip
+          target: /root/messenger-bot/
 
-      - name: 🔧 Deploy Backend on VPS
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Deploy on VPS
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 5m
+          command_timeout: 10m
           script: |
-            set -e
+            set -euo pipefail
 
-            [ -f ~/.bashrc ] && source ~/.bashrc
-            [ -f ~/.profile ] && source ~/.profile
-            [ -f /etc/profile ] && source /etc/profile
-            
-            # Load NVM (Node Version Manager) if present
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-
+            APP_NAME="messenger-bot"
             DEPLOY_PATH="/root/messenger-bot"
             PUBLISH_PATH="$DEPLOY_PATH/publish"
+            STAGING_PATH="$DEPLOY_PATH/publish.next"
+            PREV_PATH="$DEPLOY_PATH/publish.prev"
             PORT=5007
-            
-            echo "Searching for node..."
-            if command -v node &> /dev/null; then
-              NODE_EXEC=$(command -v node)
-            elif [ -f "/usr/bin/node" ]; then
-              NODE_EXEC="/usr/bin/node"
-            elif [ -f "/usr/local/bin/node" ]; then
-              NODE_EXEC="/usr/local/bin/node"
-            else
-              NODE_EXEC=$(find /usr /opt /root -name "node" -type f 2>/dev/null | grep -E "bin/node$" | head -1)
-            fi
-            
-            if [ -z "$NODE_EXEC" ] || [ ! -f "$NODE_EXEC" ]; then
-              echo "❌ ERROR: node not found"
+
+            load_shell() {
+              [ -f ~/.bashrc ] && source ~/.bashrc
+              [ -f ~/.profile ] && source ~/.profile
+              [ -f /etc/profile ] && source /etc/profile
+              export NVM_DIR="$HOME/.nvm"
+              [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+            }
+
+            resolve_node() {
+              if command -v node >/dev/null 2>&1; then
+                command -v node
+              elif [ -x /usr/bin/node ]; then
+                echo /usr/bin/node
+              elif [ -x /usr/local/bin/node ]; then
+                echo /usr/local/bin/node
+              else
+                find /usr /opt /root -name node -type f 2>/dev/null | grep -E 'bin/node$' | head -1
+              fi
+            }
+
+            ensure_pm2() {
+              if command -v pm2 >/dev/null 2>&1; then
+                echo "PM2: $(pm2 -v)"
+                return 0
+              fi
+
+              echo "PM2 not found — installing globally..."
+              npm install -g pm2
+              command -v pm2 >/dev/null 2>&1
+            }
+
+            setup_pm2_startup() {
+              local user home service_unit startup_output startup_cmd
+              user="$(whoami)"
+              home="$HOME"
+              service_unit="/etc/systemd/system/pm2-${user}.service"
+
+              if [ -f "$service_unit" ]; then
+                echo "PM2 systemd startup already configured: pm2-${user}"
+                return 0
+              fi
+
+              if command -v systemctl >/dev/null 2>&1 && \
+                 systemctl list-unit-files "pm2-${user}.service" 2>/dev/null | grep -q "pm2-${user}.service"; then
+                echo "PM2 systemd unit already enabled: pm2-${user}"
+                return 0
+              fi
+
+              echo "Configuring PM2 systemd startup for ${user}..."
+              export PATH="$(dirname "$NODE_EXEC"):$(dirname "$(command -v pm2)"):${PATH}"
+
+              startup_output="$(pm2 startup systemd -u "$user" --hp "$home" 2>&1)"
+              startup_cmd="$(printf '%s\n' "$startup_output" | grep -E '^sudo ' | tail -1 || true)"
+
+              if [ -n "$startup_cmd" ]; then
+                echo "Running PM2 startup command..."
+                if ! eval "$startup_cmd"; then
+                  echo "ERROR: PM2 startup failed."
+                  echo "Ensure the deploy user has passwordless sudo, or run once on VPS:"
+                  echo "  pm2 startup"
+                  printf '%s\n' "$startup_output"
+                  exit 1
+                fi
+              fi
+
+              if [ ! -f "$service_unit" ]; then
+                echo "ERROR: PM2 startup did not create ${service_unit}"
+                printf '%s\n' "$startup_output"
+                exit 1
+              fi
+
+              if command -v systemctl >/dev/null 2>&1; then
+                systemctl daemon-reload
+                systemctl enable "pm2-${user}"
+              fi
+
+              echo "PM2 startup configured: pm2-${user}"
+            }
+
+            read_port_from_env() {
+              local env_file="$1"
+              local env_port
+              if [ -f "$env_file" ]; then
+                env_port=$(grep -E '^PORT=' "$env_file" | tail -1 | cut -d= -f2- | tr -d '\r')
+                env_port="${env_port%\"}"
+                env_port="${env_port#\"}"
+                env_port="${env_port%\'}"
+                env_port="${env_port#\'}"
+                if [ -n "$env_port" ]; then
+                  PORT="$env_port"
+                fi
+              fi
+            }
+
+            stop_app() {
+              pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+
+              local pid
+              pid=$(lsof -ti:"$PORT" 2>/dev/null || true)
+              if [ -n "$pid" ]; then
+                kill -TERM "$pid" 2>/dev/null || true
+                sleep 2
+                if ps -p "$pid" >/dev/null 2>&1; then
+                  kill -9 "$pid" 2>/dev/null || true
+                fi
+              fi
+            }
+
+            start_app() {
+              cd "$PUBLISH_PATH"
+              mkdir -p logs
+              pm2 startOrReload ecosystem.config.cjs --update-env
+            }
+
+            health_check() {
+              local attempt
+              for attempt in $(seq 1 30); do
+                if curl -sf "http://127.0.0.1:${PORT}/health/db" >/dev/null; then
+                  echo "Health check passed on attempt ${attempt}"
+                  return 0
+                fi
+                sleep 2
+              done
+              return 1
+            }
+
+            show_logs() {
+              pm2 logs "$APP_NAME" --nostream --lines 40 || true
+            }
+
+            rollback() {
+              echo "Rolling back to previous release..."
+              stop_app
+              rm -rf "$PUBLISH_PATH"
+              if [ -d "$PREV_PATH" ]; then
+                mv "$PREV_PATH" "$PUBLISH_PATH"
+                start_app
+              else
+                echo "No previous release to restore"
+              fi
+            }
+
+            restore_env_file() {
+              local target_dir="$1"
+              if [ -f "$DEPLOY_PATH/.env.backup" ]; then
+                mv "$DEPLOY_PATH/.env.backup" "$target_dir/.env"
+              elif [ -f "$DEPLOY_PATH/.env" ]; then
+                cp "$DEPLOY_PATH/.env" "$target_dir/.env"
+              elif [ -f "$PUBLISH_PATH/.env" ]; then
+                cp "$PUBLISH_PATH/.env" "$target_dir/.env"
+              else
+                echo "WARNING: No .env found under $DEPLOY_PATH"
+              fi
+            }
+
+            load_shell
+            NODE_EXEC="$(resolve_node)"
+            if [ -z "$NODE_EXEC" ] || [ ! -x "$NODE_EXEC" ]; then
+              echo "ERROR: node executable not found"
               exit 1
             fi
-            echo "✓ Found node at: $NODE_EXEC"
-            
-            echo '------ 1. Stopping Running Application ------'
-            PID=$(lsof -ti:$PORT 2>/dev/null || true)
-            if [ ! -z "$PID" ]; then
-              echo "Found process on port $PORT (PID: $PID), stopping..."
-              kill -TERM $PID 2>/dev/null || true
-              sleep 3
-              # Force kill if still running
-              if ps -p $PID > /dev/null 2>&1; then
-                echo "Force killing process..."
-                kill -9 $PID 2>/dev/null || true
-              fi
-              echo "✓ Stopped running application"
-            else
-              echo "No running application found on port $PORT"
-            fi
-            
-            echo '------ 2. Verifying Files ------'
-            cd "$DEPLOY_PATH" || exit 1
-            if [ ! -f "messenger-bot-publish.zip" ]; then
-              echo "❌ ERROR: messenger-bot-publish.zip not found in $DEPLOY_PATH"
+            echo "Using node: $NODE_EXEC ($("$NODE_EXEC" -v))"
+
+            ensure_pm2
+
+            cd "$DEPLOY_PATH"
+            if [ ! -f messenger-bot-publish.zip ]; then
+              echo "ERROR: messenger-bot-publish.zip not found"
               ls -la
               exit 1
             fi
-            echo "✓ Found messenger-bot-publish.zip ($(du -h messenger-bot-publish.zip | cut -f1))"
-            
-            echo '------ 3. Preparing Environment & Backup ------'
-            # Save existing .env configuration if present
+            echo "Archive size: $(du -h messenger-bot-publish.zip | cut -f1)"
+
             if [ -f "$PUBLISH_PATH/.env" ]; then
-              echo "Saving existing .env file..."
               cp "$PUBLISH_PATH/.env" "$DEPLOY_PATH/.env.backup"
             fi
-            
-            echo '------ 4. Cleaning Old Deployment ------'
-            rm -rf "$PUBLISH_PATH"
-            mkdir -p "$PUBLISH_PATH"
-            echo "✓ Cleaned old deployment"
-            
-            echo '------ 5. Extracting New Version ------'
-            unzip -o messenger-bot-publish.zip -d "$PUBLISH_PATH"
-            if [ $? -ne 0 ]; then
-              echo "❌ ERROR: Failed to extract zip file"
+
+            echo "------ Extract staging release ------"
+            rm -rf "$STAGING_PATH"
+            mkdir -p "$STAGING_PATH"
+            unzip -oq messenger-bot-publish.zip -d "$STAGING_PATH"
+            rm -f messenger-bot-publish.zip
+            restore_env_file "$STAGING_PATH"
+            read_port_from_env "$STAGING_PATH/.env"
+            echo "Listening port: $PORT"
+
+            echo "------ Run database migrations ------"
+            cd "$STAGING_PATH"
+            if [ -f .env ]; then
+              "$NODE_EXEC" --env-file=.env ./node_modules/typeorm/cli.js \
+                migration:run \
+                -d dist/infrastructure/database/data-source.js
+            else
+              echo "WARNING: Skipping migrations because .env is missing"
+            fi
+
+            echo "------ Swap releases ------"
+            stop_app
+            rm -rf "$PREV_PATH"
+            if [ -d "$PUBLISH_PATH" ]; then
+              mv "$PUBLISH_PATH" "$PREV_PATH"
+            fi
+            mv "$STAGING_PATH" "$PUBLISH_PATH"
+
+            echo "------ Start application with PM2 ------"
+            start_app
+            pm2 status "$APP_NAME"
+
+            echo "------ Verify deployment ------"
+            if health_check; then
+              rm -rf "$PREV_PATH"
+              setup_pm2_startup
+              pm2 save
+              show_logs
+              pm2 status "$APP_NAME"
+              echo "Deployment complete — PM2 will restore app after reboot"
+            else
+              echo "ERROR: Health check failed"
+              show_logs
+              rollback
               exit 1
             fi
-            rm messenger-bot-publish.zip
-            echo "✓ Extracted successfully"
-            
-            # Restore .env
-            if [ -f "$DEPLOY_PATH/.env.backup" ]; then
-              echo "Restoring .env file..."
-              mv "$DEPLOY_PATH/.env.backup" "$PUBLISH_PATH/.env"
-            elif [ -f "$DEPLOY_PATH/.env" ]; then
-              echo "Copying .env from root..."
-              cp "$DEPLOY_PATH/.env" "$PUBLISH_PATH/.env"
-            else
-              echo "⚠️ WARNING: No .env file found in $DEPLOY_PATH. Please create it manually inside $PUBLISH_PATH or $DEPLOY_PATH."
-            fi
-            
-            echo '------ 6. Installing Production Dependencies ------'
-            cd "$PUBLISH_PATH" || exit 1
-            npm ci --omit=dev
-            
-            echo '------ 7. Starting Application ------'
-            # Start app in background. Note: DB_MIGRATIONS_RUN=true in your .env will auto-run migrations on startup.
-            PORT=$PORT nohup $NODE_EXEC dist/main.js > nohup.out 2>&1 &
-            APP_PID=$!
-            echo "✓ Started node with PID: $APP_PID"
-            
-            echo '------ 8. Waiting for Application ------'
-            sleep 8
-            
-            echo '------ 9. Verifying Application ------'
-            if ps -p $APP_PID > /dev/null 2>&1; then
-              echo "✅ Application is running (PID: $APP_PID)"
-              echo "Recent logs:"
-              tail -30 nohup.out
-            else
-              echo "❌ Application process died"
-              echo "Full logs:"
-              cat nohup.out
-              exit 1
-            fi
-            
-            echo '✅ Backend Deployment Complete!'
-
-      - name: ✅ Backend Deployment Status
-        if: success()
-        run: echo "Backend deployed successfully! 🎉"
-
-      - name: ❌ Backend Deployment Failed
-        if: failure()
-        run: echo "Backend deployment failed 😢"
