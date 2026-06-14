@@ -16,7 +16,7 @@ export function hasExplicitRescheduleTarget(userText: string): boolean {
     return false;
   }
 
-  if (/\d{1,2}[\/\-.]\d{1,2}/.test(text)) {
+  if (/\d{1,2}[/\-.]\d{1,2}/.test(text)) {
     return true;
   }
 

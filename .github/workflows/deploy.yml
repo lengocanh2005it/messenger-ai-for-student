@@ -31,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Test
         run: npm run test
 
@@ -206,6 +209,27 @@ jobs:
               fi
             }
 
+            ensure_production_env_vars() {
+              local env_file="$1/.env"
+              if [ ! -f "$env_file" ]; then
+                return 0
+              fi
+
+              set_env_var() {
+                local key="$1"
+                local value="$2"
+                if grep -q "^${key}=" "$env_file"; then
+                  sed -i "s/^${key}=.*/${key}=${value}/" "$env_file"
+                else
+                  printf '\n%s=%s\n' "$key" "$value" >> "$env_file"
+                fi
+              }
+
+              set_env_var CHAT_RATE_LIMIT_ENABLED true
+              set_env_var ENFORCE_PROD_CHAT_QUOTA true
+              echo "Ensured CHAT_RATE_LIMIT_ENABLED and ENFORCE_PROD_CHAT_QUOTA in .env"
+            }
+
             load_shell
             NODE_EXEC="$(resolve_node)"
             if [ -z "$NODE_EXEC" ] || [ ! -x "$NODE_EXEC" ]; then
@@ -234,6 +258,7 @@ jobs:
             unzip -oq messenger-bot-publish.zip -d "$STAGING_PATH"
             rm -f messenger-bot-publish.zip
             restore_env_file "$STAGING_PATH"
+            ensure_production_env_vars "$STAGING_PATH"
             read_port_from_env "$STAGING_PATH/.env"
             echo "Listening port: $PORT"
 

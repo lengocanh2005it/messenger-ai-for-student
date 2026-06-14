@@ -1,5 +1,21 @@
 import { UserCalendarRecord } from '../../domain/entities/user-calendar.types';
 
+function stringifyCalendarField(value: unknown): string {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return String(value).trim();
+  }
+
+  return '';
+}
+
 export function unwrapCalendarCreatePayload(payload: unknown): unknown {
   if (!payload || typeof payload !== 'object') {
     return payload;
@@ -69,10 +85,7 @@ export function normalizeUserCalendarRecord(
     return null;
   }
 
-  let eventDate =
-    eventDateRaw instanceof Date
-      ? eventDateRaw.toISOString()
-      : String(eventDateRaw).trim();
+  let eventDate = stringifyCalendarField(eventDateRaw);
   if (!eventDate) {
     return null;
   }
@@ -82,13 +95,13 @@ export function normalizeUserCalendarRecord(
   }
 
   const timeRaw = item.time ?? item.Time;
+  const timeValue = stringifyCalendarField(timeRaw);
   const time =
-    timeRaw === null || timeRaw === undefined
-      ? null
-      : String(timeRaw).trim() || null;
+    timeRaw === null || timeRaw === undefined ? null : timeValue || null;
 
   const userId = Number(item.userId ?? item.UserId ?? 0);
   const createdAtRaw = item.createdAt ?? item.CreatedAt;
+  const createdAtValue = stringifyCalendarField(createdAtRaw);
 
   return {
     id,
@@ -98,7 +111,7 @@ export function normalizeUserCalendarRecord(
     createdAt:
       createdAtRaw === undefined || createdAtRaw === null
         ? undefined
-        : String(createdAtRaw),
+        : createdAtValue || undefined,
   };
 }
 
