@@ -90,8 +90,9 @@ describe('StudyReminderJobRepository', () => {
     const jobRepo = {
       manager: {
         transaction: jest.fn(
-          async <T>(callback: (manager: typeof transactionManager) => Promise<T>) =>
-            callback(transactionManager),
+          async <T>(
+            callback: (manager: typeof transactionManager) => Promise<T>,
+          ) => callback(transactionManager),
         ),
       },
     } as unknown as Repository<StudyReminderJobEntity>;

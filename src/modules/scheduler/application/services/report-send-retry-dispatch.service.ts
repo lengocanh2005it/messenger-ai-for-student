@@ -115,7 +115,9 @@ export class ReportSendRetryDispatchService {
       }
 
       const alreadySentToday =
-        await this.messengerRepository.hasSentScheduledReportToday(mapping.psid);
+        await this.messengerRepository.hasSentScheduledReportToday(
+          mapping.psid,
+        );
       if (alreadySentToday) {
         await this.reportSendJobRepository.markSent(claimedJob.id);
         sent += 1;

@@ -19,9 +19,7 @@ import {
 } from '../../../../shared/config/poc.constants';
 import { StudentReportService } from '../../../student-report/application/services/student-report.service';
 import { StudentReportRetryableError } from '../../../student-report/domain/errors/wispace-api.error';
-import {
-  buildStudentReportApiRetryMessage,
-} from '../../../student-report/application/messages/student-report.messages';
+import { buildStudentReportApiRetryMessage } from '../../../student-report/application/messages/student-report.messages';
 import { getNoUpcomingStudySessionMessage } from '../../../study-reminder/application/messages/study-reminder.messages';
 import { StudyReminderScheduleService } from '../../../study-reminder/application/services/study-reminder-schedule.service';
 import { StudyReminderService } from '../../../study-reminder/application/services/study-reminder.service';

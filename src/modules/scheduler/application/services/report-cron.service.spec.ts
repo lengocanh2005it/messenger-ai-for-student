@@ -79,7 +79,9 @@ describe('ReportCronService.sendScheduledReports (R5 ops)', () => {
 
     expect(result.skipped).toBe(1);
     expect(result.sent).toBe(0);
-    expect(messengerService.sendScheduledReportForMapping).not.toHaveBeenCalled();
+    expect(
+      messengerService.sendScheduledReportForMapping,
+    ).not.toHaveBeenCalled();
   });
 
   it('forceSend sends when allowDuplicate bypasses skip', async () => {

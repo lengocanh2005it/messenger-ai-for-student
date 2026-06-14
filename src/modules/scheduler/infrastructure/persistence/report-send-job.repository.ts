@@ -54,7 +54,8 @@ export class ReportSendJobRepository implements ReportSendJobRepositoryPort {
       status: nextRetryCount >= params.maxRetries ? 'failed' : 'failed',
       retryCount: nextRetryCount,
       maxRetries: params.maxRetries,
-      nextRetryAt: nextRetryCount >= params.maxRetries ? null : params.nextRetryAt,
+      nextRetryAt:
+        nextRetryCount >= params.maxRetries ? null : params.nextRetryAt,
       lastError: params.errorMessage,
     });
 

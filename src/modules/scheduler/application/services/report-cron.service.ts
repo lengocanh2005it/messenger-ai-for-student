@@ -1,4 +1,9 @@
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { ProactiveMessenger24hSkippedError } from '../../../messenger/application/utils/proactive-send.utils';
@@ -78,7 +83,9 @@ export class ReportCronService {
       const scope = psidFilter ? `psid=${psidFilter}` : 'all subscribed';
       this.logger.log(
         `Ops send-reports (${scope}): bypass exam window ${schedule.minDays}-${schedule.maxDays} days` +
-          (allowDuplicate ? ', allowDuplicate=true' : ', skip already sent today'),
+          (allowDuplicate
+            ? ', allowDuplicate=true'
+            : ', skip already sent today'),
       );
     }
 
@@ -209,8 +216,8 @@ export class ReportCronService {
             const nextRetryAt = new Date(
               Date.now() + settings.retryBackoffMinutes * 60 * 1000,
             );
-            const job = await this.reportSendJobRepository.recordRetryableFailure(
-              {
+            const job =
+              await this.reportSendJobRepository.recordRetryableFailure({
                 psid: mapping.psid,
                 userId: mapping.userId,
                 examDate: examDateForOutbox,
@@ -218,8 +225,7 @@ export class ReportCronService {
                 maxRetries: settings.maxRetries,
                 nextRetryAt,
                 errorMessage: error.message,
-              },
-            );
+              });
             if (job.nextRetryAt) {
               retryQueued += 1;
             }
