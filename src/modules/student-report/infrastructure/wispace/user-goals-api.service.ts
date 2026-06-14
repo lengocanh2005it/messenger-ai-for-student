@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { WispaceApiError } from '../../domain/errors/wispace-api.error';
 import { UserGoalsRecord } from '../../domain/types/user-goals.types';
 import { withRetry } from '../../../../shared/common/with-retry';
+import { parseExamDateToIso } from '../../../../shared/utils/exam-date.utils';
 
 /** Retry on 5xx Wispace errors or transient network failures. Never retry 4xx. */
 function isWispaceRetryable(error: unknown): boolean {
@@ -88,20 +89,13 @@ export class UserGoalsApiService {
   }
 
   parseExamDate(examDate: string): string {
-    const slashMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(examDate.trim());
-    if (slashMatch) {
-      const [, day, month, year] = slashMatch;
-      return `${year}-${month}-${day}`;
+    try {
+      return parseExamDateToIso(examDate);
+    } catch {
+      throw new InternalServerErrorException(
+        `User goals API returned unsupported examDate format: ${examDate}`,
+      );
     }
-
-    const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(examDate.trim());
-    if (isoMatch) {
-      return examDate.trim();
-    }
-
-    throw new InternalServerErrorException(
-      `User goals API returned unsupported examDate format: ${examDate}`,
-    );
   }
 
   buildWispaceHeaders(psid: string): Record<string, string> {

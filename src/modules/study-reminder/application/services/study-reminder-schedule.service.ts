@@ -1,5 +1,9 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  formatLocalDate,
+  getTomorrowLocalDate,
+} from '../utils/study-calendar.utils';
 
 @Injectable()
 export class StudyReminderScheduleService {
@@ -42,9 +46,8 @@ export class StudyReminderScheduleService {
     );
   }
 
-  formatScheduledTimeLabel(scheduledAt: Date): string {
+  formatScheduledTimeLabel(scheduledAt: Date, now = new Date()): string {
     const timezone = this.getTimezone();
-    const now = new Date();
     const todayParts = this.getDatePartsInTimezone(now, timezone);
     const sessionParts = this.getDatePartsInTimezone(scheduledAt, timezone);
 
@@ -53,12 +56,8 @@ export class StudyReminderScheduleService {
       todayParts.month === sessionParts.month &&
       todayParts.day === sessionParts.day;
 
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const tomorrowParts = this.getDatePartsInTimezone(tomorrow, timezone);
-    const isTomorrow =
-      tomorrowParts.year === sessionParts.year &&
-      tomorrowParts.month === sessionParts.month &&
-      tomorrowParts.day === sessionParts.day;
+    const sessionLocalDate = formatLocalDate(sessionParts);
+    const isTomorrow = sessionLocalDate === getTomorrowLocalDate(timezone, now);
 
     const timeText = new Intl.DateTimeFormat('vi-VN', {
       hour: '2-digit',

@@ -1,6 +1,7 @@
 import {
   buildEventDateIso,
   formatEventDateForApiWrite,
+  formatStoredCalendarDate,
   getTomorrowLocalDate,
   resolveRescheduleSlot,
 } from './study-calendar.utils';
@@ -120,5 +121,14 @@ describe('study-calendar.utils', () => {
       localDate: getTomorrowLocalDate(timezone, now),
       time: '09:00',
     });
+  });
+
+  it('formats stored DB timestamps using Vietnam calendar date', () => {
+    expect(
+      formatStoredCalendarDate(
+        new Date('2026-06-14T17:00:00.000Z'),
+        timezone,
+      ),
+    ).toBe('2026-06-15');
   });
 });

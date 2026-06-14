@@ -2,7 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { resolveScheduledAtFromEventDate } from '../../application/utils/study-calendar.utils';
+import {
+  formatStoredCalendarDate,
+  resolveScheduledAtFromEventDate,
+} from '../../application/utils/study-calendar.utils';
 import { UserCalendarApiService } from './user-calendar-api.service';
 import { UserCalendarRecord } from '../../domain/entities/user-calendar.types';
 import {
@@ -301,15 +304,10 @@ export class UserCalendarScheduleService {
   }
 
   private formatStoredEventDate(value: Date | string): string {
-    if (value instanceof Date) {
-      return value.toISOString().slice(0, 10);
-    }
+    const timezone =
+      this.configService.get<string>('STUDY_REMINDER_TIMEZONE')?.trim() ??
+      'Asia/Ho_Chi_Minh';
 
-    const trimmed = String(value).trim();
-    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
-      return trimmed.slice(0, 10);
-    }
-
-    return trimmed;
+    return formatStoredCalendarDate(value, timezone);
   }
 }

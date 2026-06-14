@@ -45,4 +45,13 @@ describe('StudyReminderScheduleService', () => {
   it('defaults evening rollover hour to 23', () => {
     expect(service.getOutboxSettings().eveningRolloverHour).toBe(23);
   });
+
+  it('labels a session on the next local calendar day as tomorrow', () => {
+    const scheduledAt = new Date('2026-06-15T08:00:00+07:00');
+    const now = new Date('2026-06-14T23:30:00+07:00');
+
+    expect(service.formatScheduledTimeLabel(scheduledAt, now)).toBe(
+      'Ngày mai lúc 08:00',
+    );
+  });
 });
