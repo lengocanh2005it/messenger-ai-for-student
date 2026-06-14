@@ -2,6 +2,7 @@ import {
   Inject,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { isMessenger24hWindowError } from '../messages/chat-delivery.messages';
@@ -25,6 +26,15 @@ export class MessengerApiError extends Error {
     super(message);
     this.name = 'MessengerApiError';
   }
+
+  isTokenExpired(): boolean {
+    return (
+      this.status === 400 &&
+      (this.responseBody.includes('"code":190') ||
+        this.responseBody.includes('"code": 190') ||
+        this.responseBody.includes('OAuthException'))
+    );
+  }
 }
 
 /** H4: at least one bubble was delivered before a later Send API failure. */
@@ -42,6 +52,8 @@ export type MessengerSenderAction = 'mark_seen' | 'typing_on' | 'typing_off';
 
 @Injectable()
 export class MessengerOutboundService implements MessageSenderPort {
+  private readonly logger = new Logger(MessengerOutboundService.name);
+
   constructor(
     private readonly configService: ConfigService,
     @Inject(MESSENGER_REPOSITORY)
@@ -268,6 +280,14 @@ export class MessengerOutboundService implements MessageSenderPort {
   ): Promise<void> {
     const apiError = this.toMessengerApiError(params.psid, error);
     const is24h = isMessenger24hWindowError(apiError);
+    const isExpired = apiError.isTokenExpired();
+
+    if (isExpired) {
+      this.logger.error(
+        'PAGE_ACCESS_TOKEN_EXPIRED: Meta returned OAuthException(code=190) — rotate the token immediately',
+      );
+    }
+
     const errorMessage = is24h
       ? buildProactive24hLogErrorMessage()
       : apiError.message;
@@ -275,9 +295,11 @@ export class MessengerOutboundService implements MessageSenderPort {
     await this.repository.logMessage({
       userId: params.userId,
       psid: params.psid,
-      messageType: is24h
-        ? buildProactiveFailureMessageType(params.messageType)
-        : params.messageType,
+      messageType: isExpired
+        ? 'META_TOKEN_EXPIRED'
+        : is24h
+          ? buildProactiveFailureMessageType(params.messageType)
+          : params.messageType,
       messageText: params.text,
       status: 'FAILED',
       errorMessage,

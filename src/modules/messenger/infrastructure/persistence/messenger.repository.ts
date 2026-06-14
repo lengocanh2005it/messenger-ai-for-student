@@ -247,27 +247,23 @@ export class MessengerRepository implements MessengerRepositoryPort {
   }
 
   async cleanupActiveDuplicateMappings(): Promise<number> {
-    const rows = await this.mappingRepo.find({
-      where: { status: 'ACTIVE' },
-      order: { id: 'DESC' },
-    });
-    const keepMappings = this.dedupeMappingsByPsid(
-      rows.map((row) => this.mapEntity(row)),
+    const result = await this.mappingRepo.manager.query<Array<{ id: number }>>(
+      `
+      WITH keepers AS (
+        SELECT DISTINCT ON (psid) id
+        FROM user_messenger_mappings
+        WHERE status = 'ACTIVE' AND psid IS NOT NULL
+        ORDER BY psid, id DESC
+      )
+      UPDATE user_messenger_mappings
+      SET status = 'INACTIVE', updated_at = now()
+      WHERE status = 'ACTIVE'
+        AND psid IS NOT NULL
+        AND id NOT IN (SELECT id FROM keepers)
+      RETURNING id
+      `,
     );
-    const keepIds = new Set(keepMappings.map((mapping) => mapping.id));
-    let deactivated = 0;
-
-    for (const row of rows) {
-      if (keepIds.has(row.id)) {
-        continue;
-      }
-
-      row.status = 'INACTIVE';
-      await this.mappingRepo.save(row);
-      deactivated += 1;
-    }
-
-    return deactivated;
+    return result.length;
   }
 
   async findActiveMetaTokenMappingByPsid(

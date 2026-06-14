@@ -49,7 +49,12 @@ export class OpsHealthService {
     );
     const denySince = new Date(Date.now() - denyLookbackHours * 60 * 60 * 1000);
 
-    const [chatQuotaBase, studyReminder, denyLogs24h] = await Promise.all([
+    const [
+      chatQuotaBase,
+      studyReminder,
+      denyLogs24h,
+      metaTokenExpiredEvents24h,
+    ] = await Promise.all([
       this.chatQuotaOpsService.getSummary(),
       this.studyReminderOpsService.getSummary({
         failedHours,
@@ -59,6 +64,10 @@ export class OpsHealthService {
         'CHAT_QUOTA_DENIED',
         denySince,
       ),
+      this.messengerRepository.countMessageLogsByTypeSince(
+        'META_TOKEN_EXPIRED',
+        denySince,
+      ),
     ]);
 
     const chatQuota = {
@@ -66,12 +75,17 @@ export class OpsHealthService {
       denyLogs24h,
     };
 
-    const alerts = this.buildAlerts({ chatQuota, studyReminder });
+    const alerts = this.buildAlerts({
+      chatQuota,
+      studyReminder,
+      metaTokenExpiredEvents24h,
+    });
 
     return {
       generatedAt: new Date().toISOString(),
       chatQuota,
       studyReminder,
+      metaTokenExpiredEvents24h,
       alerts,
     };
   }
@@ -87,11 +101,11 @@ export class OpsHealthService {
       }
 
       this.logger.warn(
-        `OPS_HEALTH_SUMMARY alerts=${snapshot.alerts.length} studyTerminalFailed24h=${snapshot.studyReminder.terminalFailedSince} studyStuckProcessing=${snapshot.studyReminder.stuckProcessing} chatStuckReserved=${snapshot.chatQuota.stuckReserved} chatDenyLogs24h=${snapshot.chatQuota.denyLogs24h}`,
+        `OPS_HEALTH_SUMMARY alerts=${snapshot.alerts.length} studyTerminalFailed24h=${snapshot.studyReminder.terminalFailedSince} studyStuckProcessing=${snapshot.studyReminder.stuckProcessing} chatStuckReserved=${snapshot.chatQuota.stuckReserved} chatDenyLogs24h=${snapshot.chatQuota.denyLogs24h} metaTokenExpired24h=${snapshot.metaTokenExpiredEvents24h}`,
       );
     } else {
       this.logger.log(
-        `OPS_HEALTH_OK studyTerminalFailed24h=${snapshot.studyReminder.terminalFailedSince} studyStuckProcessing=${snapshot.studyReminder.stuckProcessing} chatStuckReserved=${snapshot.chatQuota.stuckReserved} chatDenyLogs24h=${snapshot.chatQuota.denyLogs24h}`,
+        `OPS_HEALTH_OK studyTerminalFailed24h=${snapshot.studyReminder.terminalFailedSince} studyStuckProcessing=${snapshot.studyReminder.stuckProcessing} chatStuckReserved=${snapshot.chatQuota.stuckReserved} chatDenyLogs24h=${snapshot.chatQuota.denyLogs24h} metaTokenExpired24h=${snapshot.metaTokenExpiredEvents24h}`,
       );
     }
 
@@ -101,6 +115,7 @@ export class OpsHealthService {
   private buildAlerts(input: {
     chatQuota: OpsHealthSnapshot['chatQuota'];
     studyReminder: OpsHealthSnapshot['studyReminder'];
+    metaTokenExpiredEvents24h: number;
   }): OpsHealthAlert[] {
     const alerts: OpsHealthAlert[] = [];
     const minFailedJobs = this.readPositiveNumber(
@@ -137,6 +152,14 @@ export class OpsHealthService {
         code: 'CHAT_QUOTA_STUCK_RESERVED',
         severity: 'warn',
         message: `${input.chatQuota.stuckReserved} idempotency row(s) stuck in reserved`,
+      });
+    }
+
+    if (input.metaTokenExpiredEvents24h > 0) {
+      alerts.push({
+        code: 'META_TOKEN_EXPIRED',
+        severity: 'warn',
+        message: `PAGE_ACCESS_TOKEN may be expired — ${input.metaTokenExpiredEvents24h} send failure(s) in last ${this.readPositiveNumber('OPS_ALERT_DENY_LOOKBACK_HOURS', 24)}h; check ops runbook`,
       });
     }
 

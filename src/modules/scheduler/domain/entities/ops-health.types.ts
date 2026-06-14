@@ -13,5 +13,6 @@ export interface OpsHealthSnapshot {
   generatedAt: string;
   chatQuota: ChatQuotaOpsSummary;
   studyReminder: StudyReminderOpsSummary;
+  metaTokenExpiredEvents24h: number;
   alerts: OpsHealthAlert[];
 }
