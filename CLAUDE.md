@@ -38,7 +38,7 @@ npm run chat-quota:status
 | `/study-reminder-debug` | Debug jobs nhắc lịch, sync, dispatch |
 | `/typeorm-migration` | Thêm/sửa entity + migration |
 | `/edit-llm-prompt` | Sửa `src/shared/prompts/*.system.txt` |
-| `/verify` | `build` + `test` + `lint` trước khi xong task |
+| `/verify` | `format` + `verify` (lint, typecheck, test, build) trước khi xong task |
 
 Rule path-scoped tự load khi sửa file matching — xem bảng Rules bên dưới.
 

@@ -46,7 +46,10 @@ npm run migration:run      # build + chạy TypeORM migrations
 npm run migration:revert   # revert migration cuối
 npm run migration:show     # xem trạng thái migrations
 npm run lint               # eslint --fix
-npm run format             # prettier
+npm run format             # prettier --write
+npm run format:check       # prettier --check (CI / verify)
+npm run typecheck          # tsc --noEmit
+npm run verify             # format:check + lint + typecheck + test + build
 ```
 
 ### Scripts tiện ích (cần `.env` + DB)
@@ -81,7 +84,15 @@ npm run test:e2e            # test/app.e2e-spec.ts
 - Sửa guard ops API → `internal-api-key.guard.spec.ts`
 - Sửa parse `ref`/link `m.me` → `poc.constants.spec.ts`
 
-Trước khi kết thúc task: chạy `npm run build` và `npm run test`. Sửa lỗi type/lint/test cho đến khi pass.
+Trước khi kết thúc task (sửa code): **bắt buộc** cập nhật agent docs/skills liên quan (mục *Docs & skills khi đổi code*) và chạy:
+
+```bash
+npm ci                     # đầy đủ dev deps; bắt buộc nếu vừa npm ci --omit=dev
+npm run format
+npm run verify             # hoặc: lint → typecheck → test → build từng lệnh
+```
+
+Sửa lỗi format/lint/type/test/build cho đến khi pass. `npm run test:e2e` cần PostgreSQL thật — không nằm trong gate mặc định (CI/deploy dùng `npm run test`).
 
 Spec hiện có:
 
@@ -94,6 +105,26 @@ Spec hiện có:
 - `src/shared/common/guards/internal-api-key.guard.spec.ts`
 - `src/shared/config/poc.constants.spec.ts`
 - `src/app.controller.spec.ts`
+
+---
+
+## Docs & skills khi đổi code
+
+Cùng PR/task với code — cập nhật hàng **agent** (không chỉ `docs/` dài) để lần sau AI không làm sai.
+
+| Thay đổi | Cập nhật tối thiểu |
+|----------|-------------------|
+| API ops / webhook / menu Messenger | `docs/project-overview.md`, `AGENTS.md` (API/cron), rule `messenger-chat.md` nếu chat queue |
+| Persistent menu / `profile/setup` | `docs/project-overview.md`, mục menu trong `AGENTS.md` dev tips |
+| Rate limit / quota / idempotency | `docs/chat-rate-limit-quota.md`, `.claude/rules/chat-rate-limit.md`, skill `/verify` nếu thêm bước ops |
+| Study reminder / sync / dispatch | `docs/study-session-reminder.md`, `.claude/rules/study-reminder.md`, skill `/study-reminder-debug` |
+| Entity / migration | `.claude/rules/database.md`, skill `/typeorm-migration`, `.env.example` nếu thêm biến |
+| System prompt LLM | `src/shared/prompts/*.system.txt`, skill `/edit-llm-prompt` |
+| Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `docs/project-overview.md` runbook |
+| Env mới | `.env.example` + dòng tương ứng trong `docs/project-overview.md` hoặc `AGENTS.md` |
+| Gap / roadmap đã đóng | `docs/edge-cases-roadmap.md`, bảng Integration gaps trong `AGENTS.md` |
+
+Skill `/verify` — chạy cuối mọi task có sửa code.
 
 ---
 
@@ -281,7 +312,7 @@ Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar`. Cron 30 p
 | `.claude/rules/` | `project-conventions`, `clean-architecture`, `chat-rate-limit`, `messenger-chat`, `study-reminder`, `database`, `prompts` |
 | `.claude/skills/` | `/study-reminder-debug`, `/typeorm-migration`, `/edit-llm-prompt`, `/verify` |
 
-Cursor dùng file này (`AGENTS.md`) + skills global `~/.cursor/skills-cursor/`. Repo **không** có `.cursor/rules/` riêng.
+Cursor dùng `AGENTS.md` + `.cursor/rules/` (rule `change-workflow`) + skills global `~/.cursor/skills-cursor/` + `.claude/skills/`.
 
 ---
 
@@ -311,7 +342,6 @@ Khi đóng gap: cập nhật `docs/study-session-reminder.md` và bảng trên.
 - Tạo file markdown ngoài `docs/` hoặc sửa README dài dòng không cần thiết
 - Thêm message queue (Bull, SQS, Redis)
 - Force push, sửa git config
-- Tự tạo `.cursor/rules` (đề xuất user dùng skill create-rule nếu cần rule lâu dài)
 
 ---
 
@@ -320,4 +350,4 @@ Khi đóng gap: cập nhật `docs/study-session-reminder.md` và bảng trên.
 - Chỉ commit khi user yêu cầu rõ ràng.
 - Không commit `.env` hoặc file chứa secrets.
 - Message commit: ngắn, mô tả **why** hơn **what**.
-- Trước PR: `npm run build`, `npm run test`, `npm run lint` pass.
+- Trước PR: `npm run verify` pass.
