@@ -14,6 +14,10 @@ description: Debug study reminder jobs — sync, dispatch, remind_at, job status
 
 ```bash
 npm run study-reminder:jobs
+npm run study-reminder:jobs -- --failed
+npm run study-reminder:jobs -- --stuck
+npm run study-reminder:jobs -- --summary
+npm run ops:health
 ```
 
 Xem: `status`, `remind_at`, `scheduled_at`, `session_key`, `retry_count`.

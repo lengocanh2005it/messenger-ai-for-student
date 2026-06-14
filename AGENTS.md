@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_fb** — POC NestJS gửi tin Facebook Messenger cho học viên WISPACE (báo cáo AI + nhắc lịch học).
+Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_fb** — POC NestJS gửi tin Facebook Messenger cho học viên WISPACE (báo cáo AI + nhắc lịch học + chat AI rate limit).
 
 Đọc file này trước khi sửa code. Chi tiết sâu nằm trong `docs/` — chỉ đọc khi task liên quan.
 
@@ -27,9 +27,10 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Study reminder: biến `STUDY_REMINDER_*` **bắt buộc** — dùng `readRequiredPositiveNumber`, không hardcode fallback trong code.
 - Wispace API auth bằng header **`x-psid`** (PSID Messenger), không dùng user access token.
 - Ops HTTP (`/messenger/study-calendar/sync`, `send-reports`, …) cần header **`X-Internal-Api-Key`** hoặc `Authorization: Bearer …` khớp `INTERNAL_API_KEY`.
-- Cron nội bộ (sync 30 phút, dispatch 1 phút) chạy trong process — không qua API key.
-- Debug jobs nhắc lịch: `npm run study-reminder:jobs`.
-- Tra quota chat: `npm run chat-quota:status` (có `--psid`, `--user-id`, `--date`).
+- Cron nội bộ (sync 30 phút, dispatch adaptive S2) chạy trong process — không qua API key.
+- Debug jobs nhắc lịch: `npm run study-reminder:jobs` (`--failed`, `--stuck`, `--summary`).
+- Tra quota chat: `npm run chat-quota:status` (`--psid`, `--user-id`, `--date`, `--ops`).
+- Ops health I1+S1: `npm run ops:health` (cron 09:00 ICT trong app khi `OPS_HEALTH_ALERT_ENABLED=true`).
 - Bootstrap jobs lần đầu: `npm run study-reminder:sync`.
 
 ---
@@ -55,8 +56,11 @@ npm run db:inspect
 npm run db:explore-study-schedule
 npm run study-reminder:sync-only    # sync jobs, không migrate
 npm run study-reminder:sync         # build + migrate + sync + dispatch
-npm run study-reminder:jobs         # in jobs trong DB
-npm run chat-quota:status           # tra quota chat (psid / userId / ngày)
+npm run study-reminder:jobs         # in jobs trong DB (--failed, --stuck, --summary)
+npm run ops:health                  # I1+S1 combined ops snapshot
+npm run chat-quota:status           # tra quota chat (psid / userId / ngày / --ops)
+npm run chat-quota:recover-stuck    # H2: refund stuck reserved (optional --dry-run)
+npm run chat-quota:cleanup          # H6: xóa idempotency completed/refunded cũ (optional --dry-run)
 ```
 
 ---
@@ -84,6 +88,7 @@ Spec hiện có:
 - `src/modules/chat-rate-limit/application/services/chat-rate-limit.service.spec.ts`
 - `src/modules/chat-rate-limit/infrastructure/persistence/chat-rate-limit.repository.spec.ts`
 - `src/modules/messenger/application/services/messenger-chat-queue.service.spec.ts`
+- `src/modules/messenger/application/services/messenger-chat-queue.service.shared.spec.ts`
 - `src/modules/study-reminder/application/services/study-reminder-schedule.service.spec.ts`
 - `src/modules/study-reminder/application/services/study-reminder-cleanup.service.spec.ts`
 - `src/shared/common/guards/internal-api-key.guard.spec.ts`
@@ -129,6 +134,7 @@ src/
 └── modules/
     ├── messenger/           # domain | application | infrastructure | presentation
     │   └── messenger-outbound.module.ts   # Send API + mapping (tách cycle)
+    ├── chat-rate-limit/    # quota ngày + idempotency (H2–H7)
     ├── student-report/
     ├── study-reminder/
     └── scheduler/           # cron + ops HTTP /messenger/*
@@ -146,7 +152,8 @@ domain/entities|repositories/ → application/services|ports/ → infrastructure
 
 | Module | Vai trò |
 |--------|---------|
-| `MessengerModule` | Webhook orchestration, profile menu |
+| `ChatRateLimitModule` | Quota FREE_FORM: reserve/refund/burst, hard cap H3, ops recover H2 |
+| `MessengerModule` | Webhook, profile menu, chat queue + agent, shared queue H7 |
 | `MessengerOutboundModule` | Send API, `MessengerRepository`, ports |
 | `StudentReportModule` | Wispace goals/scores → LLM báo cáo |
 | `StudyReminderModule` | Sync/dispatch/cleanup jobs, LLM nhắc học |
@@ -194,7 +201,9 @@ domain/entities|repositories/ → application/services|ports/ → infrastructure
 | UserCalendar API client | `study-reminder/infrastructure/wispace/user-calendar-api.service.ts` |
 | Gửi tin từ module khác | Inject `MESSAGE_SENDER`, không `MessengerService` |
 | Sync toàn bộ (ops) | `POST /messenger/sync-study-reminders`, `scripts/sync-study-reminder-jobs.mjs` |
-| Rate limit chat | `ChatRateLimitService`, `MessengerChatQueueService.flush()`, [chat-rate-limit-quota.md](docs/chat-rate-limit-quota.md) |
+| Rate limit chat | `ChatRateLimitService`, `MessengerChatQueueService`, [chat-rate-limit-quota.md](docs/chat-rate-limit-quota.md) |
+| Shared queue multi-pod (H7) | `CHAT_QUEUE_SHARED`, `MessengerChatSharedStateRepository`, `MessengerChatQueueWorkerService` |
+| Ops quota scripts | `scripts/chat-quota-status.mjs`, `chat-quota-recover-stuck.mjs`, `chat-quota-cleanup-idempotency.mjs` |
 
 ---
 
@@ -220,20 +229,21 @@ Trigger: cron 08:00, menu postback, hoặc `POST /messenger/send-reports`.
 Wispace đổi lịch → POST /messenger/study-calendar/sync { userId }
   → StudyReminderSyncService (GET UserCalendar, x-psid)
   → study_reminder_jobs
-  → StudyReminderDispatchService (cron 1 phút)
+  → StudyReminderDispatchService (adaptive poll S2)
   → StudyReminderService (LLM) + MESSAGE_SENDER (MessengerOutbound)
 ```
 
 ### Chat tự do (FREE_FORM)
 
 ```
-Webhook text → dedupe mid (RAM) → MessengerChatQueueService.enqueue
-  → debounce flush → ChatRateLimitService.reserve (DB idempotency + daily usage)
+Webhook text → dedupe mid (RAM hoặc DB nếu CHAT_QUEUE_SHARED)
+  → MessengerChatQueueService.enqueue → debounce flush
+  → ChatRateLimitService.reserve (DB idempotency + daily usage, hard cap H3)
   → MessengerAgentService (LLM) → Send API
-  → markCompleted; catch → refund
+  → markCompleted; lỗi trước bubble → refund (H4)
 ```
 
-Postback menu và tin proactive **không** qua `ChatRateLimitService`. Bật chặn: `CHAT_RATE_LIMIT_ENABLED=true`.
+Postback menu và tin proactive **không** qua `ChatRateLimitService`. Enforcement: `CHAT_RATE_LIMIT_ENABLED=true`.
 
 Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar`. Cron 30 phút chỉ là dự phòng — không thay webhook/event bus.
 
@@ -255,9 +265,12 @@ Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar`. Cron 30 p
 | 1 | [docs/project-overview.md](docs/project-overview.md) | Lần đầu vào repo — kiến trúc, API, cron |
 | 2 | [docs/study-session-reminder.md](docs/study-session-reminder.md) | Sửa nhắc lịch, jobs, sync, dispatch, rollover |
 | 3 | [docs/chat-rate-limit-quota.md](docs/chat-rate-limit-quota.md) | Chatbot hai chiều, rate limit, quota |
-| 4 | `.env.example` | Biến môi trường bắt buộc |
-| 5 | `src/shared/config/poc.constants.ts` | Link `m.me`, parse `userId` từ `ref` |
+| 4 | [docs/edge-cases-roadmap.md](docs/edge-cases-roadmap.md) | Gap & phase khắc phục toàn POC (ngoài chat H1–H7) |
+| 5 | `.env.example` | Biến môi trường bắt buộc |
+| 6 | `src/shared/config/poc.constants.ts` | Link `m.me`, parse `userId` từ `ref` |
 | — | `.claude/rules/clean-architecture.md` | Sửa/thêm code trong `src/modules/` |
+| — | `.claude/rules/chat-rate-limit.md` | Sửa `src/modules/chat-rate-limit/**` |
+| — | `.claude/rules/messenger-chat.md` | Sửa chat queue/history/worker |
 
 ### Claude Code (`.claude/`)
 
@@ -265,7 +278,7 @@ Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar`. Cron 30 p
 |------|----------|
 | `CLAUDE.md` | Context load mỗi session |
 | `.claude/settings.json` | Permissions (npm/git allow; `.env` deny) |
-| `.claude/rules/` | Conventions + `clean-architecture.md`, path-scoped |
+| `.claude/rules/` | `project-conventions`, `clean-architecture`, `chat-rate-limit`, `messenger-chat`, `study-reminder`, `database`, `prompts` |
 | `.claude/skills/` | `/study-reminder-debug`, `/typeorm-migration`, `/edit-llm-prompt`, `/verify` |
 
 Cursor dùng file này (`AGENTS.md`) + skills global `~/.cursor/skills-cursor/`. Repo **không** có `.cursor/rules/` riêng.
@@ -278,10 +291,15 @@ Cursor dùng file này (`AGENTS.md`) + skills global `~/.cursor/skills-cursor/`.
 |-----|----------------|
 | `POST /messenger/study-calendar/sync` | ✓ Endpoint + sync theo `userId` |
 | Auth ops (`INTERNAL_API_KEY`) | ✓ Header `X-Internal-Api-Key` hoặc Bearer |
-| Wispace wire sync sau đổi lịch | ✗ Cần cấu hình key + gọi API từ Wispace |
+| Wispace wire sync sau đổi lịch | ✓ Gọi `POST /messenger/study-calendar/sync` + `X-Internal-Api-Key` |
 | Tên học viên cho LLM | ✓ `Users.DisplayName` → `Username` → `'bạn'` |
 | Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✓ `StudyReminderJobRepository.upsertPendingJob` reopen → `pending` |
-| Chat hai chiều + rate limit V1 | ✓ Reserve/refund/burst/whitelist; mặc định `CHAT_RATE_LIMIT_ENABLED=false` |
+| Mapping đổi `user_id` cùng PSID (L3) | ✓ `MessengerMappingService`, `POST /messenger/mapping/relink`, `npm run messenger:relink` |
+| Multi-pod cron báo cáo 08:00 (R4) | ✓ Claim table + advisory lock + `CRON_LEADER_ENABLED` |
+| Chat hai chiều + rate limit V1 | ✓ Reserve/refund/burst/whitelist/hint |
+| Rate limit hardening H1–H7 | ✓ H2–H7 code; H1 = bật `CHAT_RATE_LIMIT_ENABLED` trên env prod |
+| Tier / event store (Phase 7–8) | ✗ Optional — [§5.8](docs/chat-rate-limit-quota.md) |
+| Gap toàn dự án (link, báo cáo, nhắc, ops) | Roadmap — [edge-cases-roadmap.md](docs/edge-cases-roadmap.md) |
 
 Khi đóng gap: cập nhật `docs/study-session-reminder.md` và bảng trên.
 

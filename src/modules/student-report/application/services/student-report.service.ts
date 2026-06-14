@@ -6,6 +6,15 @@ import {
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
+import { StudentReportNoScoreDataError } from '../../domain/errors/student-report-no-score-data.error';
+import {
+  StudentReportRetryableError,
+  WispaceApiError,
+} from '../../domain/errors/wispace-api.error';
+import {
+  buildStudentReportApiUnavailableMessage,
+  buildStudentReportNoScoreDataMessage,
+} from '../messages/student-report.messages';
 import { StudentCapacityService } from './student-capacity.service';
 import {
   StudentCapacityInput,
@@ -23,9 +32,34 @@ export class StudentReportService {
   ) {}
 
   async generateReport(psid: string): Promise<string> {
-    const input = await this.studentCapacityService.getCapacityData(psid);
-    const report = await this.generateAiReport(input);
-    return this.formatReport(report);
+    try {
+      const input = await this.studentCapacityService.getCapacityData(psid);
+      const report = await this.generateAiReport(input);
+      return this.formatReport(report);
+    } catch (error) {
+      if (error instanceof StudentReportNoScoreDataError) {
+        this.logger.log(
+          `No score data for report psid=${psid}; sending R1 guidance message`,
+        );
+        return buildStudentReportNoScoreDataMessage();
+      }
+
+      if (error instanceof WispaceApiError) {
+        if (error.isRetryable()) {
+          this.logger.warn(
+            `Wispace API retryable error for report psid=${psid} status=${error.statusCode} endpoint=${error.endpoint}`,
+          );
+          throw new StudentReportRetryableError(psid, error);
+        }
+
+        this.logger.warn(
+          `Wispace API unavailable for report psid=${psid} status=${error.statusCode} endpoint=${error.endpoint}`,
+        );
+        return buildStudentReportApiUnavailableMessage();
+      }
+
+      throw error;
+    }
   }
 
   private async generateAiReport(

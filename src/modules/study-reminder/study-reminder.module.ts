@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CommonModule } from '../../shared/common/common.module';
 import { StudyReminderJobEntity } from '../../infrastructure/database/entities/study-reminder-job.entity';
 import { UserEntity } from '../../infrastructure/database/entities/user.entity';
 import { MessengerOutboundModule } from '../messenger/messenger-outbound.module';
@@ -9,6 +10,7 @@ import { StudyReminderCleanupService } from './application/services/study-remind
 import { StudyReminderDispatchService } from './application/services/study-reminder-dispatch.service';
 import { StudyReminderScheduleService } from './application/services/study-reminder-schedule.service';
 import { StudyReminderSyncService } from './application/services/study-reminder-sync.service';
+import { StudyReminderOpsService } from './application/services/study-reminder-ops.service';
 import { StudyReminderWorkerService } from './application/services/study-reminder-worker.service';
 import { StudyReminderService } from './application/services/study-reminder.service';
 import { StudySessionSourceService } from './application/services/study-session-source.service';
@@ -20,6 +22,7 @@ import { StudyReminderJobRepository } from './infrastructure/persistence/study-r
 
 @Module({
   imports: [
+    CommonModule,
     TypeOrmModule.forFeature([StudyReminderJobEntity, UserEntity]),
     MessengerOutboundModule,
     StudentReportModule,
@@ -41,6 +44,7 @@ import { StudyReminderJobRepository } from './infrastructure/persistence/study-r
     StudyReminderDispatchService,
     StudyReminderCleanupService,
     StudyReminderWorkerService,
+    StudyReminderOpsService,
   ],
   exports: [
     StudyReminderService,
@@ -52,6 +56,7 @@ import { StudyReminderJobRepository } from './infrastructure/persistence/study-r
     StudyCalendarCommandService,
     UserCalendarApiService,
     UserDisplayNameService,
+    StudyReminderOpsService,
   ],
 })
 export class StudyReminderModule {}

@@ -3,8 +3,13 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   MessengerChatDailyUsageEntity,
+  MessengerChatHistoryEntity,
   MessengerChatIdempotencyEntity,
+  MessengerChatQueueBufferEntity,
+  MessengerChatWebhookSeenEntity,
   MessengerMessageLogEntity,
+  MessengerScheduledReportClaimEntity,
+  ReportSendJobEntity,
   StudyReminderJobEntity,
   UserEntity,
   UserMessengerMappingEntity,
@@ -21,8 +26,13 @@ import { getAppTypeOrmOptions } from './typeorm.options';
     TypeOrmModule.forFeature([
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,
+      MessengerScheduledReportClaimEntity,
+      ReportSendJobEntity,
       MessengerChatDailyUsageEntity,
       MessengerChatIdempotencyEntity,
+      MessengerChatQueueBufferEntity,
+      MessengerChatHistoryEntity,
+      MessengerChatWebhookSeenEntity,
       StudyReminderJobEntity,
       UserEntity,
     ]),

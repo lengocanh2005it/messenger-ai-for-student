@@ -1,4 +1,5 @@
 import {
+  capMergedChatUserText,
   mergeChatUserTexts,
   sanitizeMessengerText,
   splitMessengerBubbles,
@@ -41,5 +42,19 @@ describe('mergeChatUserTexts', () => {
     expect(mergeChatUserTexts(['lịch học', 'tiến độ'])).toBe(
       '1. lịch học\n2. tiến độ',
     );
+  });
+});
+
+describe('capMergedChatUserText', () => {
+  it('returns text unchanged when under the limit', () => {
+    expect(capMergedChatUserText('ngắn', 100)).toBe('ngắn');
+  });
+
+  it('truncates long merged text with a Vietnamese suffix (H5)', () => {
+    const capped = capMergedChatUserText('a'.repeat(200), 100);
+
+    expect(capped.length).toBeLessThanOrEqual(100);
+    expect(capped).toContain('…');
+    expect(capped).toContain('phần đầu tin nhắn');
   });
 });

@@ -4,6 +4,7 @@ import { Not, Repository } from 'typeorm';
 import { buildPocPsidToken } from '../../../../shared/config/poc.constants';
 import {
   MessengerMessageLogEntity,
+  MessengerScheduledReportClaimEntity,
   UserMessengerMappingEntity,
 } from '../../../../infrastructure/database/entities';
 import { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
@@ -20,6 +21,8 @@ export class MessengerRepository implements MessengerRepositoryPort {
     private readonly mappingRepo: Repository<UserMessengerMappingEntity>,
     @InjectRepository(MessengerMessageLogEntity)
     private readonly logRepo: Repository<MessengerMessageLogEntity>,
+    @InjectRepository(MessengerScheduledReportClaimEntity)
+    private readonly reportClaimRepo: Repository<MessengerScheduledReportClaimEntity>,
   ) {}
 
   async findActiveMappingByPsid(
@@ -301,16 +304,77 @@ export class MessengerRepository implements MessengerRepositoryPort {
       .createQueryBuilder('log')
       .where('log.psid = :psid', { psid })
       .andWhere('log.status = :status', { status: 'SENT' })
-      .andWhere('log.message_type IN (:...types)', {
-        types: [
-          'SCHEDULED_LEARNING_REPORT',
-          'SCHEDULED_LEARNING_REPORT_PSID_FALLBACK',
-        ],
-      })
+      .andWhere(
+        `(log.message_type = :primaryType
+          OR log.message_type LIKE :partType
+          OR log.message_type LIKE :legacyPartType)`,
+        {
+          primaryType: 'SCHEDULED_LEARNING_REPORT',
+          partType: 'SCHEDULED_LEARNING_REPORT_PART_%',
+          legacyPartType: 'SCHEDULED_LEARNING_REPORT_PSID_FALLBACK%',
+        },
+      )
       .andWhere('log.created_at >= :startOfDay', { startOfDay })
       .getCount();
 
     return count > 0;
+  }
+
+  async countMessageLogsByTypeSince(
+    messageType: string,
+    since: Date,
+  ): Promise<number> {
+    return this.logRepo
+      .createQueryBuilder('log')
+      .where('log.message_type = :messageType', { messageType })
+      .andWhere('log.created_at >= :since', { since })
+      .getCount();
+  }
+
+  async tryClaimScheduledReport(params: {
+    psid: string;
+    userId?: number;
+    reportDate: string;
+  }): Promise<boolean> {
+    const rows: Array<{ id: number }> =
+      await this.reportClaimRepo.manager.query(
+        `
+        INSERT INTO messenger_scheduled_report_claims (psid, report_date, user_id, status)
+        VALUES ($1, $2::date, $3, 'claimed')
+        ON CONFLICT (psid, report_date) DO NOTHING
+        RETURNING id
+      `,
+        [params.psid, params.reportDate, params.userId ?? null],
+      );
+
+    return rows.length > 0;
+  }
+
+  async markScheduledReportClaimSent(params: {
+    psid: string;
+    reportDate: string;
+  }): Promise<void> {
+    await this.reportClaimRepo.update(
+      {
+        psid: params.psid,
+        reportDate: params.reportDate,
+      },
+      { status: 'sent' },
+    );
+  }
+
+  async releaseScheduledReportClaim(params: {
+    psid: string;
+    reportDate: string;
+  }): Promise<void> {
+    await this.reportClaimRepo.update(
+      {
+        psid: params.psid,
+        reportDate: params.reportDate,
+        status: 'claimed',
+      },
+      { status: 'released' },
+    );
   }
 
   async logMessage(params: {

@@ -1,4 +1,13 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import {
+  MessengerChatHistoryEntity,
+  MessengerChatQueueBufferEntity,
+  MessengerChatWebhookSeenEntity,
+  MessengerWebhookDeadLetterEntity,
+} from '../../infrastructure/database/entities';
+import { MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY } from './domain/repositories/messenger-webhook-dead-letter.repository.port';
+import { MessengerWebhookDeadLetterRepository } from './infrastructure/persistence/messenger-webhook-dead-letter.repository';
 import { CommonModule } from '../../shared/common/common.module';
 import { ChatRateLimitModule } from '../chat-rate-limit/chat-rate-limit.module';
 import { StudentReportModule } from '../student-report/student-report.module';
@@ -7,8 +16,14 @@ import { MessengerAgentToolsService } from './application/agent/messenger-agent-
 import { MessengerAgentService } from './application/agent/messenger-agent.service';
 import { MessengerChatHistoryService } from './application/services/messenger-chat-history.service';
 import { MessengerChatQueueService } from './application/services/messenger-chat-queue.service';
+import { MessengerChatQueueWorkerService } from './application/services/messenger-chat-queue-worker.service';
+import { MessengerWebhookDeadLetterCronService } from './application/services/messenger-webhook-dead-letter-cron.service';
+import { MessengerChatSharedConfigService } from './application/services/messenger-chat-shared-config.service';
+import { MessengerMappingService } from './application/services/messenger-mapping.service';
 import { MessengerService } from './application/services/messenger.service';
 import { MessengerProfileService } from './infrastructure/meta/messenger-profile.service';
+import { MESSENGER_CHAT_SHARED_STATE_REPOSITORY } from './domain/repositories/messenger-chat-shared-state.repository.port';
+import { MessengerChatSharedStateRepository } from './infrastructure/persistence/messenger-chat-shared-state.repository';
 import { MessengerOutboundModule } from './messenger-outbound.module';
 import { MessengerController } from './presentation/controllers/messenger.controller';
 
@@ -19,16 +34,36 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     ChatRateLimitModule,
     StudentReportModule,
     StudyReminderModule,
+    TypeOrmModule.forFeature([
+      MessengerChatQueueBufferEntity,
+      MessengerChatHistoryEntity,
+      MessengerChatWebhookSeenEntity,
+      MessengerWebhookDeadLetterEntity,
+    ]),
   ],
   controllers: [MessengerController],
   providers: [
     MessengerService,
+    MessengerChatSharedConfigService,
     MessengerChatHistoryService,
     MessengerChatQueueService,
+    MessengerChatQueueWorkerService,
     MessengerAgentService,
     MessengerAgentToolsService,
     MessengerProfileService,
+    MessengerMappingService,
+    MessengerChatSharedStateRepository,
+    {
+      provide: MESSENGER_CHAT_SHARED_STATE_REPOSITORY,
+      useExisting: MessengerChatSharedStateRepository,
+    },
+    MessengerWebhookDeadLetterRepository,
+    {
+      provide: MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY,
+      useExisting: MessengerWebhookDeadLetterRepository,
+    },
+    MessengerWebhookDeadLetterCronService,
   ],
-  exports: [MessengerOutboundModule, MessengerService],
+  exports: [MessengerOutboundModule, MessengerService, MessengerMappingService],
 })
 export class MessengerModule {}

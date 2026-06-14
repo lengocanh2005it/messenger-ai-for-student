@@ -11,6 +11,7 @@ Prompt nằm trong `src/shared/prompts/*.system.txt`, load qua `load-system-prom
 |------|---------|
 | `student-report.system.txt` | `modules/student-report/application/services/student-report.service.ts` |
 | `study-reminder.system.txt` | `modules/study-reminder/application/services/study-reminder.service.ts` |
+| `messenger-chat.system.txt` | `modules/messenger/application/agent/messenger-agent.service.ts` |
 
 ## Sau khi sửa
 

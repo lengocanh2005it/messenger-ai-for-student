@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   MessengerMessageLogEntity,
+  MessengerScheduledReportClaimEntity,
   UserMessengerMappingEntity,
 } from '../../infrastructure/database/entities';
 import { MESSAGE_SENDER } from './application/ports/message-sender.port';
@@ -15,6 +16,7 @@ import { MessengerRepository } from './infrastructure/persistence/messenger.repo
     TypeOrmModule.forFeature([
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,
+      MessengerScheduledReportClaimEntity,
     ]),
   ],
   providers: [

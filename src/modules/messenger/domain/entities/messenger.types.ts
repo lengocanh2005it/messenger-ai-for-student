@@ -25,6 +25,14 @@ export interface MessengerWebhookEvent {
     mid?: string;
     text?: string;
     is_echo?: boolean;
+    sticker_id?: number;
+    attachments?: Array<{
+      type?: string;
+      payload?: {
+        url?: string;
+        sticker_id?: number;
+      };
+    }>;
     referral?: MessengerReferral;
   };
   postback?: {

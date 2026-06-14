@@ -1,14 +1,25 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
+import { ADVISORY_LOCK } from '../../../../shared/common/advisory-lock-ids';
+import { PgAdvisoryLockService } from '../../../../shared/common/pg-advisory-lock.service';
 import { StudyReminderCleanupService } from './study-reminder-cleanup.service';
 import { StudyReminderDispatchService } from './study-reminder-dispatch.service';
 import { StudyReminderScheduleService } from './study-reminder-schedule.service';
 import { StudyReminderSyncService } from './study-reminder-sync.service';
 
 @Injectable()
-export class StudyReminderWorkerService implements OnModuleInit {
+export class StudyReminderWorkerService
+  implements OnModuleInit, OnModuleDestroy
+{
   private readonly logger = new Logger(StudyReminderWorkerService.name);
+  private dispatchTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly studyReminderSyncService: StudyReminderSyncService,
@@ -16,15 +27,39 @@ export class StudyReminderWorkerService implements OnModuleInit {
     private readonly studyReminderCleanupService: StudyReminderCleanupService,
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
     private readonly schedulerRegistry: SchedulerRegistry,
+    private readonly pgLock: PgAdvisoryLockService,
+    private readonly configService: ConfigService,
   ) {}
 
   async onModuleInit(): Promise<void> {
     this.registerEveningRolloverCron();
 
-    try {
-      await this.studyReminderSyncService.syncUpcomingSessions();
-    } catch (error) {
-      this.logger.error('Initial study reminder sync failed', error);
+    // Skip startup sync if another pod is already syncing (rolling deploy).
+    const result = await this.pgLock.withLock(
+      ADVISORY_LOCK.STUDY_REMINDER_SYNC,
+      async () => {
+        try {
+          await this.studyReminderSyncService.syncUpcomingSessions();
+        } catch (error) {
+          this.logger.error('Initial study reminder sync failed', error);
+        }
+      },
+    );
+
+    if (result === null) {
+      this.logger.log(
+        'Startup study reminder sync skipped — another pod holds the sync lock',
+      );
+    }
+
+    // Start adaptive dispatch loop immediately after init.
+    this.scheduleNextDispatch(0);
+  }
+
+  onModuleDestroy(): void {
+    if (this.dispatchTimer !== null) {
+      clearTimeout(this.dispatchTimer);
+      this.dispatchTimer = null;
     }
   }
 
@@ -54,32 +89,105 @@ export class StudyReminderWorkerService implements OnModuleInit {
     name: 'study-reminder-sync',
   })
   async handleSyncCron(): Promise<void> {
-    await this.studyReminderSyncService.syncUpcomingSessions();
+    const result = await this.pgLock.withLock(
+      ADVISORY_LOCK.STUDY_REMINDER_SYNC,
+      () => this.studyReminderSyncService.syncUpcomingSessions(),
+    );
+
+    if (result === null) {
+      this.logger.debug(
+        'study-reminder-sync skipped — lock held by another pod',
+      );
+    }
   }
 
-  @Cron('* * * * *', {
-    name: 'study-reminder-dispatch',
-  })
-  async handleDispatchCron(): Promise<void> {
-    await this.studyReminderDispatchService.dispatchDueReminders();
+  private scheduleNextDispatch(delayMs: number): void {
+    this.dispatchTimer = setTimeout(() => {
+      void this.runDispatchTick();
+    }, delayMs);
+  }
+
+  private async runDispatchTick(): Promise<void> {
+    let nextDueAt: Date | null = null;
+    try {
+      // Dispatch uses claimJob (atomic UPDATE) — no advisory lock needed.
+      // All pods can dispatch in parallel; only one claims each job.
+      const result =
+        await this.studyReminderDispatchService.dispatchDueReminders();
+      nextDueAt = result.nextDueAt;
+    } catch (error) {
+      this.logger.error('Study reminder dispatch tick failed', error);
+    }
+
+    const delay = this.computePollDelay(nextDueAt);
+    this.logger.debug(
+      `Next dispatch poll in ${Math.round(delay / 1000)}s${nextDueAt ? ` (next job due ${nextDueAt.toISOString()})` : ''}`,
+    );
+    this.scheduleNextDispatch(delay);
+  }
+
+  private computePollDelay(nextDueAt: Date | null): number {
+    const { pollMinMs, pollMaxMs, pollLeadMs } = this.pollConfig();
+    if (!nextDueAt) return pollMaxMs;
+    const msTilDue = nextDueAt.getTime() - Date.now();
+    return Math.max(pollMinMs, Math.min(pollMaxMs, msTilDue - pollLeadMs));
+  }
+
+  private pollConfig(): {
+    pollMinMs: number;
+    pollMaxMs: number;
+    pollLeadMs: number;
+  } {
+    const read = (key: string, def: number): number => {
+      const v = Number(this.configService.get<string>(key));
+      return Number.isFinite(v) && v > 0 ? Math.floor(v) : def;
+    };
+    return {
+      pollMinMs: read('STUDY_REMINDER_POLL_MIN_MS', 30_000),
+      pollMaxMs: read('STUDY_REMINDER_POLL_MAX_MS', 210_000),
+      pollLeadMs: read('STUDY_REMINDER_POLL_LEAD_MS', 60_000),
+    };
   }
 
   @Cron('0 0 3 * * *', {
     name: 'study-reminder-cleanup',
   })
   async handleCleanupCron(): Promise<void> {
-    try {
-      await this.studyReminderCleanupService.purgeExpiredJobs();
-    } catch (error) {
-      this.logger.error('Study reminder job cleanup failed', error);
+    const result = await this.pgLock.withLock(
+      ADVISORY_LOCK.STUDY_REMINDER_CLEANUP,
+      async () => {
+        try {
+          await this.studyReminderCleanupService.purgeExpiredJobs();
+        } catch (error) {
+          this.logger.error('Study reminder job cleanup failed', error);
+        }
+      },
+    );
+
+    if (result === null) {
+      this.logger.debug(
+        'study-reminder-cleanup skipped — lock held by another pod',
+      );
     }
   }
 
   async handleEveningRolloverCron(): Promise<void> {
-    try {
-      await this.runEveningRollover();
-    } catch (error) {
-      this.logger.error('Study reminder evening rollover failed', error);
+    const result = await this.pgLock.withLock(
+      ADVISORY_LOCK.STUDY_REMINDER_ROLLOVER,
+      async () => {
+        try {
+          return await this.runEveningRollover();
+        } catch (error) {
+          this.logger.error('Study reminder evening rollover failed', error);
+          return null;
+        }
+      },
+    );
+
+    if (result === null) {
+      this.logger.debug(
+        'study-reminder-evening-rollover skipped — lock held by another pod',
+      );
     }
   }
 

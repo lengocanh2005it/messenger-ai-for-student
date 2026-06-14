@@ -1,6 +1,6 @@
 # demo_send_message_fb
 
-POC NestJS — Facebook Messenger cho học viên WISPACE: báo cáo AI + nhắc lịch học.
+POC NestJS — Facebook Messenger cho học viên WISPACE: báo cáo AI + nhắc lịch học + chat AI có rate limit.
 
 ## Stack
 
@@ -14,9 +14,16 @@ npm run build
 npm run test
 npm run migration:run
 npm run study-reminder:jobs
+npm run chat-quota:status
 ```
 
-## Cấu hình Claude Code (`.claude/`)
+## Tài liệu đầy đủ
+
+- **[AGENTS.md](./AGENTS.md)** — chuẩn cross-agent (Codex, Cursor, Claude)
+- `docs/project-overview.md` — kiến trúc, API, cron, runbook quota
+- `docs/chat-rate-limit-quota.md` — rate limit V1 + H1–H7
+- `docs/edge-cases-roadmap.md` — gap toàn POC + phase khắc phục
+- `docs/study-session-reminder.md` — nhắc lịch học chi tiết
 
 | Path | Mục đích |
 |------|----------|
@@ -33,19 +40,17 @@ npm run study-reminder:jobs
 | `/edit-llm-prompt` | Sửa `src/shared/prompts/*.system.txt` |
 | `/verify` | `build` + `test` + `lint` trước khi xong task |
 
+Rule path-scoped tự load khi sửa file matching — xem bảng Rules bên dưới.
+
 ### Rules
 
 - `project-conventions.md` — luôn load (quy ước chung)
 - `clean-architecture.md` — **đọc khi sửa `src/modules/`** (4 tầng, ports, DI)
+- `chat-rate-limit.md` — `src/modules/chat-rate-limit/**`
+- `messenger-chat.md` — `src/modules/messenger/application/services/messenger-chat*`
 - `study-reminder.md` — `src/modules/study-reminder/**`
 - `database.md` — `src/infrastructure/database/**`
 - `prompts.md` — `src/shared/prompts/**`
-
-## Tài liệu đầy đủ
-
-- **[AGENTS.md](./AGENTS.md)** — chuẩn cross-agent (Codex, Cursor, Claude)
-- `docs/project-overview.md` — kiến trúc, API, cron
-- `docs/study-session-reminder.md` — nhắc lịch học chi tiết
 
 ## Không làm trừ khi user yêu cầu
 

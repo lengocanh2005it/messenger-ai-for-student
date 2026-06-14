@@ -1,14 +1,15 @@
 # Tài liệu dự án
 
-POC **WISPACE × Facebook Messenger** — gửi báo cáo học tập và nhắc lịch học IELTS qua Messenger, nội dung sinh bằng OpenAI.
+POC **WISPACE × Facebook Messenger** — báo cáo học tập, nhắc lịch học và chat AI hai chiều IELTS qua Messenger (OpenAI).
 
 | Tài liệu | Nội dung |
 |----------|----------|
-| [project-overview.md](./project-overview.md) | Tổng quan POC: tính năng, kiến trúc, cấu trúc code, DB, HTTP API, cron, scripts |
-| [study-session-reminder.md](./study-session-reminder.md) | Nhắc lịch học: sync → jobs → dispatch → LLM; API `UserCalendar`; `POST /messenger/study-calendar/sync`; trade-off |
-| [chat-rate-limit-quota.md](./chat-rate-limit-quota.md) | Rate limit chat AI: 3 hướng lưu quota, trade-off, đề xuất `messenger_chat_daily_usage` |
+| [project-overview.md](./project-overview.md) | Tổng quan: tính năng, kiến trúc, DB, API, cron, env, runbook quota (mục 12) |
+| [chat-rate-limit-quota.md](./chat-rate-limit-quota.md) | Rate limit chat **V1 ✓** + hardening **H1–H7 ✓**; ops scripts; scale `CHAT_QUEUE_SHARED` |
+| [edge-cases-roadmap.md](./edge-cases-roadmap.md) | Gap toàn dự án (link, báo cáo, nhắc lịch, chat, ops) + phase khắc phục |
+| [study-session-reminder.md](./study-session-reminder.md) | Nhắc lịch: sync → jobs → dispatch → LLM; `POST /messenger/study-calendar/sync` |
 
-Hướng dẫn cho AI agent / Cursor: [AGENTS.md](../AGENTS.md) (gồm mục **Clean Architecture**). Quy tắc chi tiết tầng code: `.claude/rules/clean-architecture.md`.
+Hướng dẫn AI agent: [AGENTS.md](../AGENTS.md). Quy tắc tầng code: `.claude/rules/clean-architecture.md`.
 
 ## Tích hợp Wispace (nhắc lịch học)
 
@@ -22,4 +23,15 @@ X-Internal-Api-Key: {INTERNAL_API_KEY}
 { "userId": 2597 }
 ```
 
-Chi tiết request/response và luồng: [study-session-reminder.md §3.6](./study-session-reminder.md#36-api-sync-khi-lịch-học-thay-đổi).
+Chi tiết: [study-session-reminder.md §3.6](./study-session-reminder.md#36-api-sync-khi-lịch-học-thay-đổi).
+
+## Ops (I1 + S1)
+
+```bash
+npm run ops:health
+npm run chat-quota:status -- --ops
+npm run study-reminder:jobs -- --failed
+npm run study-reminder:jobs -- --stuck
+```
+
+Runbook đầy đủ: [project-overview.md §12](./project-overview.md#12-runbook--rate-limit-chat-v1).

@@ -7,11 +7,19 @@ import type { IncrementDailyUsageInput } from '../../domain/entities/chat-daily-
 import type {
   ChatIdempotencyRecord,
   ChatIdempotencyStatus,
+  RecoverIdempotencyOutcome,
   ReserveFreeFormSlotInput,
   ReserveFreeFormSlotOutcome,
   ReserveIdempotencyInput,
 } from '../../domain/entities/chat-idempotency.types';
 import { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate-limit.repository.port';
+
+class DailyLimitExceededError extends Error {
+  constructor() {
+    super('Daily limit exceeded during reserve transaction');
+    this.name = 'DailyLimitExceededError';
+  }
+}
 
 @Injectable()
 export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
@@ -114,31 +122,44 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
   async reserveFreeFormSlotInTransaction(
     input: ReserveFreeFormSlotInput,
   ): Promise<ReserveFreeFormSlotOutcome> {
-    return this.dailyUsageRepo.manager.transaction(async (manager) => {
-      const idempotency = await this.tryReserveIdempotency(input, manager);
-      if (!idempotency) {
-        return { status: 'idempotency_conflict' };
+    try {
+      return await this.dailyUsageRepo.manager.transaction(async (manager) => {
+        const idempotency = await this.tryReserveIdempotency(input, manager);
+        if (!idempotency) {
+          return { status: 'idempotency_conflict' };
+        }
+
+        const rows: Array<{ free_form_count: number }> = await manager.query(
+          `
+            INSERT INTO messenger_chat_daily_usage (psid, user_id, usage_date, free_form_count)
+            VALUES ($1, $2, $3::date, 1)
+            ON CONFLICT (psid, usage_date)
+            DO UPDATE SET
+              free_form_count = messenger_chat_daily_usage.free_form_count + 1,
+              user_id = COALESCE(EXCLUDED.user_id, messenger_chat_daily_usage.user_id),
+              updated_at = now()
+            WHERE messenger_chat_daily_usage.free_form_count < $4
+            RETURNING free_form_count
+          `,
+          [input.psid, input.userId ?? null, input.usageDate, input.dailyLimit],
+        );
+
+        if (!rows[0]) {
+          throw new DailyLimitExceededError();
+        }
+
+        return {
+          status: 'reserved',
+          freeFormCount: rows[0]?.free_form_count ?? 0,
+        };
+      });
+    } catch (error) {
+      if (error instanceof DailyLimitExceededError) {
+        return { status: 'daily_limit_exceeded' };
       }
 
-      const rows: Array<{ free_form_count: number }> = await manager.query(
-        `
-          INSERT INTO messenger_chat_daily_usage (psid, user_id, usage_date, free_form_count)
-          VALUES ($1, $2, $3::date, 1)
-          ON CONFLICT (psid, usage_date)
-          DO UPDATE SET
-            free_form_count = messenger_chat_daily_usage.free_form_count + 1,
-            user_id = COALESCE(EXCLUDED.user_id, messenger_chat_daily_usage.user_id),
-            updated_at = now()
-          RETURNING free_form_count
-        `,
-        [input.psid, input.userId ?? null, input.usageDate],
-      );
-
-      return {
-        status: 'reserved',
-        freeFormCount: rows[0]?.free_form_count ?? 0,
-      };
-    });
+      throw error;
+    }
   }
 
   async refundReservedSlot(params: {
@@ -192,13 +213,22 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
     return rows.length > 0;
   }
 
-  async countRecentReservations(psid: string, since: Date): Promise<number> {
+  async countRecentReservations(
+    psid: string,
+    since: Date,
+    options: { includeRefunded?: boolean } = {},
+  ): Promise<number> {
+    const includeRefunded = options.includeRefunded ?? false;
+    const statusFilter = includeRefunded
+      ? ''
+      : ` AND status IN ('reserved', 'completed')`;
+
     const rows: Array<{ count: string }> =
       await this.idempotencyRepo.manager.query(
         `
         SELECT COUNT(*)::text AS count
         FROM messenger_chat_idempotency
-        WHERE psid = $1 AND reserved_at > $2
+        WHERE psid = $1 AND reserved_at > $2${statusFilter}
       `,
         [psid, since],
       );
@@ -216,6 +246,203 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
     );
 
     return (result.affected ?? 0) > 0;
+  }
+
+  async getIdempotencyByKey(
+    idempotencyKey: string,
+  ): Promise<ChatIdempotencyRecord | null> {
+    const row = await this.idempotencyRepo.findOne({
+      where: { idempotencyKey },
+    });
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      idempotencyKey: row.idempotencyKey,
+      psid: row.psid,
+      userId: row.userId ?? undefined,
+      usageDate: row.usageDate,
+      status: row.status,
+      reservedAt: row.reservedAt,
+    };
+  }
+
+  async listStuckReserved(stuckBefore: Date): Promise<ChatIdempotencyRecord[]> {
+    const rows: Array<{
+      idempotency_key: string;
+      psid: string;
+      user_id: number | null;
+      usage_date: string;
+      status: ChatIdempotencyStatus;
+      reserved_at: Date;
+    }> = await this.idempotencyRepo.manager.query(
+      `
+        SELECT
+          idempotency_key,
+          psid,
+          user_id,
+          usage_date,
+          status,
+          reserved_at
+        FROM messenger_chat_idempotency
+        WHERE status = 'reserved' AND reserved_at < $1
+        ORDER BY reserved_at ASC
+      `,
+      [stuckBefore],
+    );
+
+    return rows.map((row) => this.mapIdempotency(row));
+  }
+
+  async recoverIdempotencyForRetry(
+    idempotencyKey: string,
+    stuckBefore: Date,
+  ): Promise<RecoverIdempotencyOutcome> {
+    return this.idempotencyRepo.manager.transaction(async (manager) => {
+      const rows: Array<{
+        idempotency_key: string;
+        psid: string;
+        user_id: number | null;
+        usage_date: string;
+        status: ChatIdempotencyStatus;
+        reserved_at: Date;
+      }> = await manager.query(
+        `
+          SELECT
+            idempotency_key,
+            psid,
+            user_id,
+            usage_date,
+            status,
+            reserved_at
+          FROM messenger_chat_idempotency
+          WHERE idempotency_key = $1
+          FOR UPDATE
+        `,
+        [idempotencyKey],
+      );
+
+      const row = rows[0];
+      if (!row) {
+        return 'not_found';
+      }
+
+      if (row.status === 'completed') {
+        return 'completed';
+      }
+
+      if (row.status === 'reserved') {
+        const reservedAt = new Date(row.reserved_at);
+        if (reservedAt >= stuckBefore) {
+          return 'in_flight';
+        }
+
+        const refundedRows: Array<{ idempotency_key: string }> =
+          await manager.query(
+            `
+              UPDATE messenger_chat_idempotency
+              SET status = 'refunded'
+              WHERE idempotency_key = $1 AND status = 'reserved'
+              RETURNING idempotency_key
+            `,
+            [idempotencyKey],
+          );
+
+        if (!refundedRows[0]) {
+          return 'not_found';
+        }
+
+        await manager.query(
+          `
+            UPDATE messenger_chat_daily_usage
+            SET
+              free_form_count = GREATEST(free_form_count - 1, 0),
+              updated_at = now()
+            WHERE psid = $1 AND usage_date = $2::date
+          `,
+          [row.psid, row.usage_date],
+        );
+
+        await manager.query(
+          `
+            DELETE FROM messenger_chat_idempotency
+            WHERE idempotency_key = $1
+          `,
+          [idempotencyKey],
+        );
+
+        return 'reopened';
+      }
+
+      if (row.status === 'refunded') {
+        await manager.query(
+          `
+            DELETE FROM messenger_chat_idempotency
+            WHERE idempotency_key = $1
+          `,
+          [idempotencyKey],
+        );
+
+        return 'reopened';
+      }
+
+      return 'not_found';
+    });
+  }
+
+  async recoverAllStuckReserved(stuckBefore: Date): Promise<string[]> {
+    const stuck = await this.listStuckReserved(stuckBefore);
+    const recovered: string[] = [];
+
+    for (const row of stuck) {
+      const outcome = await this.recoverIdempotencyForRetry(
+        row.idempotencyKey,
+        stuckBefore,
+      );
+      if (outcome === 'reopened') {
+        recovered.push(row.idempotencyKey);
+      }
+    }
+
+    return recovered;
+  }
+
+  async countStuckReserved(stuckBefore: Date): Promise<number> {
+    return this.idempotencyRepo
+      .createQueryBuilder('row')
+      .where(`row.status = 'reserved'`)
+      .andWhere('row.reserved_at < :stuckBefore', { stuckBefore })
+      .getCount();
+  }
+
+  async countIdempotencyByStatusForUsageDate(
+    usageDate: string,
+  ): Promise<Record<string, number>> {
+    const rows = await this.idempotencyRepo
+      .createQueryBuilder('row')
+      .select('row.status', 'status')
+      .addSelect('COUNT(*)::int', 'count')
+      .where('row.usage_date = :usageDate', { usageDate })
+      .groupBy('row.status')
+      .getRawMany<{ status: string; count: number }>();
+
+    return Object.fromEntries(rows.map((row) => [row.status, row.count]));
+  }
+
+  async countUsersAtOrAboveDailyLimit(
+    usageDate: string,
+    dailyLimit: number,
+  ): Promise<number> {
+    const row = await this.dailyUsageRepo
+      .createQueryBuilder('usage')
+      .select('COUNT(*)::int', 'count')
+      .where('usage.usage_date = :usageDate', { usageDate })
+      .andWhere('usage.free_form_count >= :dailyLimit', { dailyLimit })
+      .getRawOne<{ count: number }>();
+
+    return row?.count ?? 0;
   }
 
   private mapIdempotency(row: {

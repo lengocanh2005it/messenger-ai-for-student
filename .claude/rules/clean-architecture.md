@@ -46,7 +46,8 @@ src/modules/<feature>/
 
 | Module | Nest module | Ghi chú |
 |--------|-------------|---------|
-| messenger | `MessengerModule` + `MessengerOutboundModule` | Outbound = Send API + mapping repo; webhook ở `MessengerService` |
+| messenger | `MessengerModule` + `MessengerOutboundModule` | Webhook, chat queue/agent, shared state H7; outbound = Send API |
+| chat-rate-limit | `ChatRateLimitModule` | Quota FREE_FORM, idempotency, hard cap H3 |
 | student-report | `StudentReportModule` | Không có controller |
 | study-reminder | `StudyReminderModule` | Cron trong worker; HTTP ops ở `SchedulerModule` |
 | scheduler | `SchedulerModule` | Cron báo cáo + ops HTTP `/messenger/*` |
@@ -58,6 +59,8 @@ src/modules/<feature>/
 | `MESSENGER_REPOSITORY` | `MessengerRepositoryPort` | `MessengerRepository` | `MessengerService`, `ReportCronService` |
 | `MESSENGER_MAPPING_READER` | `MessengerMappingReaderPort` | `MessengerRepository` | `StudyReminderSyncService`, `UserDisplayNameService` |
 | `MESSAGE_SENDER` | `MessageSenderPort` | `MessengerOutboundService` | `StudyReminderDispatchService` |
+| `CHAT_RATE_LIMIT_REPOSITORY` | `ChatRateLimitRepositoryPort` | `ChatRateLimitRepository` | `ChatRateLimitService` |
+| `MESSENGER_CHAT_SHARED_STATE_REPOSITORY` | `MessengerChatSharedStateRepositoryPort` | `MessengerChatSharedStateRepository` | `MessengerChatQueueService`, `MessengerChatHistoryService` (H7) |
 | `STUDY_REMINDER_JOB_REPOSITORY` | `StudyReminderJobRepositoryPort` | `StudyReminderJobRepository` | (dự phòng inject qua port) |
 
 **Quy tắc:** Application layer inject port bằng `@Inject(TOKEN)` + `import type` cho interface (isolatedModules).
@@ -84,6 +87,7 @@ src/modules/<feature>/
 | `@Entity()` trong `domain/` | Entity ORM ở `infrastructure/database/entities/` |
 | `StudyReminderModule` import `MessengerModule` | Import `MessengerOutboundModule` + port |
 | `MessengerService` trong dispatch | `MESSAGE_SENDER` + `StudyReminderService` |
+| Reserve quota trong webhook | `ChatRateLimitService` trong `MessengerChatQueueService` flush |
 | Service mới ở `src/messenger/*.ts` (flat) | Đúng tầng trong `src/modules/messenger/...` |
 | Hardcode path migration cũ `dist/database/` | `dist/infrastructure/database/data-source.js` |
 

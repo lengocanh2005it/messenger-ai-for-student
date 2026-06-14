@@ -4,6 +4,11 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { isMessenger24hWindowError } from '../messages/chat-delivery.messages';
+import {
+  buildProactive24hLogErrorMessage,
+  buildProactiveFailureMessageType,
+} from '../utils/proactive-send.utils';
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
 import type { MessageSenderPort } from '../ports/message-sender.port';
@@ -19,6 +24,17 @@ export class MessengerApiError extends Error {
   ) {
     super(message);
     this.name = 'MessengerApiError';
+  }
+}
+
+/** H4: at least one bubble was delivered before a later Send API failure. */
+export class MessengerPartialSendError extends MessengerApiError {
+  constructor(
+    readonly bubblesSent: number,
+    cause: MessengerApiError,
+  ) {
+    super(cause.message, cause.status, cause.statusText, cause.responseBody);
+    this.name = 'MessengerPartialSendError';
   }
 }
 
@@ -48,7 +64,7 @@ export class MessengerOutboundService implements MessageSenderPort {
     userId?: number;
     maxBubbles?: number;
     maxCharsPerBubble?: number;
-  }): Promise<void> {
+  }): Promise<number> {
     const bubbles = splitMessengerBubbles(
       params.text,
       params.maxBubbles ?? 4,
@@ -56,20 +72,34 @@ export class MessengerOutboundService implements MessageSenderPort {
     );
 
     if (!bubbles.length) {
-      return;
+      return 0;
     }
 
+    let sentCount = 0;
+
     for (const [index, bubble] of bubbles.entries()) {
-      await this.sendTextViaPsid({
-        psid: params.psid,
-        userId: params.userId,
-        text: bubble,
-        messageType:
-          bubbles.length > 1
-            ? `${params.messageType}_PART_${index + 1}_OF_${bubbles.length}`
-            : params.messageType,
-      });
+      try {
+        await this.sendTextViaPsid({
+          psid: params.psid,
+          userId: params.userId,
+          text: bubble,
+          messageType:
+            bubbles.length > 1
+              ? `${params.messageType}_PART_${index + 1}_OF_${bubbles.length}`
+              : params.messageType,
+        });
+        sentCount += 1;
+      } catch (error) {
+        const apiError = this.toMessengerApiError(params.psid, error);
+        if (sentCount > 0) {
+          throw new MessengerPartialSendError(sentCount, apiError);
+        }
+
+        throw apiError;
+      }
     }
+
+    return sentCount;
   }
 
   async sendRichFollowUps(params: {
@@ -222,18 +252,50 @@ export class MessengerOutboundService implements MessageSenderPort {
         status: 'SENT',
       });
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      await this.repository.logMessage({
-        userId: params.userId,
-        psid: params.psid,
-        messageType: params.messageType,
-        messageText: params.text,
-        status: 'FAILED',
-        errorMessage,
-      });
+      await this.logSendFailure(params, error);
       throw error;
     }
+  }
+
+  private async logSendFailure(
+    params: {
+      psid: string;
+      text: string;
+      messageType: string;
+      userId?: number;
+    },
+    error: unknown,
+  ): Promise<void> {
+    const apiError = this.toMessengerApiError(params.psid, error);
+    const is24h = isMessenger24hWindowError(apiError);
+    const errorMessage = is24h
+      ? buildProactive24hLogErrorMessage()
+      : apiError.message;
+
+    await this.repository.logMessage({
+      userId: params.userId,
+      psid: params.psid,
+      messageType: is24h
+        ? buildProactiveFailureMessageType(params.messageType)
+        : params.messageType,
+      messageText: params.text,
+      status: 'FAILED',
+      errorMessage,
+    });
+  }
+
+  private toMessengerApiError(psid: string, error: unknown): MessengerApiError {
+    if (error instanceof MessengerApiError) {
+      return error;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    return new MessengerApiError(
+      `Messenger Send API failed for PSID ${psid}: ${message}`,
+      0,
+      'Error',
+      message,
+    );
   }
 
   private async callSendApiByPsid(

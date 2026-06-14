@@ -21,8 +21,18 @@ export interface ReserveFreeFormSlotInput {
   userId?: number;
   usageDate: string;
   idempotencyKey: string;
+  /** H3: hard cap inside the same transaction as idempotency insert. */
+  dailyLimit: number;
 }
 
 export type ReserveFreeFormSlotOutcome =
   | { status: 'reserved'; freeFormCount: number }
-  | { status: 'idempotency_conflict' };
+  | { status: 'idempotency_conflict' }
+  | { status: 'daily_limit_exceeded' };
+
+/** Outcome when reclaiming an idempotency key for Meta retry / crash recovery (H2). */
+export type RecoverIdempotencyOutcome =
+  | 'reopened'
+  | 'in_flight'
+  | 'completed'
+  | 'not_found';

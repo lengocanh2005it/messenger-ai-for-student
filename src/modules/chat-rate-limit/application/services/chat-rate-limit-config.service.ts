@@ -14,6 +14,9 @@ export class ChatRateLimitConfigService {
       timezone: this.getTimezone(),
       whitelistedPsids: this.getWhitelistedPsids(),
       remainingHintThreshold: this.getRemainingHintThreshold(),
+      stuckReservedMs: this.getStuckReservedMs(),
+      mergedTextMaxChars: this.getMergedTextMaxChars(),
+      burstCountsRefunded: this.getBurstCountsRefunded(),
     };
   }
 
@@ -79,6 +82,62 @@ export class ChatRateLimitConfigService {
     return this.readRequiredPositiveNumber(
       'CHAT_QUOTA_REMAINING_HINT_THRESHOLD',
     );
+  }
+
+  /** Default 10 minutes — H2 stuck `reserved` recovery. */
+  getStuckReservedMs(): number {
+    const raw = this.configService
+      .get<string>('CHAT_IDEMPOTENCY_STUCK_RESERVED_MS')
+      ?.trim();
+
+    if (!raw) {
+      return 600_000;
+    }
+
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new InternalServerErrorException(
+        'CHAT_IDEMPOTENCY_STUCK_RESERVED_MS must be a positive number in .env',
+      );
+    }
+
+    return Math.floor(value);
+  }
+
+  /** H5: cap merged debounce text before LLM (default 4000). */
+  getMergedTextMaxChars(): number {
+    const raw = this.configService
+      .get<string>('CHAT_MERGED_TEXT_MAX_CHARS')
+      ?.trim();
+
+    if (!raw) {
+      return 4000;
+    }
+
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new InternalServerErrorException(
+        'CHAT_MERGED_TEXT_MAX_CHARS must be a positive number in .env',
+      );
+    }
+
+    return Math.floor(value);
+  }
+
+  /**
+   * H5: when false (default), burst window ignores refunded idempotency rows.
+   */
+  getBurstCountsRefunded(): boolean {
+    const raw = this.configService
+      .get<string>('CHAT_BURST_COUNT_REFUNDED')
+      ?.trim()
+      .toLowerCase();
+
+    if (!raw) {
+      return false;
+    }
+
+    return raw === 'true' || raw === '1' || raw === 'yes';
   }
 
   private readRequiredPositiveNumber(key: string): number {

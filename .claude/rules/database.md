@@ -10,8 +10,13 @@ paths: src/infrastructure/database/**
 - `user_messenger_mappings` — `user_id` ↔ `psid`
 - `messenger_message_logs` — audit tin gửi/nhận
 - `messenger_chat_daily_usage` — quota chat FREE_FORM theo ngày
-- `messenger_chat_idempotency` — idempotency `message.mid`
+- `messenger_chat_idempotency` — idempotency `message.mid` (reserve/refund)
+- `messenger_chat_queue_buffer` — debounce queue shared (H7, `CHAT_QUEUE_SHARED=true`)
+- `messenger_chat_history` — context LLM chat shared (H7)
+- `messenger_chat_webhook_seen` — dedupe webhook `mid` cross-pod (H7)
 - `study_reminder_jobs` — outbox nhắc lịch
+
+Migration H7: `1717747200003-CreateMessengerChatSharedQueueTables.ts`
 
 ## Bảng Wispace (đọc only)
 

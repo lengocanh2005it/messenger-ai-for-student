@@ -39,4 +39,21 @@ export interface MessengerRepositoryPort {
     status: 'SENT' | 'FAILED';
     errorMessage?: string;
   }): Promise<MessengerMessageLog>;
+  countMessageLogsByTypeSince(
+    messageType: string,
+    since: Date,
+  ): Promise<number>;
+  tryClaimScheduledReport(params: {
+    psid: string;
+    userId?: number;
+    reportDate: string;
+  }): Promise<boolean>;
+  markScheduledReportClaimSent(params: {
+    psid: string;
+    reportDate: string;
+  }): Promise<void>;
+  releaseScheduledReportClaim(params: {
+    psid: string;
+    reportDate: string;
+  }): Promise<void>;
 }

@@ -36,13 +36,15 @@ describe('ChatRateLimitRepository', () => {
             'INSERT INTO messenger_chat_daily_usage (psid, user_id, usage_date, free_form_count)',
           )
         ) {
-          const [psid, userId, usageDate] = params as [
-            string,
-            number | null,
-            string,
-          ];
+          const psid = params[0] as string;
+          const userId = params[1] as number | null;
+          const usageDate = params[2] as string;
+          const dailyLimit = params[3] as number | undefined;
           const key = usageKey(psid, usageDate);
           const existing = dailyUsageStore.get(key);
+          const hasHardCap =
+            typeof dailyLimit === 'number' &&
+            normalized.includes('free_form_count <');
 
           if (!existing) {
             dailyUsageStore.set(key, {
@@ -52,6 +54,10 @@ describe('ChatRateLimitRepository', () => {
               freeFormCount: 1,
             });
             return [{ free_form_count: 1 }];
+          }
+
+          if (hasHardCap && existing.freeFormCount >= dailyLimit) {
+            return [];
           }
 
           existing.freeFormCount += 1;
@@ -80,9 +86,20 @@ describe('ChatRateLimitRepository', () => {
           )
         ) {
           const [psid, since] = params as [string, Date];
-          const count = [...idempotencyStore.values()].filter(
-            (row) => row.psid === psid && row.reservedAt > since,
-          ).length;
+          const includeRefunded = !normalized.includes(
+            "status IN ('reserved', 'completed')",
+          );
+          const count = [...idempotencyStore.values()].filter((row) => {
+            if (row.psid !== psid || row.reservedAt <= since) {
+              return false;
+            }
+
+            if (includeRefunded) {
+              return true;
+            }
+
+            return row.status === 'reserved' || row.status === 'completed';
+          }).length;
           return [{ count: String(count) }];
         }
 
@@ -152,10 +169,77 @@ describe('ChatRateLimitRepository', () => {
           ];
         }
 
+        if (
+          normalized.includes('FROM messenger_chat_idempotency') &&
+          normalized.includes('FOR UPDATE')
+        ) {
+          const [idempotencyKey] = params as [string];
+          const row = idempotencyStore.get(idempotencyKey);
+          if (!row) {
+            return [];
+          }
+
+          return [
+            {
+              idempotency_key: row.idempotencyKey,
+              psid: row.psid,
+              user_id: row.userId,
+              usage_date: row.usageDate,
+              status: row.status,
+              reserved_at: row.reservedAt,
+            },
+          ];
+        }
+
+        if (
+          normalized.startsWith(
+            'DELETE FROM messenger_chat_idempotency WHERE idempotency_key = $1',
+          )
+        ) {
+          const [idempotencyKey] = params as [string];
+          idempotencyStore.delete(idempotencyKey);
+          return [];
+        }
+
+        if (
+          normalized.includes("WHERE status = 'reserved' AND reserved_at < $1")
+        ) {
+          const [stuckBefore] = params as [Date];
+          return [...idempotencyStore.values()]
+            .filter(
+              (row) =>
+                row.status === 'reserved' && row.reservedAt < stuckBefore,
+            )
+            .map((row) => ({
+              idempotency_key: row.idempotencyKey,
+              psid: row.psid,
+              user_id: row.userId,
+              usage_date: row.usageDate,
+              status: row.status,
+              reserved_at: row.reservedAt,
+            }));
+        }
+
         throw new Error(`Unexpected SQL in test: ${normalized}`);
       }),
       transaction: jest.fn(
-        <T>(work: (txManager: EntityManager) => Promise<T>) => work(manager),
+        async <T>(work: (txManager: EntityManager) => Promise<T>) => {
+          const idempotencySnapshot = new Map(idempotencyStore);
+          const dailySnapshot = new Map(dailyUsageStore);
+          try {
+            return await work(manager);
+          } catch (error) {
+            idempotencyStore.clear();
+            idempotencySnapshot.forEach((value, key) =>
+              idempotencyStore.set(key, value),
+            );
+            dailyUsageStore.clear();
+            dailySnapshot.forEach((value, key) =>
+              dailyUsageStore.set(key, value),
+            );
+            throw error;
+          }
+        },
       ),
     } as unknown as EntityManager;
 
@@ -186,6 +270,21 @@ describe('ChatRateLimitRepository', () => {
     } as unknown as Repository<MessengerChatDailyUsageEntity>;
 
     const idempotencyRepo = {
+      findOne: jest.fn(({ where }: { where: { idempotencyKey: string } }) => {
+        const row = idempotencyStore.get(where.idempotencyKey);
+        if (!row) {
+          return Promise.resolve(null);
+        }
+
+        return Promise.resolve({
+          idempotencyKey: row.idempotencyKey,
+          psid: row.psid,
+          userId: row.userId,
+          usageDate: row.usageDate,
+          status: row.status,
+          reservedAt: row.reservedAt,
+        });
+      }),
       update: jest.fn(
         (
           where: { idempotencyKey: string },
@@ -288,13 +387,27 @@ describe('ChatRateLimitRepository', () => {
     expect(second).toBeNull();
   });
 
+  const reserveInput = (
+    overrides: Partial<{
+      idempotencyKey: string;
+      psid: string;
+      userId: number;
+      usageDate: string;
+      dailyLimit: number;
+    }> = {},
+  ) => ({
+    idempotencyKey: 'mid-tx',
+    psid: 'psid-1',
+    userId: 143,
+    usageDate: '2026-06-15',
+    dailyLimit: 15,
+    ...overrides,
+  });
+
   it('reserves slot in one transaction with idempotency and usage increment', async () => {
-    const outcome = await repository.reserveFreeFormSlotInTransaction({
-      idempotencyKey: 'mid-tx',
-      psid: 'psid-1',
-      userId: 143,
-      usageDate: '2026-06-15',
-    });
+    const outcome = await repository.reserveFreeFormSlotInTransaction(
+      reserveInput({ idempotencyKey: 'mid-tx' }),
+    );
 
     expect(outcome).toEqual({ status: 'reserved', freeFormCount: 1 });
     expect(idempotencyStore.get('mid-tx')?.status).toBe('reserved');
@@ -304,17 +417,13 @@ describe('ChatRateLimitRepository', () => {
   });
 
   it('returns idempotency conflict without incrementing usage', async () => {
-    await repository.reserveFreeFormSlotInTransaction({
-      idempotencyKey: 'mid-dup',
-      psid: 'psid-1',
-      usageDate: '2026-06-15',
-    });
+    await repository.reserveFreeFormSlotInTransaction(
+      reserveInput({ idempotencyKey: 'mid-dup' }),
+    );
 
-    const second = await repository.reserveFreeFormSlotInTransaction({
-      idempotencyKey: 'mid-dup',
-      psid: 'psid-1',
-      usageDate: '2026-06-15',
-    });
+    const second = await repository.reserveFreeFormSlotInTransaction(
+      reserveInput({ idempotencyKey: 'mid-dup' }),
+    );
 
     expect(second).toEqual({ status: 'idempotency_conflict' });
     await expect(
@@ -323,11 +432,9 @@ describe('ChatRateLimitRepository', () => {
   });
 
   it('refunds reserved slot and decrements usage', async () => {
-    await repository.reserveFreeFormSlotInTransaction({
-      idempotencyKey: 'mid-refund',
-      psid: 'psid-1',
-      usageDate: '2026-06-15',
-    });
+    await repository.reserveFreeFormSlotInTransaction(
+      reserveInput({ idempotencyKey: 'mid-refund' }),
+    );
 
     const refunded = await repository.refundReservedSlot({
       idempotencyKey: 'mid-refund',
@@ -343,11 +450,9 @@ describe('ChatRateLimitRepository', () => {
   });
 
   it('completes reserved idempotency without decrementing usage', async () => {
-    await repository.reserveFreeFormSlotInTransaction({
-      idempotencyKey: 'mid-complete',
-      psid: 'psid-1',
-      usageDate: '2026-06-15',
-    });
+    await repository.reserveFreeFormSlotInTransaction(
+      reserveInput({ idempotencyKey: 'mid-complete' }),
+    );
 
     const completed = await repository.completeReservedSlot('mid-complete');
 
@@ -382,6 +487,35 @@ describe('ChatRateLimitRepository', () => {
     ).resolves.toBe(1);
   });
 
+  it('excludes refunded rows from burst count by default (H5)', async () => {
+    const now = Date.now();
+    idempotencyStore.set('mid-refunded', {
+      idempotencyKey: 'mid-refunded',
+      psid: 'psid-1',
+      userId: null,
+      usageDate: '2026-06-15',
+      status: 'refunded',
+      reservedAt: new Date(now - 30_000),
+    });
+    idempotencyStore.set('mid-active', {
+      idempotencyKey: 'mid-active',
+      psid: 'psid-1',
+      userId: null,
+      usageDate: '2026-06-15',
+      status: 'completed',
+      reservedAt: new Date(now - 20_000),
+    });
+
+    await expect(
+      repository.countRecentReservations('psid-1', new Date(now - 60_000)),
+    ).resolves.toBe(1);
+    await expect(
+      repository.countRecentReservations('psid-1', new Date(now - 60_000), {
+        includeRefunded: true,
+      }),
+    ).resolves.toBe(2);
+  });
+
   it('updates idempotency status', async () => {
     await repository.tryReserveIdempotency({
       idempotencyKey: 'mid-123',
@@ -401,5 +535,149 @@ describe('ChatRateLimitRepository', () => {
     expect(updated).toBe(true);
     expect(missing).toBe(false);
     expect(idempotencyStore.get('mid-123')?.status).toBe('completed');
+  });
+
+  it('reopens stale reserved idempotency and refunds usage', async () => {
+    const staleAt = new Date('2026-06-15T07:00:00+07:00');
+    idempotencyStore.set('mid-stuck', {
+      idempotencyKey: 'mid-stuck',
+      psid: 'psid-1',
+      userId: 143,
+      usageDate: '2026-06-15',
+      status: 'reserved',
+      reservedAt: staleAt,
+    });
+    dailyUsageStore.set('psid-1:2026-06-15', {
+      psid: 'psid-1',
+      userId: 143,
+      usageDate: '2026-06-15',
+      freeFormCount: 1,
+    });
+
+    const outcome = await repository.recoverIdempotencyForRetry(
+      'mid-stuck',
+      new Date('2026-06-15T08:00:00+07:00'),
+    );
+
+    expect(outcome).toBe('reopened');
+    expect(idempotencyStore.has('mid-stuck')).toBe(false);
+    await expect(
+      repository.getDailyUsageCount('psid-1', '2026-06-15'),
+    ).resolves.toBe(0);
+  });
+
+  it('keeps in-flight reserved idempotency inside TTL', async () => {
+    idempotencyStore.set('mid-flight', {
+      idempotencyKey: 'mid-flight',
+      psid: 'psid-1',
+      userId: null,
+      usageDate: '2026-06-15',
+      status: 'reserved',
+      reservedAt: new Date('2026-06-15T08:30:00+07:00'),
+    });
+
+    const outcome = await repository.recoverIdempotencyForRetry(
+      'mid-flight',
+      new Date('2026-06-15T08:00:00+07:00'),
+    );
+
+    expect(outcome).toBe('in_flight');
+    expect(idempotencyStore.get('mid-flight')?.status).toBe('reserved');
+  });
+
+  it('reopens refunded idempotency for meta retry', async () => {
+    idempotencyStore.set('mid-retry', {
+      idempotencyKey: 'mid-retry',
+      psid: 'psid-1',
+      userId: null,
+      usageDate: '2026-06-15',
+      status: 'refunded',
+      reservedAt: new Date('2026-06-15T08:00:00+07:00'),
+    });
+
+    const outcome = await repository.recoverIdempotencyForRetry(
+      'mid-retry',
+      new Date('2026-06-15T08:00:00+07:00'),
+    );
+
+    expect(outcome).toBe('reopened');
+    expect(idempotencyStore.has('mid-retry')).toBe(false);
+  });
+
+  it('allows reserve again after recovering stale reserved key', async () => {
+    const staleAt = new Date('2026-06-15T07:00:00+07:00');
+    idempotencyStore.set('mid-stuck', {
+      idempotencyKey: 'mid-stuck',
+      psid: 'psid-1',
+      userId: null,
+      usageDate: '2026-06-15',
+      status: 'reserved',
+      reservedAt: staleAt,
+    });
+    dailyUsageStore.set('psid-1:2026-06-15', {
+      psid: 'psid-1',
+      userId: null,
+      usageDate: '2026-06-15',
+      freeFormCount: 1,
+    });
+
+    await repository.recoverIdempotencyForRetry(
+      'mid-stuck',
+      new Date('2026-06-15T08:00:00+07:00'),
+    );
+
+    const outcome = await repository.reserveFreeFormSlotInTransaction(
+      reserveInput({ idempotencyKey: 'mid-stuck', userId: undefined }),
+    );
+
+    expect(outcome).toEqual({ status: 'reserved', freeFormCount: 1 });
+  });
+
+  it('denies reserve at daily hard cap without leaving idempotency row (H3)', async () => {
+    dailyUsageStore.set('psid-1:2026-06-15', {
+      psid: 'psid-1',
+      userId: null,
+      usageDate: '2026-06-15',
+      freeFormCount: 15,
+    });
+
+    const outcome = await repository.reserveFreeFormSlotInTransaction(
+      reserveInput({ idempotencyKey: 'mid-cap', dailyLimit: 15 }),
+    );
+
+    expect(outcome).toEqual({ status: 'daily_limit_exceeded' });
+    expect(idempotencyStore.has('mid-cap')).toBe(false);
+    await expect(
+      repository.getDailyUsageCount('psid-1', '2026-06-15'),
+    ).resolves.toBe(15);
+  });
+
+  it('allows only one concurrent reserve when at daily limit minus one (H3)', async () => {
+    dailyUsageStore.set('psid-1:2026-06-15', {
+      psid: 'psid-1',
+      userId: null,
+      usageDate: '2026-06-15',
+      freeFormCount: 14,
+    });
+
+    const [first, second] = await Promise.all([
+      repository.reserveFreeFormSlotInTransaction(
+        reserveInput({ idempotencyKey: 'mid-a', dailyLimit: 15 }),
+      ),
+      repository.reserveFreeFormSlotInTransaction(
+        reserveInput({ idempotencyKey: 'mid-b', dailyLimit: 15 }),
+      ),
+    ]);
+
+    const outcomes = [first, second];
+    expect(outcomes.filter((item) => item.status === 'reserved')).toHaveLength(
+      1,
+    );
+    expect(
+      outcomes.filter((item) => item.status === 'daily_limit_exceeded'),
+    ).toHaveLength(1);
+    await expect(
+      repository.getDailyUsageCount('psid-1', '2026-06-15'),
+    ).resolves.toBe(15);
   });
 });

@@ -4,6 +4,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -17,6 +18,8 @@ import {
   parseMessengerLinkContext,
 } from '../../../../shared/config/poc.constants';
 import { StudentReportService } from '../../../student-report/application/services/student-report.service';
+import { StudentReportRetryableError } from '../../../student-report/domain/errors/wispace-api.error';
+import { buildStudentReportApiRetryMessage } from '../../../student-report/application/messages/student-report.messages';
 import { getNoUpcomingStudySessionMessage } from '../../../study-reminder/application/messages/study-reminder.messages';
 import { StudyReminderScheduleService } from '../../../study-reminder/application/services/study-reminder-schedule.service';
 import { StudyReminderService } from '../../../study-reminder/application/services/study-reminder.service';
@@ -24,12 +27,29 @@ import { UserDisplayNameService } from '../../../study-reminder/application/serv
 import { NormalizedStudySession } from '../../../study-reminder/domain/entities/study-schedule.types';
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
+import { MESSENGER_CHAT_SHARED_STATE_REPOSITORY } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
+import type { MessengerChatSharedStateRepositoryPort } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
+import { MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY } from '../../domain/repositories/messenger-webhook-dead-letter.repository.port';
+import type { MessengerWebhookDeadLetterRepositoryPort } from '../../domain/repositories/messenger-webhook-dead-letter.repository.port';
 import {
   MessengerWebhookEvent,
   MessengerWebhookPayload,
   UserMessengerMapping,
 } from '../../domain/entities/messenger.types';
+import { ChatRateLimitConfigService } from '../../../chat-rate-limit/application/services/chat-rate-limit-config.service';
 import { MessengerChatQueueService } from './messenger-chat-queue.service';
+import { MessengerChatSharedConfigService } from './messenger-chat-shared-config.service';
+import {
+  buildChatMissingMidMessage,
+  buildUnsupportedMessageTypeReply,
+} from '../messages/chat-delivery.messages';
+import { isUnsupportedUserMessage } from '../utils/webhook-message.utils';
+import { readMessengerBubbleLimits } from '../utils/messenger-bubble-config.utils';
+import {
+  isProactiveMessenger24hError,
+  ProactiveMessenger24hSkippedError,
+} from '../utils/proactive-send.utils';
+import { MessengerMappingService } from './messenger-mapping.service';
 import { MessengerOutboundService } from './messenger-outbound.service';
 
 export { MessengerApiError } from './messenger-outbound.service';
@@ -47,11 +67,21 @@ export class MessengerService {
     @Inject(MESSENGER_REPOSITORY)
     private readonly repository: MessengerRepositoryPort,
     private readonly outbound: MessengerOutboundService,
+    private readonly messengerMappingService: MessengerMappingService,
     private readonly messengerChatQueueService: MessengerChatQueueService,
     private readonly studentReportService: StudentReportService,
     private readonly studyReminderService: StudyReminderService,
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
     private readonly userDisplayNameService: UserDisplayNameService,
+    private readonly chatRateLimitConfig: ChatRateLimitConfigService,
+    @Optional()
+    private readonly sharedConfig?: MessengerChatSharedConfigService,
+    @Optional()
+    @Inject(MESSENGER_CHAT_SHARED_STATE_REPOSITORY)
+    private readonly sharedState?: MessengerChatSharedStateRepositoryPort,
+    @Optional()
+    @Inject(MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY)
+    private readonly deadLetterRepository?: MessengerWebhookDeadLetterRepositoryPort,
   ) {}
 
   verifyWebhook(token?: string, challenge?: string): string {
@@ -90,15 +120,56 @@ export class MessengerService {
           const handled = await this.handleEvent(event);
           processed += handled ? 1 : 0;
         } catch (error) {
-          failures.push({
-            psid: event.sender?.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+
+          failures.push({ psid: event.sender?.id, error: errorMessage });
+
+          this.logger.warn(
+            `Webhook event for PSID ${event.sender?.id ?? 'unknown'} failed — saving to dead-letter: ${errorMessage}`,
+          );
+
+          if (this.deadLetterRepository) {
+            await this.deadLetterRepository
+              .save({
+                psid: event.sender?.id ?? null,
+                messageMid: event.message?.mid ?? null,
+                rawPayload: event as object,
+                errorMessage,
+              })
+              .catch((saveErr: unknown) => {
+                this.logger.error(
+                  `Failed to save dead-letter entry: ${
+                    saveErr instanceof Error ? saveErr.message : String(saveErr)
+                  }`,
+                );
+              });
+          }
         }
       }
     }
 
     return { processed, failures };
+  }
+
+  /**
+   * Replay a single stored dead-letter event.
+   * Calls handleEvent directly — failures are NOT re-saved to dead-letter
+   * (the caller, typically the retry cron, is responsible for tracking retries).
+   */
+  async replayWebhookEvent(
+    rawPayload: object,
+  ): Promise<{ handled: boolean; error?: string }> {
+    const event = rawPayload as MessengerWebhookEvent;
+    try {
+      const handled = await this.handleEvent(event);
+      return { handled };
+    } catch (error) {
+      return {
+        handled: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async registerForScheduledReports(
@@ -149,40 +220,140 @@ export class MessengerService {
       );
     }
 
-    const report = await this.studentReportService.generateReport(mapping.psid);
+    try {
+      const report = await this.studentReportService.generateReport(
+        mapping.psid,
+      );
+      await this.sendReportBubbles({
+        psid: mapping.psid,
+        userId: mapping.userId,
+        text: report,
+        messageType: 'SCHEDULED_LEARNING_REPORT',
+      });
+      return report;
+    } catch (error) {
+      if (error instanceof StudentReportRetryableError) {
+        throw error;
+      }
 
-    await this.outbound.sendTextViaPsid({
-      psid: mapping.psid,
-      userId: mapping.userId,
-      text: report,
-      messageType: 'SCHEDULED_LEARNING_REPORT',
-    });
+      if (error instanceof ProactiveMessenger24hSkippedError) {
+        return '';
+      }
 
-    return report;
+      throw error;
+    }
   }
 
   async sendLearningProgressReport(psid: string): Promise<string> {
     const userId = await this.resolveUserId(psid);
-    const report = await this.studentReportService.generateReport(psid);
-    await this.outbound.sendTextViaPsid({
-      psid,
-      userId,
-      text: report,
-      messageType: 'LEARNING_PROGRESS',
-    });
-    return report;
+
+    try {
+      const report = await this.studentReportService.generateReport(psid);
+      await this.sendReportBubbles({
+        psid,
+        userId,
+        text: report,
+        messageType: 'LEARNING_PROGRESS',
+      });
+      return report;
+    } catch (error) {
+      if (error instanceof StudentReportRetryableError) {
+        const retryMessage = buildStudentReportApiRetryMessage();
+        await this.sendReportBubbles({
+          psid,
+          userId,
+          text: retryMessage,
+          messageType: 'LEARNING_PROGRESS_API_DEFERRED',
+        });
+        return retryMessage;
+      }
+
+      if (error instanceof ProactiveMessenger24hSkippedError) {
+        return '';
+      }
+
+      throw error;
+    }
   }
 
-  async sendReportToPsid(psid: string): Promise<string> {
+  async sendReportToPsid(
+    psid: string,
+    options?: { allowDuplicate?: boolean },
+  ): Promise<{ report: string; skipped: boolean }> {
+    if (!options?.allowDuplicate) {
+      const alreadySent =
+        await this.repository.hasSentScheduledReportToday(psid);
+      if (alreadySent) {
+        this.logger.log(
+          `Skip test-send psid=${psid}: scheduled report already sent today (R5)`,
+        );
+        return { report: '', skipped: true };
+      }
+    }
+
     const userId = await this.resolveUserId(psid);
-    const report = await this.studentReportService.generateReport(psid);
-    await this.outbound.sendTextViaPsid({
-      psid,
-      userId,
-      text: report,
-      messageType: 'LEARNING_REPORT',
-    });
-    return report;
+
+    try {
+      const report = await this.studentReportService.generateReport(psid);
+      await this.sendReportBubbles({
+        psid,
+        userId,
+        text: report,
+        messageType: 'LEARNING_REPORT',
+      });
+      return { report, skipped: false };
+    } catch (error) {
+      if (error instanceof StudentReportRetryableError) {
+        const retryMessage = buildStudentReportApiRetryMessage();
+        await this.sendReportBubbles({
+          psid,
+          userId,
+          text: retryMessage,
+          messageType: 'LEARNING_REPORT_API_DEFERRED',
+        });
+        return { report: retryMessage, skipped: false };
+      }
+
+      if (error instanceof ProactiveMessenger24hSkippedError) {
+        return { report: '', skipped: false };
+      }
+
+      throw error;
+    }
+  }
+
+  private async sendReportBubbles(params: {
+    psid: string;
+    userId?: number;
+    text: string;
+    messageType: string;
+  }): Promise<void> {
+    const { maxBubbles, maxCharsPerBubble } = readMessengerBubbleLimits(
+      this.configService,
+    );
+
+    try {
+      await this.outbound.sendTextBubblesViaPsid({
+        psid: params.psid,
+        userId: params.userId,
+        text: params.text,
+        messageType: params.messageType,
+        maxBubbles,
+        maxCharsPerBubble,
+      });
+    } catch (error) {
+      if (isProactiveMessenger24hError(error)) {
+        this.logger.warn(
+          `MESSENGER_24H_WINDOW psid=${params.psid} messageType=${params.messageType}`,
+        );
+        throw new ProactiveMessenger24hSkippedError(
+          params.psid,
+          params.messageType,
+        );
+      }
+
+      throw error;
+    }
   }
 
   async sendUpcomingStudySessionReminderPreview(
@@ -320,15 +491,7 @@ export class MessengerService {
     psid: string,
     context: MessengerLinkContext,
   ): Promise<void> {
-    await this.repository.upsertPsidUserLink({
-      psid,
-      userId: context.userId,
-      topic: context.topic,
-      cadence: context.cadence,
-    });
-    this.logger.log(
-      `Linked PSID ${psid} to userId=${context.userId}, topic=${context.topic}, cadence=${context.cadence}`,
-    );
+    await this.messengerMappingService.linkFromContext(psid, context);
   }
 
   private async handleEvent(event: MessengerWebhookEvent): Promise<boolean> {
@@ -379,7 +542,7 @@ export class MessengerService {
       }
 
       const messageMid = event.message.mid;
-      if (messageMid && this.isDuplicateMessageMid(messageMid)) {
+      if (messageMid && (await this.isDuplicateMessageMid(messageMid, psid))) {
         this.logger.log(
           `Skipping duplicate message mid=${messageMid} for PSID ${psid}`,
         );
@@ -404,6 +567,20 @@ export class MessengerService {
         return true;
       }
 
+      if (!messageMid && this.chatRateLimitConfig.shouldEnforceForPsid(psid)) {
+        this.logger.warn(
+          `Chat text without message.mid psid=${psid}; not enqueued (H5)`,
+        );
+        this.signalMessageSeen(psid);
+        await this.outbound.sendTextViaPsid({
+          psid,
+          userId,
+          text: buildChatMissingMidMessage(),
+          messageType: 'CHAT_MISSING_MID',
+        });
+        return true;
+      }
+
       this.messengerChatQueueService.enqueue({
         psid,
         userId,
@@ -412,6 +589,34 @@ export class MessengerService {
         idempotencyKey: messageMid,
       });
       return true;
+    }
+
+    if (event.message && !event.message.is_echo) {
+      if (isUnsupportedUserMessage(event.message) && !event.postback) {
+        const messageMid = event.message.mid;
+        if (
+          messageMid &&
+          (await this.isDuplicateMessageMid(messageMid, psid))
+        ) {
+          this.logger.log(
+            `Skipping duplicate unsupported message mid=${messageMid} for PSID ${psid}`,
+          );
+          return true;
+        }
+
+        this.logger.log(
+          `Unsupported message type (L1) for PSID ${psid}; sending text-only guidance`,
+        );
+        this.signalMessageSeen(psid);
+        const userId = await this.resolveUserId(psid, event);
+        await this.outbound.sendTextViaPsid({
+          psid,
+          userId,
+          text: buildUnsupportedMessageTypeReply(),
+          messageType: 'UNSUPPORTED_MESSAGE_TYPE',
+        });
+        return true;
+      }
     }
 
     this.logger.log(`Ignored unsupported event for PSID ${psid}`);
@@ -512,7 +717,15 @@ export class MessengerService {
     await this.outbound.sendSenderAction(psid, 'typing_on');
   }
 
-  private isDuplicateMessageMid(mid: string): boolean {
+  private async isDuplicateMessageMid(
+    mid: string,
+    psid: string,
+  ): Promise<boolean> {
+    if (this.sharedConfig?.isSharedQueueEnabled() && this.sharedState) {
+      const isNew = await this.sharedState.tryMarkWebhookSeen(mid, psid);
+      return !isNew;
+    }
+
     const now = Date.now();
     const lastSeen = this.recentMessageMids.get(mid);
 

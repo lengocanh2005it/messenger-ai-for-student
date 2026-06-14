@@ -1,6 +1,6 @@
 # Quy ước chung — demo_send_message_fb
 
-POC NestJS Clean Architecture: Messenger webhook + báo cáo AI + nhắc lịch học cho WISPACE.
+POC NestJS Clean Architecture: Messenger webhook + báo cáo AI + nhắc lịch học + **chat AI có rate limit** cho WISPACE.
 
 **Đọc thêm:** `.claude/rules/clean-architecture.md` — bắt buộc khi thêm/sửa code trong `src/modules/`.
 
@@ -9,18 +9,19 @@ POC NestJS Clean Architecture: Messenger webhook + báo cáo AI + nhắc lịch 
 - Diff nhỏ; đúng tầng Clean Architecture (domain / application / infrastructure / presentation).
 - Config qua `.env` + `ConfigService` — không hardcode token/số thời gian.
 - Tin nhắn user-facing: **tiếng Việt**. Log/comment: EN hoặc Việt ngắn.
-- Không thêm Redis/Bull/SQS trừ khi user yêu cầu — outbox = bảng `study_reminder_jobs`.
+- Không thêm Redis/Bull/SQS trừ khi user yêu cầu — outbox = `study_reminder_jobs`; chat shared queue = PostgreSQL (H7).
 
 ## Ranh giới module
 
 | Module | Chỉ làm |
 |--------|---------|
-| `modules/messenger/` | Webhook, Send API (outbound), menu, mapping/logs |
+| `modules/messenger/` | Webhook, Send API (outbound), menu, chat queue/agent, mapping/logs |
+| `modules/chat-rate-limit/` | Quota FREE_FORM: reserve/refund/burst, idempotency DB |
 | `modules/student-report/` | Báo cáo học tập, Wispace API goals/scores |
 | `modules/study-reminder/` | Sync/dispatch/cleanup jobs, UserCalendar API |
 | `modules/scheduler/` | Cron báo cáo thi + HTTP ops trigger |
 
-**Không** nhét logic study reminder vào `MessengerService` (webhook chỉ orchestrate).
+**Không** nhét logic study reminder vào `MessengerService`. **Không** reserve quota trong webhook — chỉ tại `MessengerChatQueueService` flush.
 
 ## Auth & API
 
@@ -32,5 +33,14 @@ POC NestJS Clean Architecture: Messenger webhook + báo cáo AI + nhắc lịch 
 
 - Kiến trúc: `.claude/rules/clean-architecture.md`
 - Tổng quan: `docs/project-overview.md`
+- Rate limit chat: `docs/chat-rate-limit-quota.md` — rule: `.claude/rules/chat-rate-limit.md`
 - Nhắc lịch học: `docs/study-session-reminder.md`
 - Agent chung: `AGENTS.md`
+
+## Ops nhanh (chat quota)
+
+```bash
+npm run chat-quota:status
+npm run chat-quota:recover-stuck
+npm run chat-quota:cleanup
+```
