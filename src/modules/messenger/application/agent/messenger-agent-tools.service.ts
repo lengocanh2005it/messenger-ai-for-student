@@ -201,8 +201,10 @@ export class MessengerAgentToolsService {
         return this.previewNextStudyReminder(ctx);
       case 'register_exam_report_notifications':
         return this.registerExamReportNotifications(ctx);
-      default:
-        return { error: `Unhandled tool: ${toolName}` };
+      default: {
+        const unknownTool = toolName as string;
+        return { error: `Unhandled tool: ${unknownTool}` };
+      }
     }
   }
 

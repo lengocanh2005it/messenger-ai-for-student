@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method -- Jest mock method assertions */
 import { ConfigService } from '@nestjs/config';
 import type { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate-limit.repository.port';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
@@ -182,7 +183,9 @@ describe('ChatRateLimitService', () => {
       idempotencyKey: 'mid-burst',
     });
 
-    expect(repository.countRecentReservations).toHaveBeenCalledWith(
+    const countRecentReservationsMock =
+      repository.countRecentReservations as jest.Mock;
+    expect(countRecentReservationsMock).toHaveBeenCalledWith(
       'psid-1',
       expect.any(Date),
       { includeRefunded: false },
@@ -273,20 +276,21 @@ describe('ChatRateLimitService', () => {
 
   it('re-reserves after recovering stale reserved idempotency on conflict', async () => {
     const { service, repository } = createService(true, 0);
-    const reserveMock =
-      repository.reserveFreeFormSlotInTransaction as jest.Mock;
+    const reserveMock = jest.mocked(
+      repository.reserveFreeFormSlotInTransaction,
+    );
     reserveMock
       .mockResolvedValueOnce({ status: 'idempotency_conflict' })
       .mockResolvedValueOnce({ status: 'reserved', freeFormCount: 1 });
-    (repository.recoverIdempotencyForRetry as jest.Mock).mockResolvedValue(
-      'reopened',
-    );
+    const recoverIdempotencyForRetryMock =
+      repository.recoverIdempotencyForRetry as jest.Mock;
+    recoverIdempotencyForRetryMock.mockResolvedValue('reopened');
 
     const result = await service.reserveFreeFormSlot('psid-1', {
       idempotencyKey: 'mid-stuck',
     });
 
-    expect(repository.recoverIdempotencyForRetry).toHaveBeenCalledWith(
+    expect(recoverIdempotencyForRetryMock).toHaveBeenCalledWith(
       'mid-stuck',
       expect.any(Date),
     );

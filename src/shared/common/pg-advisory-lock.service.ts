@@ -25,10 +25,11 @@ export class PgAdvisoryLockService {
     await runner.connect();
 
     try {
-      const [row]: Array<{ acquired: boolean }> = await runner.query(
+      const rows = (await runner.query(
         'SELECT pg_try_advisory_lock($1::bigint) AS acquired',
         [lockId],
-      );
+      )) as Array<{ acquired: boolean }>;
+      const row = rows[0];
 
       if (!row?.acquired) {
         this.logger.debug(

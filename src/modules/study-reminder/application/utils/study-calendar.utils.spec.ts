@@ -125,10 +125,7 @@ describe('study-calendar.utils', () => {
 
   it('formats stored DB timestamps using Vietnam calendar date', () => {
     expect(
-      formatStoredCalendarDate(
-        new Date('2026-06-14T17:00:00.000Z'),
-        timezone,
-      ),
+      formatStoredCalendarDate(new Date('2026-06-14T17:00:00.000Z'), timezone),
     ).toBe('2026-06-15');
   });
 });

@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { StudentReportNoScoreDataError } from '../../domain/errors/student-report-no-score-data.error';
 import { WispaceApiError } from '../../domain/errors/wispace-api.error';
 import { ConfigService } from '@nestjs/config';
@@ -10,6 +6,7 @@ import { TaskScoreAverageRecord } from '../../domain/types/task-score-average.ty
 import { StudentCapacityInput } from '../../domain/types/student-capacity.types';
 import { UserGoalsApiService } from './user-goals-api.service';
 import { withRetry } from '../../../../shared/common/with-retry';
+import { resolveAppTimezone } from '../../../../shared/config/app-timezone';
 import {
   formatExamDateDisplay,
   resolveExamCountdown,
@@ -119,7 +116,7 @@ export class TaskScoreAverageApiService {
     );
 
     const examDate = this.userGoalsApiService.parseExamDate(goals.examDate);
-    const currentDate = todayReportDate();
+    const currentDate = todayReportDate(resolveAppTimezone(this.configService));
     const { daysUntilExam, examHasPassed } = resolveExamCountdown(
       examDate,
       currentDate,

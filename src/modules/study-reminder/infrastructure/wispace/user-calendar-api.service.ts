@@ -75,7 +75,7 @@ export class UserCalendarApiService {
       );
     }
 
-    const payload = await response.json();
+    const payload: unknown = await response.json();
     const records = normalizeUserCalendarRecords(payload);
 
     this.logger.log(
@@ -110,7 +110,7 @@ export class UserCalendarApiService {
       );
     }
 
-    const payload = await response.json();
+    const payload: unknown = await response.json();
     const created = normalizeCreatedCalendarRecord(payload, {
       eventDate: input.eventDate,
       time: input.time,

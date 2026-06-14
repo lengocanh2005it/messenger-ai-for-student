@@ -439,12 +439,13 @@ describe('MessengerChatQueueService', () => {
 
     await jest.runOnlyPendingTimersAsync();
 
-    expect(sendTextViaPsid).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageType: 'FREE_FORM_CHAT_ERROR',
-        text: expect.stringContaining('24 giờ'),
-      }),
-    );
+    expect(sendTextViaPsid).toHaveBeenCalled();
+    const sendArgs = sendTextViaPsid.mock.calls[0]?.[0] as {
+      messageType: string;
+      text: string;
+    };
+    expect(sendArgs.messageType).toBe('FREE_FORM_CHAT_ERROR');
+    expect(sendArgs.text).toContain('24 giờ');
   });
 
   it('caps merged debounce text before LLM (H5)', async () => {

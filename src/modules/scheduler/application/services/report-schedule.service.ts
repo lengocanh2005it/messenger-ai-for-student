@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { UserGoalsApiService } from '../../../student-report/infrastructure/wispace/user-goals-api.service';
 import { rawDaysUntilExam } from '../../../../shared/utils/exam-date.utils';
 import { todayReportDate } from '../../../../shared/utils/report-date.utils';
+import { resolveAppTimezone } from '../../../../shared/config/app-timezone';
 
 @Injectable()
 export class ReportScheduleService {
@@ -46,16 +47,16 @@ export class ReportScheduleService {
     };
   }
 
-  calculateDaysUntilExam(examDateIso: string, today: Date = new Date()): number {
+  calculateDaysUntilExam(
+    examDateIso: string,
+    today: Date = new Date(),
+  ): number {
     const currentDate = todayReportDate(this.getReportTimezone(), today);
     return rawDaysUntilExam(examDateIso, currentDate);
   }
 
   private getReportTimezone(): string {
-    return (
-      this.configService.get<string>('CHAT_USAGE_TIMEZONE')?.trim() ??
-      'Asia/Ho_Chi_Minh'
-    );
+    return resolveAppTimezone(this.configService);
   }
 
   private getMinDaysBeforeExam(): number {
