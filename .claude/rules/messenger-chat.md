@@ -3,24 +3,38 @@ alwaysApply: false
 paths: src/modules/messenger/application/services/messenger-chat*
 ---
 
-# Messenger chat queue & shared state (H7)
+# Messenger chat queue & shared state (H7 + R4)
 
 Chat tự do: debounce → LLM agent → Send API. Tích hợp `ChatRateLimitModule` tại flush.
 
 ## Hai chế độ queue
 
-| Mode | Env | Debounce / mid dedupe |
-|------|-----|------------------------|
-| Local (POC 1 instance) | `CHAT_QUEUE_SHARED=false` | RAM trong process (hoặc Redis nếu `CHAT_HISTORY_STORE=redis`) |
-| Shared (≥2 pod) | `CHAT_QUEUE_SHARED=true` | PostgreSQL buffer + cron poll |
+| Mode | Env | Debounce buffer |
+|------|-----|-----------------|
+| Local (POC 1 instance) | `CHAT_QUEUE_STORE=memory` (default) | RAM trong process (`MessengerChatQueueService`) |
+| Distributed (≥2 pod hoặc Redis) | `CHAT_QUEUE_STORE=redis` | Redis `chat:queue:buffer:{psid}` |
+
+Legacy: `CHAT_QUEUE_SHARED=true` → `CHAT_QUEUE_STORE=redis` khi không set explicit.
+
+`CHAT_QUEUE_STORE=postgres` **đã bỏ** (bảng `messenger_chat_queue_buffer` dropped) — dùng `redis` multi-pod.
+
+## Chat queue store (R4)
+
+| Backend | Env | Ghi chú |
+|---------|-----|---------|
+| Memory | `CHAT_QUEUE_STORE=memory` (default) | 1 pod POC — in-process Map |
+| Redis | `CHAT_QUEUE_STORE=redis` + `REDIS_ENABLED=true` | `chat:queue:buffer:{psid}`, set `chat:queue:active-psids`, lock `chat:queue:lock:{psid}` |
+
+Port: `CHAT_QUEUE_STORE` → `ChatQueueStoreResolver` (redis khi distributed).
 
 ## Chat history store (R1)
 
 | Backend | Env | Ghi chú |
 |---------|-----|---------|
 | Memory | `CHAT_HISTORY_STORE=memory` (default) | 1 pod POC |
-| PostgreSQL | `CHAT_HISTORY_STORE=postgres` hoặc `CHAT_QUEUE_SHARED=true` | Bảng `messenger_chat_history` |
 | Redis | `CHAT_HISTORY_STORE=redis` + `REDIS_ENABLED=true` | Key `chat:history:{psid}`, TTL `CHAT_HISTORY_TTL_MS` |
+
+`CHAT_HISTORY_STORE=postgres` **đã bỏ** (bảng `messenger_chat_history` dropped).
 
 Port: `CHAT_HISTORY_STORE` → `ChatHistoryStoreResolver`.
 
@@ -29,8 +43,9 @@ Port: `CHAT_HISTORY_STORE` → `ChatHistoryStoreResolver`.
 | Backend | Env | Ghi chú |
 |---------|-----|---------|
 | Memory | `CHAT_DEDUPE_STORE=memory` (default) | `message.mid` + postback 15s trong RAM |
-| PostgreSQL | `CHAT_DEDUPE_STORE=postgres` hoặc `CHAT_QUEUE_SHARED=true` | `messenger_chat_webhook_seen`; postback vẫn RAM/instance |
 | Redis | `CHAT_DEDUPE_STORE=redis` + `REDIS_ENABLED=true` | `dedupe:mid:{mid}`, `dedupe:postback:{psid}:{payload}` |
+
+`CHAT_DEDUPE_STORE=postgres` **đã bỏ** (bảng `messenger_chat_webhook_seen` dropped) — dùng `redis` multi-pod.
 
 Port: `CHAT_DEDUPE_STORE` → `WebhookDedupeStoreResolver` — `MessengerService` không còn Map dedupe nội bộ.
 
@@ -40,20 +55,20 @@ Port: `CHAT_DEDUPE_STORE` → `WebhookDedupeStoreResolver` — `MessengerService
 |------|---------|
 | `messenger-chat-queue.service.ts` | Enqueue, debounce, flush, `processChatBatch`, reserve hook |
 | `messenger-chat-history.service.ts` | Facade context LLM — delegate `CHAT_HISTORY_STORE` |
-| `infrastructure/persistence/*-chat-history.store.ts` | memory / postgres / redis stores (R1) |
-| `infrastructure/persistence/*-webhook-dedupe.store.ts` | memory / postgres / redis dedupe (R2) |
-| `infrastructure/persistence/chat-history.store.resolver.ts` | Chọn store theo `CHAT_HISTORY_STORE` |
-| `messenger-chat-shared-config.service.ts` | `CHAT_QUEUE_SHARED`, TTL, stuck ms |
-| `messenger-chat-queue-worker.service.ts` | Cron poll buffer (2s) + webhook dedupe cleanup |
-| `infrastructure/persistence/messenger-chat-shared-state.repository.ts` | Buffer, history, webhook_seen |
+| `infrastructure/persistence/redis-chat-queue.store.ts` | Redis queue buffer (R4) |
+| `infrastructure/persistence/chat-queue.store.resolver.ts` | Redis store khi distributed |
+| `infrastructure/persistence/*-chat-history.store.ts` | memory / redis stores (R1) |
+| `infrastructure/persistence/*-webhook-dedupe.store.ts` | memory / redis dedupe (R2) |
+| `messenger-chat-shared-config.service.ts` | `CHAT_QUEUE_STORE`, `CHAT_QUEUE_SHARED`, TTL, stuck ms |
+| `messenger-chat-queue-worker.service.ts` | Cron poll buffer Redis (2s) |
 
-Port: `MESSENGER_CHAT_SHARED_STATE_REPOSITORY` — bind trong `messenger.module.ts`.
+Port queue: `CHAT_QUEUE_STORE`. Port history: `CHAT_HISTORY_STORE`.
 
-## Bảng DB (H7 migration)
+## Bảng DB (đã bỏ)
 
-- `messenger_chat_queue_buffer` — debounce cross-pod
-- `messenger_chat_history` — LLM turns (legacy khi `CHAT_HISTORY_STORE=postgres`; redis/memory không ghi bảng)
-- `messenger_chat_webhook_seen` — dedupe `message.mid` cross-pod
+- `messenger_chat_queue_buffer` — dropped migration `1717747200010`
+- `messenger_chat_history` — dropped migration `1717747200010`
+- Webhook dedupe `mid` — Redis (`CHAT_DEDUPE_STORE=redis`) hoặc RAM; **không** còn bảng DB
 
 ## Quy ước flush
 
@@ -65,10 +80,10 @@ Port: `MESSENGER_CHAT_SHARED_STATE_REPOSITORY` — bind trong `messenger.module.
 
 - `messenger-chat-queue.service.spec.ts`
 - `messenger-chat-queue.service.shared.spec.ts`
+- `redis-chat-queue.store.spec.ts`
 - `messenger-chat-history.service.spec.ts`
 
 ## Liên quan
 
 - Quota logic: `.claude/rules/chat-rate-limit.md`
-- Webhook dedupe RAM/DB: `messenger.service.ts` → `isDuplicateMessageMid`
 - Docs: `docs/chat-rate-limit-quota.md` §5.3, H7

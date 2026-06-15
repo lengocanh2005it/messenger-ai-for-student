@@ -8,8 +8,8 @@ import {
 import { ChatRateLimitService } from '../../../chat-rate-limit/application/services/chat-rate-limit.service';
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
-import { MESSENGER_CHAT_SHARED_STATE_REPOSITORY } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
-import type { MessengerChatSharedStateRepositoryPort } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
+import { CHAT_QUEUE_STORE } from '../../domain/repositories/chat-queue.store.port';
+import type { ChatQueueStorePort } from '../../domain/repositories/chat-queue.store.port';
 import { MessengerAgentService } from '../agent/messenger-agent.service';
 import type { ChatQuotaCheckResult } from '../../../chat-rate-limit/domain/entities/chat-quota.types';
 import {
@@ -73,8 +73,8 @@ export class MessengerChatQueueService {
     @Optional()
     private readonly sharedConfig?: MessengerChatSharedConfigService,
     @Optional()
-    @Inject(MESSENGER_CHAT_SHARED_STATE_REPOSITORY)
-    private readonly sharedState?: MessengerChatSharedStateRepositoryPort,
+    @Inject(CHAT_QUEUE_STORE)
+    private readonly chatQueueStore?: ChatQueueStorePort,
   ) {}
 
   enqueue(input: EnqueueChatMessageInput): void {
@@ -85,8 +85,8 @@ export class MessengerChatQueueService {
 
     void this.outbound.sendSenderAction(input.psid, 'mark_seen');
 
-    if (this.isSharedMode()) {
-      void this.enqueueShared(input, text);
+    if (this.isDistributedMode()) {
+      void this.enqueueDistributed(input, text);
       return;
     }
 
@@ -126,12 +126,12 @@ export class MessengerChatQueueService {
     await this.flush(psid);
   }
 
-  private async enqueueShared(
+  private async enqueueDistributed(
     input: EnqueueChatMessageInput,
     text: string,
   ): Promise<void> {
     try {
-      await this.sharedState!.appendChatBuffer({
+      await this.chatQueueStore!.appendChatBuffer({
         psid: input.psid,
         userText: text,
         userId: input.userId,
@@ -139,10 +139,10 @@ export class MessengerChatQueueService {
         idempotencyKey: input.idempotencyKey,
         debounceMs: this.getDebounceMs(),
       });
-      this.scheduleSharedFlush(input.psid);
+      this.scheduleDistributedFlush(input.psid);
     } catch (error) {
       this.logger.error(
-        `Shared chat enqueue failed psid=${input.psid}: ${
+        `Distributed chat enqueue failed psid=${input.psid}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -159,7 +159,7 @@ export class MessengerChatQueueService {
     }, this.getDebounceMs());
   }
 
-  private scheduleSharedFlush(psid: string): void {
+  private scheduleDistributedFlush(psid: string): void {
     const existing = this.sharedFlushTimers.get(psid);
     if (existing) {
       clearTimeout(existing);
@@ -174,16 +174,16 @@ export class MessengerChatQueueService {
   }
 
   private async flush(psid: string): Promise<void> {
-    if (this.isSharedMode()) {
-      await this.flushShared(psid);
+    if (this.isDistributedMode()) {
+      await this.flushDistributed(psid);
       return;
     }
 
     await this.flushMemory(psid);
   }
 
-  private async flushShared(psid: string): Promise<void> {
-    const snapshot = await this.sharedState!.claimReadyBuffer(
+  private async flushDistributed(psid: string): Promise<void> {
+    const snapshot = await this.chatQueueStore!.claimReadyBuffer(
       psid,
       this.getDebounceMs(),
       this.sharedConfig!.getProcessingStuckMs(),
@@ -207,13 +207,13 @@ export class MessengerChatQueueService {
         idempotencyKey: snapshot.lastIdempotencyKey,
       });
     } finally {
-      const hasPending = await this.sharedState!.completeChatBuffer({
+      const hasPending = await this.chatQueueStore!.completeChatBuffer({
         psid,
         debounceMs: this.getDebounceMs(),
       });
 
       if (hasPending) {
-        this.scheduleSharedFlush(psid);
+        this.scheduleDistributedFlush(psid);
       }
     }
   }
@@ -394,8 +394,8 @@ export class MessengerChatQueueService {
     }
   }
 
-  private isSharedMode(): boolean {
-    return this.sharedConfig?.isSharedQueueEnabled() === true;
+  private isDistributedMode(): boolean {
+    return this.sharedConfig?.isDistributedQueueEnabled() === true;
   }
 
   /** H4: mark quota consumed once the first main reply bubble is sent. */

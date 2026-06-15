@@ -422,16 +422,16 @@ Meta có thể **retry webhook** cùng payload (cùng `message.mid`). Hệ thố
 
 | Lớp | Khi nào | Cơ chế |
 |-----|---------|--------|
-| Webhook dedupe | Trước enqueue | RAM 1h (`MessengerService`) hoặc `messenger_chat_webhook_seen` khi `CHAT_QUEUE_SHARED=true` |
+| Webhook dedupe | Trước enqueue | RAM hoặc Redis (`CHAT_DEDUPE_STORE`) |
 | Quota idempotency | Tại flush | `messenger_chat_idempotency` — unique `idempotency_key = message.mid` |
 
 Postback: dedupe riêng `psid:payload` (15s) — **không** liên quan quota chat.
 
-| Dedupe | 1 instance (`CHAT_QUEUE_SHARED=false`) | Multi-pod (`CHAT_QUEUE_SHARED=true`) |
+| Dedupe | 1 instance (`CHAT_QUEUE_STORE=memory`) | Multi-pod (`CHAT_QUEUE_STORE=redis` hoặc `CHAT_QUEUE_SHARED=true`) |
 |--------|----------------------------------------|--------------------------------------|
-| Webhook `mid` | RAM Map | DB `messenger_chat_webhook_seen` |
-| Debounce queue | RAM `Map` per process | DB `messenger_chat_queue_buffer` |
-| Chat history LLM | RAM 30 phút | DB `messenger_chat_history` |
+| Webhook `mid` | RAM Map | Redis `dedupe:mid:*` |
+| Debounce queue | RAM `Map` per process | Redis `chat:queue:buffer:{psid}` |
+| Chat history LLM | RAM 30 phút | Redis `chat:history:{psid}` |
 | Quota reserve | DB idempotency + hard cap H3 | Giống — shared PostgreSQL |
 
 #### Schema — bảng idempotency (đã migration)
@@ -916,15 +916,15 @@ flowchart LR
 |-----------|---------|
 | **A** — 1 instance POC | Mặc định `CHAT_QUEUE_SHARED=false` |
 | **B** — sticky webhook / external queue | Không implement — dùng C |
-| **C** — persist debounce cross-pod | `CHAT_QUEUE_SHARED=true` + migration |
+| **C** — persist debounce cross-pod | `CHAT_QUEUE_STORE=redis` hoặc `CHAT_QUEUE_SHARED=true` + `REDIS_ENABLED=true` |
 
 | Việc | Done khi |
 |------|----------|
-| Bảng `messenger_chat_queue_buffer` | Debounce merge cross-pod |
-| Bảng `messenger_chat_history` | LLM context shared |
-| Bảng `messenger_chat_webhook_seen` | Dedupe `mid` cross-pod |
+| Redis `chat:queue:buffer:{psid}` | Debounce merge cross-pod |
+| Redis `chat:history:{psid}` | LLM context shared |
+| Redis `dedupe:mid:*` | Dedupe `mid` cross-pod |
 | Cron poll flush (2s) + stuck processing recovery | `MessengerChatQueueWorkerService` |
-| Claim buffer `FOR UPDATE` | Một pod flush / PSID |
+| Claim buffer (Redis lock) | Một pod flush / PSID |
 
 **Env:** `CHAT_QUEUE_SHARED`, `CHAT_QUEUE_PROCESSING_STUCK_MS`, `CHAT_WEBHOOK_DEDUPE_RETENTION_MS`, `CHAT_HISTORY_TTL_MS`, `CHAT_HISTORY_MAX_MESSAGES`.
 
@@ -956,7 +956,7 @@ flowchart LR
 | Webhook handler + dedupe | `src/modules/messenger/application/services/messenger.service.ts` |
 | Chat queue + reserve hook | `src/modules/messenger/application/services/messenger-chat-queue.service.ts` |
 | Shared queue worker (H7) | `src/modules/messenger/application/services/messenger-chat-queue-worker.service.ts` |
-| Shared state repository (H7) | `src/modules/messenger/infrastructure/persistence/messenger-chat-shared-state.repository.ts` |
+| Redis queue store (R4) | `src/modules/messenger/infrastructure/persistence/redis-chat-queue.store.ts` |
 | Quota service | `src/modules/chat-rate-limit/application/services/chat-rate-limit.service.ts` |
 | Ops scripts | `scripts/chat-quota-status.mjs`, `chat-quota-recover-stuck.mjs`, `chat-quota-cleanup-idempotency.mjs` |
 | Gửi tin (Send API) | `src/modules/messenger/application/services/messenger-outbound.service.ts` |

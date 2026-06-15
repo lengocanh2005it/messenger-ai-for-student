@@ -465,7 +465,7 @@ Trạng thái gửi chính: `study_reminder_jobs.status`. `messenger_message_log
 
 ## 11. Trade-off — Điểm mạnh, điểm yếu & hướng cải thiện
 
-Không có giải pháp nào hoàn hảo tuyệt đối. Hướng **outbox table (`study_reminder_jobs`) + cron sync/dispatch** được chọn vì phù hợp **bối cảnh hiện tại**: POC Messenger, đã có PostgreSQL chung với Wispace, quy mô user nhỏ, cần triển khai nhanh mà vẫn có retry và audit. Các hướng khác (message queue riêng, push notification đa kênh, cron poll toàn bộ user mỗi 5 phút…) có ưu điểm riêng nhưng đổi lại chi phí vận hành hoặc độ phức tạp tích hợp cao hơn mức cần thiết lúc này.
+Hướng **outbox table (`study_reminder_jobs`) + cron sync/dispatch** phù hợp POC Messenger: DB **`ai_chat_bot_db`** riêng, quy mô user nhỏ, retry + audit mà không cần message queue riêng.
 
 ### 11.1. Vì sao hướng này hợp lý hiện tại
 
@@ -576,7 +576,7 @@ LIMIT 50
 | `LIMIT 50` | Mỗi lần poll tối đa 50 job — trần tải một vòng dispatch |
 | Điều kiện `scheduled_at` | Bỏ qua job đã quá giờ học |
 
-**Tần suất:** không cố định 1 phút. Không có job → tối đa ~**576 query/ngày** (3.5 phút/lần × 24h); có job due → poll dày hơn (tối thiểu 30s). Với index đúng và vài trăm job `pending`, chi phí rất nhỏ trên Postgres shared Wispace.
+**Tần suất:** không cố định 1 phút. Không có job → tối đa ~**576 query/ngày** (3.5 phút/lần × 24h); có job due → poll dày hơn (tối thiểu 30s). Với index đúng và vài trăm job `pending`, chi phí nhỏ trên `ai_chat_bot_db`.
 
 Cron **sync 30 phút** là tải **khác** (đọc UserCalendar theo từng `psid`, UPSERT outbox) — nặng hơn mỗi lần chạy nhưng **ít hơn** (48 lần/ngày).
 
@@ -587,7 +587,7 @@ Cron **sync 30 phút** là tải **khác** (đọc UserCalendar theo từng `psi
 | **Outbox phình** | Hàng trăm nghìn / triệu row `sent`, `cancelled` chưa dọn | Index lớn, vacuum chậm, query due chậm dần |
 | **Nhiều job `pending` due cùng lúc** | Một phút phải xử lý > `LIMIT 50` | Nhắc muộn dồn sang phút sau |
 | **Nhiều instance Nest** | Mỗi pod chạy adaptive loop dispatch | Cạnh tranh claim; `claimJob` atomic (đã có) |
-| **DB shared đã nặng** | Wispace prod + POC cộng thêm query | Latency tăng chung |
+| **DB dedicated** | POC query tách `ai_chat_bot_db` | Không còn tranh tài nguyên với hub Wispace |
 | **Kỳ vọng chính xác tuyệt đối T-30** | Poll adaptive → gửi muộn tối đa ~`pollMinMs` + lead khi job sát giờ | Chấp nhận được với nhắc 30 phút trước |
 
 **Kết luận thực tế:** S2 giảm query idle; rủi ro còn lại chủ yếu ở **kích thước outbox** và **burst job due cùng lúc**. POC vài chục user, horizon 14 ngày, evening rollover xóa `sent` → **chưa là vấn đề**.

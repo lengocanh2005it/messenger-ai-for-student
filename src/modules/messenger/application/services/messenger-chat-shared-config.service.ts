@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ChatHistoryStoreKind } from '../../domain/entities/chat-history.types';
+import type { ChatQueueStoreKind } from '../../domain/entities/chat-queue.types';
 import type { WebhookDedupeStoreKind } from '../../domain/entities/webhook-dedupe.types';
 
 @Injectable()
@@ -9,6 +10,27 @@ export class MessengerChatSharedConfigService {
 
   isSharedQueueEnabled(): boolean {
     return this.readBoolean('CHAT_QUEUE_SHARED', false);
+  }
+
+  isDistributedQueueEnabled(): boolean {
+    return this.getQueueStore() !== 'memory';
+  }
+
+  getQueueStore(): ChatQueueStoreKind {
+    const raw = this.configService
+      .get<string>('CHAT_QUEUE_STORE')
+      ?.trim()
+      .toLowerCase();
+
+    if (raw === 'memory' || raw === 'postgres' || raw === 'redis') {
+      return raw;
+    }
+
+    if (this.isSharedQueueEnabled()) {
+      return 'redis';
+    }
+
+    return 'memory';
   }
 
   getHistoryStore(): ChatHistoryStoreKind {
@@ -22,7 +44,7 @@ export class MessengerChatSharedConfigService {
     }
 
     if (this.isSharedQueueEnabled()) {
-      return 'postgres';
+      return 'redis';
     }
 
     return 'memory';
@@ -39,7 +61,7 @@ export class MessengerChatSharedConfigService {
     }
 
     if (this.isSharedQueueEnabled()) {
-      return 'postgres';
+      return 'memory';
     }
 
     return 'memory';

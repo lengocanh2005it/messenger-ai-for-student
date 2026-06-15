@@ -2,7 +2,7 @@
 
 Tài liệu ghi **điểm yếu / chưa xử lý** của POC `demo_send_message_fb` (toàn bộ chức năng, không chỉ rate limit) và **cách khắc phục** theo **phase nhỏ** — merge PR độc lập.
 
-**Trạng thái baseline:** Chat rate limit **V1 + H1–H7 ✓**. Các mục dưới là gap còn lại hoặc cải thiện tùy quy mô.
+**Trạng thái baseline:** Chat rate limit **V1 + H1–H7 ✓**. DB POC **tách** sang `ai_chat_bot_db` (✓). Các mục dưới là gap còn lại hoặc cải thiện tùy quy mô.
 
 Liên quan: [project-overview.md](./project-overview.md), [study-session-reminder.md](./study-session-reminder.md), [chat-rate-limit-quota.md](./chat-rate-limit-quota.md), [AGENTS.md](../AGENTS.md) (bảng Integration gaps).
 
@@ -16,6 +16,7 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **L1** ✓ | Tin không phải text → reply hướng dẫn | 0.5 ngày | Trung bình |
 | **L2** ✓ | Policy Send 24h cho báo cáo / nhắc lịch | 0.5–1 ngày | Trung bình |
 | **L3** ✓ | Mapping đổi `user_id` (PSID giữ nguyên) | 1 ngày | Thấp (hiếm) |
+| **L4** | Bảo mật link `ref` — token one-time / HMAC | 1–2 ngày | **Cao** — trước go-live user thật |
 | **R1** ✓ | Báo cáo: empty score → tin thân thiện | 0.5 ngày | Trung bình |
 | **R2** ✓ | Báo cáo: chia bubble dài | 0.5 ngày | Thấp |
 | **R3** ✓ | Báo cáo: phân loại lỗi Wispace (defer cron / UX menu) | 1–1.5 ngày | Trung bình |
@@ -29,7 +30,7 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **I1** ✓ | Alert / grep `CHAT_QUOTA_*` + runbook | 0.5 ngày | Trung bình |
 | **DL** ✓ | Dead-letter webhook + auto-retry cron | 1.5 ngày | Multi-pod / production |
 | **I2** | Monitor tổng hợp (Slack/webhook ops) | 1 ngày | Khi có user thật |
-| **I3** | Bỏ fallback DB `UserCalendars` | 1 ngày | Khi API ổn định |
+| **I3** | Bỏ fallback DB `UserCalendars` | 1 ngày | Khi API ổn định (sau tách `ai_chat_bot_db` fallback DB thường không khả dụng) |
 
 **Thứ tự khuyến nghị:** ~~Q1/S0/I1/S1/L1/R1/L2/R2/R3/L3/R4/R5/S2~~ (✓) → `CHAT_QUEUE_SHARED` khi scale → phần còn lại theo feedback user.
 
@@ -63,6 +64,7 @@ flowchart LR
 
 | Gap | Ảnh hưởng | Khắc phục | Phase |
 |-----|-----------|-----------|-------|
+| **`ref` = `userId` thuần — không verify chủ tài khoản** | IDOR: đổi `ref` → map PSID vào user khác; relink; lộ nhắc lịch/báo cáo | One-time token (production) hoặc HMAC tạm; chặn relink tự do — [messenger-link-security.md](./messenger-link-security.md), luồng + API: [messenger-link-integration.md](./messenger-link-integration.md) | **L4** |
 | ~~Webhook Meta retry; lỗi 1 event~~ | ~~Event khác vẫn xử lý (đúng); event lỗi mất~~ | **DL** ✓ — `messenger_webhook_dead_letters` + auto-retry cron 5 phút + advisory lock + script ops | Done |
 
 ---

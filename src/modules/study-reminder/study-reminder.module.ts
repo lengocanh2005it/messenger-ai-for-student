@@ -15,6 +15,8 @@ import { StudyReminderWorkerService } from './application/services/study-reminde
 import { StudyReminderService } from './application/services/study-reminder.service';
 import { StudySessionSourceService } from './application/services/study-session-source.service';
 import { UserDisplayNameService } from './application/services/user-display-name.service';
+import { USER_DISPLAY_NAME_CACHE } from './domain/repositories/user-display-name-cache.port';
+import { RedisUserDisplayNameCache } from './infrastructure/cache/redis-user-display-name.cache';
 import { UserCalendarScheduleService } from './infrastructure/wispace/user-calendar-schedule.service';
 import { UserCalendarApiService } from './infrastructure/wispace/user-calendar-api.service';
 import { STUDY_REMINDER_JOB_REPOSITORY } from './domain/repositories/study-reminder-job.repository.port';
@@ -35,6 +37,11 @@ import { StudyReminderJobRepository } from './infrastructure/persistence/study-r
     StudyReminderScheduleService,
     StudyReminderService,
     UserDisplayNameService,
+    RedisUserDisplayNameCache,
+    {
+      provide: USER_DISPLAY_NAME_CACHE,
+      useExisting: RedisUserDisplayNameCache,
+    },
     StudyReminderJobRepository,
     {
       provide: STUDY_REMINDER_JOB_REPOSITORY,

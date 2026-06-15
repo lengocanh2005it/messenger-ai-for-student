@@ -60,7 +60,8 @@ src/modules/<feature>/
 | `MESSENGER_MAPPING_READER` | `MessengerMappingReaderPort` | `MessengerRepository` | `StudyReminderSyncService`, `UserDisplayNameService` |
 | `MESSAGE_SENDER` | `MessageSenderPort` | `MessengerOutboundService` | `StudyReminderDispatchService` |
 | `CHAT_RATE_LIMIT_REPOSITORY` | `ChatRateLimitRepositoryPort` | `ChatRateLimitRepository` | `ChatRateLimitService` |
-| `MESSENGER_CHAT_SHARED_STATE_REPOSITORY` | `MessengerChatSharedStateRepositoryPort` | `MessengerChatSharedStateRepository` | `MessengerChatQueueService`, `MessengerChatHistoryService` (H7) |
+| `CHAT_QUEUE_STORE` | `ChatQueueStorePort` | `ChatQueueStoreResolver` → Redis | `MessengerChatQueueService` (distributed) |
+| `CHAT_HISTORY_STORE` | `ChatHistoryStorePort` | `ChatHistoryStoreResolver` | `MessengerChatHistoryService` |
 | `STUDY_REMINDER_JOB_REPOSITORY` | `StudyReminderJobRepositoryPort` | `StudyReminderJobRepository` | (dự phòng inject qua port) |
 
 **Quy tắc:** Application layer inject port bằng `@Inject(TOKEN)` + `import type` cho interface (isolatedModules).

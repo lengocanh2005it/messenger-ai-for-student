@@ -1,6 +1,5 @@
 import { MessengerChatSharedConfigService } from '../../application/services/messenger-chat-shared-config.service';
 import { MemoryWebhookDedupeStore } from './memory-webhook-dedupe.store';
-import { PostgresWebhookDedupeStore } from './postgres-webhook-dedupe.store';
 import { RedisWebhookDedupeStore } from './redis-webhook-dedupe.store';
 import { WebhookDedupeStoreResolver } from './webhook-dedupe.store.resolver';
 
@@ -16,9 +15,6 @@ describe('WebhookDedupeStoreResolver', () => {
     const memoryStore = {
       isDuplicateMessageMid: jest.fn(),
     } as unknown as MemoryWebhookDedupeStore;
-    const postgresStore = {
-      isDuplicateMessageMid: jest.fn(),
-    } as unknown as PostgresWebhookDedupeStore;
     const redisStore = {
       isAvailable: () => redisAvailable,
       isDuplicateMessageMid: jest.fn(),
@@ -27,7 +23,6 @@ describe('WebhookDedupeStoreResolver', () => {
     return new WebhookDedupeStoreResolver(
       sharedConfig,
       memoryStore,
-      postgresStore,
       redisStore,
     );
   };
@@ -40,7 +35,7 @@ describe('WebhookDedupeStoreResolver', () => {
     expect(createResolver('redis', false).resolveStoreKind()).toBe('memory');
   });
 
-  it('resolves postgres when configured', () => {
-    expect(createResolver('postgres').resolveStoreKind()).toBe('postgres');
+  it('falls back to memory when postgres configured (table removed)', () => {
+    expect(createResolver('postgres').resolveStoreKind()).toBe('memory');
   });
 });

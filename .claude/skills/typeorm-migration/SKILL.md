@@ -22,9 +22,18 @@ npm run test
 
 ## Constraints
 
-- Chỉ migration bảng POC: mappings, logs, jobs.
-- **Không** migration bảng Wispace (`UserCalendars`, `Users`, …).
+- Migration bảng POC: mappings, logs, jobs, `users` + view `"Users"` (DB dedicated).
+- **Không** migration bảng Wispace (`UserCalendars`, `"Users"` hub, …) — cache user qua bảng `users` local.
 - Cập nhật `.env.example` nếu thêm biến môi trường mới (không phải DB column).
+
+## Tách DB (ops một lần)
+
+Prod dùng `DB_NAME=ai_chat_bot_db`. Scripts:
+
+```bash
+DB_PASSWORD=... node scripts/migrate-hub-to-chat-bot-db.mjs
+DB_PASSWORD=... node scripts/drop-poc-tables-old-db.mjs   # sau khi verify app
+```
 
 ## Revert (cẩn thận)
 
@@ -32,4 +41,4 @@ npm run test
 npm run migration:revert
 ```
 
-Chỉ khi user yêu cầu rõ — shared DB với Wispace.
+Chỉ khi user yêu cầu rõ — trên DB prod đang dùng (`ai_chat_bot_db`).

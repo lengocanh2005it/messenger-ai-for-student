@@ -43,6 +43,7 @@ export interface MessengerRepositoryPort {
     messageType: string,
     since: Date,
   ): Promise<number>;
+  deleteMessageLogsOlderThan(cutoff: Date): Promise<number>;
   tryClaimScheduledReport(params: {
     psid: string;
     userId?: number;

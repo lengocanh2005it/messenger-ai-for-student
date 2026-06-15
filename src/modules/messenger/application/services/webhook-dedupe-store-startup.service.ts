@@ -17,6 +17,13 @@ export class WebhookDedupeStoreStartupService implements OnModuleInit {
     const configured = this.sharedConfig.getDedupeStore();
     const active = this.webhookDedupeStoreResolver.resolveStoreKind();
 
+    if (configured === 'postgres') {
+      this.logger.warn(
+        'CHAT_DEDUPE_STORE=postgres is no longer supported (table dropped) — active=memory; use redis for multi-pod',
+      );
+      return;
+    }
+
     if (configured === 'redis' && !this.redisConfig.isEnabled()) {
       this.logger.warn(
         'CHAT_DEDUPE_STORE=redis but REDIS_ENABLED=false — using memory fallback',
@@ -27,13 +34,6 @@ export class WebhookDedupeStoreStartupService implements OnModuleInit {
     if (configured === 'redis' && active === 'memory') {
       this.logger.warn(
         'CHAT_DEDUPE_STORE=redis but Redis client unavailable — using memory fallback',
-      );
-      return;
-    }
-
-    if (configured === 'postgres' && active === 'postgres') {
-      this.logger.log(
-        'Webhook dedupe active=postgres (message.mid in DB; postback dedupe per instance memory)',
       );
       return;
     }

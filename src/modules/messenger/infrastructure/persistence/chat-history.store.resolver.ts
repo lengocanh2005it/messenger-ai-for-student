@@ -3,7 +3,6 @@ import type { ChatHistoryMessage } from '../../domain/entities/chat-history.type
 import type { ChatHistoryStorePort } from '../../domain/repositories/chat-history.store.port';
 import { MessengerChatSharedConfigService } from '../../application/services/messenger-chat-shared-config.service';
 import { MemoryChatHistoryStore } from './memory-chat-history.store';
-import { PostgresChatHistoryStore } from './postgres-chat-history.store';
 import { RedisChatHistoryStore } from './redis-chat-history.store';
 
 @Injectable()
@@ -11,7 +10,6 @@ export class ChatHistoryStoreResolver implements ChatHistoryStorePort {
   constructor(
     private readonly sharedConfig: MessengerChatSharedConfigService,
     private readonly memoryStore: MemoryChatHistoryStore,
-    private readonly postgresStore: PostgresChatHistoryStore,
     private readonly redisStore: RedisChatHistoryStore,
   ) {}
 
@@ -31,32 +29,23 @@ export class ChatHistoryStoreResolver implements ChatHistoryStorePort {
     return this.resolveStore().clear(psid);
   }
 
-  resolveStoreKind(): 'memory' | 'postgres' | 'redis' {
+  resolveStoreKind(): 'memory' | 'redis' {
     const configured = this.sharedConfig.getHistoryStore();
 
     if (configured === 'redis' && this.redisStore.isAvailable()) {
       return 'redis';
     }
 
-    if (configured === 'redis') {
-      return 'memory';
-    }
-
-    if (configured === 'postgres') {
-      return 'postgres';
-    }
-
     return 'memory';
   }
 
+  isConfiguredPostgres(): boolean {
+    return this.sharedConfig.getHistoryStore() === 'postgres';
+  }
+
   private resolveStore(): ChatHistoryStorePort {
-    switch (this.resolveStoreKind()) {
-      case 'redis':
-        return this.redisStore;
-      case 'postgres':
-        return this.postgresStore;
-      default:
-        return this.memoryStore;
-    }
+    return this.resolveStoreKind() === 'redis'
+      ? this.redisStore
+      : this.memoryStore;
   }
 }

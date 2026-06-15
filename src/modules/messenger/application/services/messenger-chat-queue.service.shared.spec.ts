@@ -1,8 +1,8 @@
 import type { MessengerChatSharedConfigService } from './messenger-chat-shared-config.service';
-import type { MessengerChatSharedStateRepositoryPort } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
+import type { ChatQueueStorePort } from '../../domain/repositories/chat-queue.store.port';
 import { MessengerChatQueueService } from './messenger-chat-queue.service';
 
-describe('MessengerChatQueueService shared mode (H7)', () => {
+describe('MessengerChatQueueService distributed mode (H7/R4)', () => {
   const flushMicrotasks = async () => {
     await Promise.resolve();
     await Promise.resolve();
@@ -14,14 +14,14 @@ describe('MessengerChatQueueService shared mode (H7)', () => {
     const appendChatBuffer = jest.fn(() => Promise.resolve());
     const claimReadyBuffer = jest.fn(() => Promise.resolve(null));
     const completeChatBuffer = jest.fn(() => Promise.resolve(false));
-    const sharedState = {
+    const chatQueueStore = {
       appendChatBuffer,
       claimReadyBuffer,
       completeChatBuffer,
-    } as unknown as MessengerChatSharedStateRepositoryPort;
+    } as unknown as ChatQueueStorePort;
 
     const sharedConfig = {
-      isSharedQueueEnabled: () => true,
+      isDistributedQueueEnabled: () => true,
       getProcessingStuckMs: () => 300_000,
     } as MessengerChatSharedConfigService;
 
@@ -37,7 +37,7 @@ describe('MessengerChatQueueService shared mode (H7)', () => {
       } as never,
       {} as never,
       sharedConfig,
-      sharedState,
+      chatQueueStore,
     );
 
     service.enqueue({

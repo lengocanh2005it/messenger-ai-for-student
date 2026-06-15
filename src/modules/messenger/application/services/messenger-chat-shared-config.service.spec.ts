@@ -15,11 +15,11 @@ describe('MessengerChatSharedConfigService', () => {
     expect(service.getHistoryStore()).toBe('memory');
   });
 
-  it('uses postgres history when shared queue is enabled without explicit store', () => {
+  it('uses redis history when shared queue is enabled without explicit store', () => {
     const service = createService({
       CHAT_QUEUE_SHARED: 'true',
     });
-    expect(service.getHistoryStore()).toBe('postgres');
+    expect(service.getHistoryStore()).toBe('redis');
   });
 
   it('reads explicit CHAT_HISTORY_STORE', () => {
@@ -35,11 +35,11 @@ describe('MessengerChatSharedConfigService', () => {
     expect(service.getDedupeStore()).toBe('memory');
   });
 
-  it('uses postgres dedupe when shared queue is enabled without explicit store', () => {
+  it('defaults dedupe store to memory when shared queue is enabled', () => {
     const service = createService({
       CHAT_QUEUE_SHARED: 'true',
     });
-    expect(service.getDedupeStore()).toBe('postgres');
+    expect(service.getDedupeStore()).toBe('memory');
   });
 
   it('reads explicit CHAT_DEDUPE_STORE', () => {
@@ -48,5 +48,27 @@ describe('MessengerChatSharedConfigService', () => {
       CHAT_QUEUE_SHARED: 'true',
     });
     expect(service.getDedupeStore()).toBe('redis');
+  });
+
+  it('defaults queue store to memory', () => {
+    const service = createService({});
+    expect(service.getQueueStore()).toBe('memory');
+    expect(service.isDistributedQueueEnabled()).toBe(false);
+  });
+
+  it('uses redis queue when shared queue is enabled without explicit store', () => {
+    const service = createService({
+      CHAT_QUEUE_SHARED: 'true',
+    });
+    expect(service.getQueueStore()).toBe('redis');
+    expect(service.isDistributedQueueEnabled()).toBe(true);
+  });
+
+  it('reads explicit CHAT_QUEUE_STORE=redis', () => {
+    const service = createService({
+      CHAT_QUEUE_STORE: 'redis',
+    });
+    expect(service.getQueueStore()).toBe('redis');
+    expect(service.isDistributedQueueEnabled()).toBe(true);
   });
 });

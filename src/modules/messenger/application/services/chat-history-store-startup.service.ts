@@ -17,6 +17,12 @@ export class ChatHistoryStoreStartupService implements OnModuleInit {
     const configured = this.sharedConfig.getHistoryStore();
     const active = this.chatHistoryStoreResolver.resolveStoreKind();
 
+    if (this.chatHistoryStoreResolver.isConfiguredPostgres()) {
+      this.logger.warn(
+        'CHAT_HISTORY_STORE=postgres is no longer supported (table dropped) — active=memory/redis',
+      );
+    }
+
     if (configured === 'redis' && !this.redisConfig.isEnabled()) {
       this.logger.warn(
         'CHAT_HISTORY_STORE=redis but REDIS_ENABLED=false — using memory fallback',

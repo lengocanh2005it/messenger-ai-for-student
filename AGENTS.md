@@ -13,14 +13,15 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 | **Stack** | NestJS 11, TypeScript, TypeORM, PostgreSQL, OpenAI |
 | **Mục tiêu** | Học viên IELTS liên kết `m.me` ↔ WISPACE, nhận báo cáo tiến độ và nhắc buổi học qua Messenger |
 | **Phạm vi** | Backend service nhỏ — **không** full-stack, **không** microservice riêng |
-| **DB** | PostgreSQL **dùng chung** với Wispace; POC chỉ migration bảng mapping/logs/jobs |
-| **Nguyên tắc** | Diff nhỏ, tái dùng module hiện có, config qua `.env`, không over-engineer (không Redis/queue trừ khi user yêu cầu) |
+| **DB** | PostgreSQL **`ai_chat_bot_db`** (dedicated POC); Wispace data qua **HTTP API**; cache tên user: bảng `users` + view `"Users"` |
+| **Nguyên tắc** | Diff nhỏ, tái dùng module hiện có, config qua `.env`; Redis optional (R0–R4) khi scale / VPS |
 
 ---
 
 ## Dev environment tips
 
 - Copy `.env.example` → `.env` và điền token thật trước khi chạy sync/cron.
+- **DB prod:** `DB_NAME=ai_chat_bot_db` (không còn `writing_ai_hub_db`).
 - Webhook Meta cần URL public (ngrok/tunnel) trỏ tới `POST /webhook`.
 - Sau lần deploy đầu: gọi `POST /messenger/profile/setup` (header `X-Internal-Api-Key`) — menu prod chỉ **Đăng ký báo cáo** (báo cáo/nhắc lịch bot gửi tự động).
 - Sửa file trong `src/shared/prompts/*.system.txt` → **bắt buộc** `npm run build` (Nest copy assets sang `dist/shared/prompts/`).
@@ -31,10 +32,13 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Debug jobs nhắc lịch: `npm run study-reminder:jobs` (`--failed`, `--stuck`, `--summary`).
 - Tra quota chat: `npm run chat-quota:status` (`--psid`, `--user-id`, `--date`, `--ops`).
 - Ops health I1+S1: `npm run ops:health` (cron 09:00 ICT trong app khi `OPS_HEALTH_ALERT_ENABLED=true`).
+- Audit log cleanup: cron `messenger-message-log-cleanup` — 03:00 ICT ngày 1 hàng tháng; `MESSENGER_MESSAGE_LOG_RETENTION_DAYS=90` (tắt: `MESSENGER_MESSAGE_LOG_CLEANUP_ENABLED=false`).
 - Redis R0: `REDIS_ENABLED=true` + `REDIS_*` → startup log PING; `GET /health/redis` (503 khi bật mà không kết nối được).
-- Chat history R1: `CHAT_HISTORY_STORE=redis` (cần `REDIS_ENABLED=true`) \| `memory` \| `postgres`.
-- Webhook dedupe R2: `CHAT_DEDUPE_STORE=redis` \| `memory` \| `postgres`.
+- Redis R5: `USER_DISPLAY_NAME_CACHE_*` — cache `cache:user:display:{userId}` trước bảng `users` / view `"Users"`.
+- Chat history R1: `CHAT_HISTORY_STORE=redis` (cần `REDIS_ENABLED=true`) \| `memory` (postgres table removed).
+- Webhook dedupe R2: `CHAT_DEDUPE_STORE=redis` \| `memory` (không còn postgres / bảng `messenger_chat_webhook_seen`).
 - Burst counter R3: `CHAT_BURST_STORE=redis` \| `memory` \| `postgres` (mặc định `postgres`).
+- Chat queue R4: `CHAT_QUEUE_STORE=redis` \| `memory` — debounce buffer; `CHAT_QUEUE_SHARED=true` map `redis` (H7 legacy).
 - Bootstrap jobs lần đầu: `npm run study-reminder:sync`.
 
 ---
@@ -68,6 +72,9 @@ npm run ops:health                  # I1+S1 combined ops snapshot
 npm run chat-quota:status           # tra quota chat (psid / userId / ngày / --ops)
 npm run chat-quota:recover-stuck    # H2: refund stuck reserved (optional --dry-run)
 npm run chat-quota:cleanup          # H6: xóa idempotency completed/refunded cũ (optional --dry-run)
+# Ops DB migrate (một lần, cần DB_PASSWORD):
+node scripts/migrate-hub-to-chat-bot-db.mjs   # writing_ai_hub_db → ai_chat_bot_db
+node scripts/drop-poc-tables-old-db.mjs       # xóa bảng POC + migrations trên DB cũ
 ```
 
 ---
@@ -109,6 +116,7 @@ Spec hiện có:
 - `src/modules/chat-rate-limit/infrastructure/persistence/chat-rate-limit.repository.spec.ts`
 - `src/modules/messenger/application/services/messenger-chat-queue.service.spec.ts`
 - `src/modules/messenger/application/services/messenger-chat-queue.service.shared.spec.ts`
+- `src/modules/messenger/application/services/messenger-message-log-cleanup.service.spec.ts`
 - `src/modules/study-reminder/application/services/study-reminder-schedule.service.spec.ts`
 - `src/modules/study-reminder/application/services/study-reminder-cleanup.service.spec.ts`
 - `src/shared/common/guards/internal-api-key.guard.spec.ts`
@@ -127,7 +135,7 @@ Cùng PR/task với code — cập nhật hàng **agent** (không chỉ `docs/` 
 | Persistent menu / `profile/setup` | `docs/project-overview.md`, mục menu trong `AGENTS.md` dev tips |
 | Rate limit / quota / idempotency | `docs/chat-rate-limit-quota.md`, `.claude/rules/chat-rate-limit.md`, skill `/verify` nếu thêm bước ops |
 | Study reminder / sync / dispatch | `docs/study-session-reminder.md`, `.claude/rules/study-reminder.md`, skill `/study-reminder-debug` |
-| Entity / migration | `.claude/rules/database.md`, skill `/typeorm-migration`, `.env.example` nếu thêm biến |
+| Entity / migration / tách DB | `.claude/rules/database.md`, skill `/typeorm-migration`, `.env.example` nếu thêm biến |
 | System prompt LLM | `src/shared/prompts/*.system.txt`, skill `/edit-llm-prompt` |
 | Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `docs/project-overview.md` runbook |
 | Env mới | `.env.example` + dòng tương ứng trong `docs/project-overview.md` hoặc `AGENTS.md` |
@@ -242,7 +250,7 @@ domain/entities|repositories/ → application/services|ports/ → infrastructure
 | Gửi tin từ module khác | Inject `MESSAGE_SENDER`, không `MessengerService` |
 | Sync toàn bộ (ops) | `POST /messenger/sync-study-reminders`, `scripts/sync-study-reminder-jobs.mjs` |
 | Rate limit chat | `ChatRateLimitService`, `MessengerChatQueueService`, [chat-rate-limit-quota.md](docs/chat-rate-limit-quota.md) |
-| Shared queue multi-pod (H7) | `CHAT_QUEUE_SHARED`, `MessengerChatSharedStateRepository`, `MessengerChatQueueWorkerService` |
+| Shared queue multi-pod (H7/R4) | `CHAT_QUEUE_STORE` / `CHAT_QUEUE_SHARED`, `CHAT_QUEUE_STORE` port, `MessengerChatQueueWorkerService` |
 | Ops quota scripts | `scripts/chat-quota-status.mjs`, `chat-quota-recover-stuck.mjs`, `chat-quota-cleanup-idempotency.mjs` |
 
 ---
@@ -276,7 +284,7 @@ Wispace đổi lịch → POST /messenger/study-calendar/sync { userId }
 ### Chat tự do (FREE_FORM)
 
 ```
-Webhook text → dedupe mid (RAM hoặc DB nếu CHAT_QUEUE_SHARED)
+Webhook text → dedupe mid (`CHAT_DEDUPE_STORE` memory/postgres/redis)
   → MessengerChatQueueService.enqueue → debounce flush
   → ChatRateLimitService.reserve (DB idempotency + daily usage, hard cap H3)
   → MessengerAgentService (LLM) → Send API
@@ -332,7 +340,8 @@ Cursor dùng `AGENTS.md` + `.cursor/rules/` (rule `change-workflow`) + skills gl
 | `POST /messenger/study-calendar/sync` | ✓ Endpoint + sync theo `userId` |
 | Auth ops (`INTERNAL_API_KEY`) | ✓ Header `X-Internal-Api-Key` hoặc Bearer |
 | Wispace wire sync sau đổi lịch | ✓ Gọi `POST /messenger/study-calendar/sync` + `X-Internal-Api-Key` |
-| Tên học viên cho LLM | ✓ `Users.DisplayName` → `Username` → `'bạn'` |
+| Tên học viên cho LLM | ✓ Bảng `users` + view `"Users"` trên `ai_chat_bot_db` (`DisplayName` → `'bạn'`) |
+| DB POC tách khỏi `writing_ai_hub_db` | ✓ `ai_chat_bot_db` + scripts migrate/drop trên hub cũ |
 | Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✓ `StudyReminderJobRepository.upsertPendingJob` reopen → `pending` |
 | Mapping đổi `user_id` cùng PSID (L3) | ✓ `MessengerMappingService`, `POST /messenger/mapping/relink`, `npm run messenger:relink` |
 | Multi-pod cron báo cáo 08:00 (R4) | ✓ Claim table + advisory lock + `CRON_LEADER_ENABLED` |

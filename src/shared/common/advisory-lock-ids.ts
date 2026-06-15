@@ -20,4 +20,7 @@ export const ADVISORY_LOCK = {
 
   /** Auto-retry cron for messenger_webhook_dead_letters. */
   MESSENGER_WEBHOOK_DEAD_LETTER_RETRY: 884_200_905,
+
+  /** Monthly purge of messenger_message_logs audit rows. */
+  MESSENGER_MESSAGE_LOG_CLEANUP: 884_200_906,
 } as const;

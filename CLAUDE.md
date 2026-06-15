@@ -4,7 +4,7 @@ POC NestJS — Facebook Messenger cho học viên WISPACE: báo cáo AI + nhắc
 
 ## Stack
 
-NestJS 11 · TypeScript · TypeORM · PostgreSQL (shared) · OpenAI · Meta Graph API
+NestJS 11 · TypeScript · TypeORM · PostgreSQL (`ai_chat_bot_db`) · Redis (optional R0–R4) · OpenAI · Meta Graph API
 
 ## Lệnh thường dùng
 

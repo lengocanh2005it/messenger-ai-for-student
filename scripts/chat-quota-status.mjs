@@ -353,44 +353,16 @@ try {
     [args.psid, args.userId, usageDate],
   );
 
-  let sharedQueueStats = null;
-  try {
-    const bufferStats = await pool.query(
-      `
-        SELECT
-          COUNT(*)::int AS total_buffers,
-          COUNT(*) FILTER (WHERE processing = true)::int AS processing_buffers,
-          COUNT(*) FILTER (
-            WHERE processing = false
-              AND flush_after_at IS NOT NULL
-              AND flush_after_at <= NOW()
-              AND jsonb_array_length(texts) > 0
-          )::int AS ready_buffers
-        FROM messenger_chat_queue_buffer
-        WHERE ($1::varchar IS NULL OR psid = $1)
-      `,
-      [args.psid],
-    );
-    const historyStats = await pool.query(
-      `
-        SELECT COUNT(*)::int AS history_rows
-        FROM messenger_chat_history
-        WHERE ($1::varchar IS NULL OR psid = $1)
-      `,
-      [args.psid],
-    );
-
-    sharedQueueStats = {
-      queueSharedEnv: process.env.CHAT_QUEUE_SHARED === 'true',
-      buffers: bufferStats.rows[0] ?? null,
-      historyRows: historyStats.rows[0]?.history_rows ?? 0,
-    };
-  } catch {
-    sharedQueueStats = {
-      queueSharedEnv: process.env.CHAT_QUEUE_SHARED === 'true',
-      note: 'messenger_chat_queue_buffer not available (run migration:run)',
-    };
-  }
+  let sharedQueueStats = {
+    queueStore:
+      process.env.CHAT_QUEUE_STORE ??
+      (process.env.CHAT_QUEUE_SHARED === 'true' ? 'redis' : 'memory'),
+    historyStore:
+      process.env.CHAT_HISTORY_STORE ??
+      (process.env.CHAT_QUEUE_SHARED === 'true' ? 'redis' : 'memory'),
+    queueSharedEnv: process.env.CHAT_QUEUE_SHARED === 'true',
+    note: 'Queue/history buffers live in Redis or in-process memory — postgres tables removed',
+  };
 
   const summary = dailyUsageResult.rows.map((row) => ({
     psid: row.psid,

@@ -2,10 +2,7 @@ import { join } from 'path';
 import { DataSourceOptions } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { MessengerChatDailyUsageEntity } from './entities/messenger-chat-daily-usage.entity';
-import { MessengerChatHistoryEntity } from './entities/messenger-chat-history.entity';
 import { MessengerChatIdempotencyEntity } from './entities/messenger-chat-idempotency.entity';
-import { MessengerChatQueueBufferEntity } from './entities/messenger-chat-queue-buffer.entity';
-import { MessengerChatWebhookSeenEntity } from './entities/messenger-chat-webhook-seen.entity';
 import { MessengerMessageLogEntity } from './entities/messenger-message-log.entity';
 import { MessengerScheduledReportClaimEntity } from './entities/messenger-scheduled-report-claim.entity';
 import { ReportSendJobEntity } from './entities/report-send-job.entity';
@@ -45,9 +42,6 @@ export function getTypeOrmOptions(
       ReportSendJobEntity,
       MessengerChatDailyUsageEntity,
       MessengerChatIdempotencyEntity,
-      MessengerChatQueueBufferEntity,
-      MessengerChatHistoryEntity,
-      MessengerChatWebhookSeenEntity,
       StudyReminderJobEntity,
       ...(options?.includeUsers ? [UserEntity] : []),
     ],

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { LessThan, Not, Repository } from 'typeorm';
 import { buildPocPsidToken } from '../../../../shared/config/poc.constants';
 import {
   MessengerMessageLogEntity,
@@ -325,6 +325,14 @@ export class MessengerRepository implements MessengerRepositoryPort {
       .where('log.message_type = :messageType', { messageType })
       .andWhere('log.created_at >= :since', { since })
       .getCount();
+  }
+
+  async deleteMessageLogsOlderThan(cutoff: Date): Promise<number> {
+    const result = await this.logRepo.delete({
+      createdAt: LessThan(cutoff),
+    });
+
+    return result.affected ?? 0;
   }
 
   async tryClaimScheduledReport(params: {
