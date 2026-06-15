@@ -1,5 +1,5 @@
 import type { MessengerLinkContext } from '../../../../shared/config/poc.constants';
-import type { ChatHistoryMessage } from '../../application/services/messenger-chat-history.service';
+import type { ChatHistoryMessage } from './chat-history.types';
 
 export interface AppendChatBufferInput {
   psid: string;

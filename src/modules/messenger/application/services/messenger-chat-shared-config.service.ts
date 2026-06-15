@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { ChatHistoryStoreKind } from '../../domain/entities/chat-history.types';
 
 @Injectable()
 export class MessengerChatSharedConfigService {
@@ -7,6 +8,23 @@ export class MessengerChatSharedConfigService {
 
   isSharedQueueEnabled(): boolean {
     return this.readBoolean('CHAT_QUEUE_SHARED', false);
+  }
+
+  getHistoryStore(): ChatHistoryStoreKind {
+    const raw = this.configService
+      .get<string>('CHAT_HISTORY_STORE')
+      ?.trim()
+      .toLowerCase();
+
+    if (raw === 'memory' || raw === 'postgres' || raw === 'redis') {
+      return raw;
+    }
+
+    if (this.isSharedQueueEnabled()) {
+      return 'postgres';
+    }
+
+    return 'memory';
   }
 
   getProcessingStuckMs(): number {
