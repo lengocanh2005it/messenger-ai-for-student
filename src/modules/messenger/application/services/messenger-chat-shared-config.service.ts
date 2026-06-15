@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ChatHistoryStoreKind } from '../../domain/entities/chat-history.types';
+import type { WebhookDedupeStoreKind } from '../../domain/entities/webhook-dedupe.types';
 
 @Injectable()
 export class MessengerChatSharedConfigService {
@@ -13,6 +14,23 @@ export class MessengerChatSharedConfigService {
   getHistoryStore(): ChatHistoryStoreKind {
     const raw = this.configService
       .get<string>('CHAT_HISTORY_STORE')
+      ?.trim()
+      .toLowerCase();
+
+    if (raw === 'memory' || raw === 'postgres' || raw === 'redis') {
+      return raw;
+    }
+
+    if (this.isSharedQueueEnabled()) {
+      return 'postgres';
+    }
+
+    return 'memory';
+  }
+
+  getDedupeStore(): WebhookDedupeStoreKind {
+    const raw = this.configService
+      .get<string>('CHAT_DEDUPE_STORE')
       ?.trim()
       .toLowerCase();
 

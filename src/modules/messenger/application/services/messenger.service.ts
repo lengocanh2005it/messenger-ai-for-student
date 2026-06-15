@@ -4,8 +4,6 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
-  OnModuleDestroy,
-  OnModuleInit,
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -29,8 +27,8 @@ import { UserDisplayNameService } from '../../../study-reminder/application/serv
 import { NormalizedStudySession } from '../../../study-reminder/domain/entities/study-schedule.types';
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
-import { MESSENGER_CHAT_SHARED_STATE_REPOSITORY } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
-import type { MessengerChatSharedStateRepositoryPort } from '../../domain/repositories/messenger-chat-shared-state.repository.port';
+import { WEBHOOK_DEDUPE_STORE } from '../../domain/repositories/webhook-dedupe.store.port';
+import type { WebhookDedupeStorePort } from '../../domain/repositories/webhook-dedupe.store.port';
 import { MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY } from '../../domain/repositories/messenger-webhook-dead-letter.repository.port';
 import type { MessengerWebhookDeadLetterRepositoryPort } from '../../domain/repositories/messenger-webhook-dead-letter.repository.port';
 import {
@@ -40,7 +38,6 @@ import {
 } from '../../domain/entities/messenger.types';
 import { ChatRateLimitConfigService } from '../../../chat-rate-limit/application/services/chat-rate-limit-config.service';
 import { MessengerChatQueueService } from './messenger-chat-queue.service';
-import { MessengerChatSharedConfigService } from './messenger-chat-shared-config.service';
 import {
   buildChatMissingMidMessage,
   buildUnsupportedMessageTypeReply,
@@ -57,13 +54,8 @@ import { MessengerOutboundService } from './messenger-outbound.service';
 export { MessengerApiError } from './messenger-outbound.service';
 
 @Injectable()
-export class MessengerService implements OnModuleInit, OnModuleDestroy {
+export class MessengerService {
   private readonly logger = new Logger(MessengerService.name);
-  private readonly recentPostbacks = new Map<string, number>();
-  private readonly recentMessageMids = new Map<string, number>();
-  private static readonly POSTBACK_DEDUPE_MS = 15_000;
-  private static readonly MESSAGE_MID_DEDUPE_MS = 60 * 60 * 1000;
-  private dedupeCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly configService: ConfigService,
@@ -77,41 +69,12 @@ export class MessengerService implements OnModuleInit, OnModuleDestroy {
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
     private readonly userDisplayNameService: UserDisplayNameService,
     private readonly chatRateLimitConfig: ChatRateLimitConfigService,
-    @Optional()
-    private readonly sharedConfig?: MessengerChatSharedConfigService,
-    @Optional()
-    @Inject(MESSENGER_CHAT_SHARED_STATE_REPOSITORY)
-    private readonly sharedState?: MessengerChatSharedStateRepositoryPort,
+    @Inject(WEBHOOK_DEDUPE_STORE)
+    private readonly webhookDedupeStore: WebhookDedupeStorePort,
     @Optional()
     @Inject(MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY)
     private readonly deadLetterRepository?: MessengerWebhookDeadLetterRepositoryPort,
   ) {}
-
-  onModuleInit(): void {
-    this.dedupeCleanupTimer = setInterval(
-      () => this.evictStaleDedupe(),
-      5 * 60 * 1000,
-    );
-  }
-
-  onModuleDestroy(): void {
-    if (this.dedupeCleanupTimer) {
-      clearInterval(this.dedupeCleanupTimer);
-      this.dedupeCleanupTimer = null;
-    }
-  }
-
-  private evictStaleDedupe(): void {
-    const now = Date.now();
-    for (const [k, ts] of this.recentMessageMids) {
-      if (now - ts > MessengerService.MESSAGE_MID_DEDUPE_MS)
-        this.recentMessageMids.delete(k);
-    }
-    for (const [k, ts] of this.recentPostbacks) {
-      if (now - ts > MessengerService.POSTBACK_DEDUPE_MS)
-        this.recentPostbacks.delete(k);
-    }
-  }
 
   verifyWebhook(token?: string, challenge?: string): string {
     if (token !== this.configService.get<string>('VERIFY_TOKEN')) {
@@ -663,7 +626,7 @@ export class MessengerService implements OnModuleInit, OnModuleDestroy {
     payload: string,
     event: MessengerWebhookEvent,
   ): Promise<boolean> {
-    if (this.isDuplicatePostback(psid, payload)) {
+    if (await this.isDuplicatePostback(psid, payload)) {
       this.logger.log(
         `Skipping duplicate postback ${payload} for PSID ${psid}`,
       );
@@ -752,43 +715,12 @@ export class MessengerService implements OnModuleInit, OnModuleDestroy {
     await this.outbound.sendSenderAction(psid, 'typing_on');
   }
 
-  private async isDuplicateMessageMid(
-    mid: string,
-    psid: string,
-  ): Promise<boolean> {
-    if (this.sharedConfig?.isSharedQueueEnabled() && this.sharedState) {
-      const isNew = await this.sharedState.tryMarkWebhookSeen(mid, psid);
-      return !isNew;
-    }
-
-    const now = Date.now();
-    const lastSeen = this.recentMessageMids.get(mid);
-
-    if (
-      lastSeen !== undefined &&
-      now - lastSeen < MessengerService.MESSAGE_MID_DEDUPE_MS
-    ) {
-      return true;
-    }
-
-    this.recentMessageMids.set(mid, now);
-    return false;
+  private isDuplicateMessageMid(mid: string, psid: string): Promise<boolean> {
+    return this.webhookDedupeStore.isDuplicateMessageMid(mid, psid);
   }
 
-  private isDuplicatePostback(psid: string, payload: string): boolean {
-    const key = `${psid}:${payload}`;
-    const now = Date.now();
-    const lastSeen = this.recentPostbacks.get(key);
-
-    if (
-      lastSeen !== undefined &&
-      now - lastSeen < MessengerService.POSTBACK_DEDUPE_MS
-    ) {
-      return true;
-    }
-
-    this.recentPostbacks.set(key, now);
-    return false;
+  private isDuplicatePostback(psid: string, payload: string): Promise<boolean> {
+    return this.webhookDedupeStore.isDuplicatePostback(psid, payload);
   }
 
   private async buildWelcomeMessage(

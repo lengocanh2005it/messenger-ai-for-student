@@ -22,7 +22,17 @@ Chat tự do: debounce → LLM agent → Send API. Tích hợp `ChatRateLimitMod
 | PostgreSQL | `CHAT_HISTORY_STORE=postgres` hoặc `CHAT_QUEUE_SHARED=true` | Bảng `messenger_chat_history` |
 | Redis | `CHAT_HISTORY_STORE=redis` + `REDIS_ENABLED=true` | Key `chat:history:{psid}`, TTL `CHAT_HISTORY_TTL_MS` |
 
-Port: `CHAT_HISTORY_STORE` → `ChatHistoryStoreResolver` → memory/postgres/redis impl.
+Port: `CHAT_HISTORY_STORE` → `ChatHistoryStoreResolver`.
+
+## Webhook dedupe store (R2)
+
+| Backend | Env | Ghi chú |
+|---------|-----|---------|
+| Memory | `CHAT_DEDUPE_STORE=memory` (default) | `message.mid` + postback 15s trong RAM |
+| PostgreSQL | `CHAT_DEDUPE_STORE=postgres` hoặc `CHAT_QUEUE_SHARED=true` | `messenger_chat_webhook_seen`; postback vẫn RAM/instance |
+| Redis | `CHAT_DEDUPE_STORE=redis` + `REDIS_ENABLED=true` | `dedupe:mid:{mid}`, `dedupe:postback:{psid}:{payload}` |
+
+Port: `CHAT_DEDUPE_STORE` → `WebhookDedupeStoreResolver` — `MessengerService` không còn Map dedupe nội bộ.
 
 ## File chính
 
@@ -31,6 +41,7 @@ Port: `CHAT_HISTORY_STORE` → `ChatHistoryStoreResolver` → memory/postgres/re
 | `messenger-chat-queue.service.ts` | Enqueue, debounce, flush, `processChatBatch`, reserve hook |
 | `messenger-chat-history.service.ts` | Facade context LLM — delegate `CHAT_HISTORY_STORE` |
 | `infrastructure/persistence/*-chat-history.store.ts` | memory / postgres / redis stores (R1) |
+| `infrastructure/persistence/*-webhook-dedupe.store.ts` | memory / postgres / redis dedupe (R2) |
 | `infrastructure/persistence/chat-history.store.resolver.ts` | Chọn store theo `CHAT_HISTORY_STORE` |
 | `messenger-chat-shared-config.service.ts` | `CHAT_QUEUE_SHARED`, TTL, stuck ms |
 | `messenger-chat-queue-worker.service.ts` | Cron poll buffer (2s) + webhook dedupe cleanup |

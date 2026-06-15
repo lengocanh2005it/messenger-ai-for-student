@@ -32,7 +32,8 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Tra quota chat: `npm run chat-quota:status` (`--psid`, `--user-id`, `--date`, `--ops`).
 - Ops health I1+S1: `npm run ops:health` (cron 09:00 ICT trong app khi `OPS_HEALTH_ALERT_ENABLED=true`).
 - Redis R0: `REDIS_ENABLED=true` + `REDIS_*` → startup log PING; `GET /health/redis` (503 khi bật mà không kết nối được).
-- Chat history R1: `CHAT_HISTORY_STORE=redis` (cần `REDIS_ENABLED=true`) \| `memory` \| `postgres` (mặc định `memory`; `CHAT_QUEUE_SHARED=true` → `postgres` nếu không set).
+- Chat history R1: `CHAT_HISTORY_STORE=redis` (cần `REDIS_ENABLED=true`) \| `memory` \| `postgres`.
+- Webhook dedupe R2: `CHAT_DEDUPE_STORE=redis` \| `memory` \| `postgres` (mặc định `memory`; `CHAT_QUEUE_SHARED=true` → `postgres` nếu không set).
 - Bootstrap jobs lần đầu: `npm run study-reminder:sync`.
 
 ---

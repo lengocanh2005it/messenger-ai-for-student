@@ -16,6 +16,7 @@ import { MessengerAgentToolsService } from './application/agent/messenger-agent-
 import { MessengerAgentService } from './application/agent/messenger-agent.service';
 import { ChatHistoryStoreStartupService } from './application/services/chat-history-store-startup.service';
 import { MessengerChatHistoryService } from './application/services/messenger-chat-history.service';
+import { WebhookDedupeStoreStartupService } from './application/services/webhook-dedupe-store-startup.service';
 import { MessengerChatQueueService } from './application/services/messenger-chat-queue.service';
 import { MessengerChatQueueWorkerService } from './application/services/messenger-chat-queue-worker.service';
 import { MessengerWebhookDeadLetterCronService } from './application/services/messenger-webhook-dead-letter-cron.service';
@@ -24,11 +25,16 @@ import { MessengerMappingService } from './application/services/messenger-mappin
 import { MessengerService } from './application/services/messenger.service';
 import { MessengerProfileService } from './infrastructure/meta/messenger-profile.service';
 import { CHAT_HISTORY_STORE } from './domain/repositories/chat-history.store.port';
+import { WEBHOOK_DEDUPE_STORE } from './domain/repositories/webhook-dedupe.store.port';
 import { MESSENGER_CHAT_SHARED_STATE_REPOSITORY } from './domain/repositories/messenger-chat-shared-state.repository.port';
 import { ChatHistoryStoreResolver } from './infrastructure/persistence/chat-history.store.resolver';
 import { MemoryChatHistoryStore } from './infrastructure/persistence/memory-chat-history.store';
 import { PostgresChatHistoryStore } from './infrastructure/persistence/postgres-chat-history.store';
 import { RedisChatHistoryStore } from './infrastructure/persistence/redis-chat-history.store';
+import { MemoryWebhookDedupeStore } from './infrastructure/persistence/memory-webhook-dedupe.store';
+import { PostgresWebhookDedupeStore } from './infrastructure/persistence/postgres-webhook-dedupe.store';
+import { RedisWebhookDedupeStore } from './infrastructure/persistence/redis-webhook-dedupe.store';
+import { WebhookDedupeStoreResolver } from './infrastructure/persistence/webhook-dedupe.store.resolver';
 import { MessengerChatSharedStateRepository } from './infrastructure/persistence/messenger-chat-shared-state.repository';
 import { MessengerOutboundModule } from './messenger-outbound.module';
 import { MessengerController } from './presentation/controllers/messenger.controller';
@@ -59,6 +65,15 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     {
       provide: CHAT_HISTORY_STORE,
       useExisting: ChatHistoryStoreResolver,
+    },
+    MemoryWebhookDedupeStore,
+    PostgresWebhookDedupeStore,
+    RedisWebhookDedupeStore,
+    WebhookDedupeStoreResolver,
+    WebhookDedupeStoreStartupService,
+    {
+      provide: WEBHOOK_DEDUPE_STORE,
+      useExisting: WebhookDedupeStoreResolver,
     },
     MessengerChatHistoryService,
     MessengerChatQueueService,
