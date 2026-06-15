@@ -8,10 +8,12 @@ import {
   CHAT_RATE_LIMIT_REPOSITORY,
   type ChatRateLimitRepositoryPort,
 } from '../../domain/repositories/chat-rate-limit.repository.port';
+import {
+  CHAT_BURST_COUNTER,
+  type ChatBurstCounterPort,
+} from '../../domain/repositories/chat-burst-counter.port';
 import { todayUsageDate } from '../utils/chat-usage-date.utils';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
-
-const BURST_WINDOW_MS = 60_000;
 
 /**
  * Reserve runs before LLM (Phase 3 queue hook). Refund on LLM/Send failure.
@@ -25,6 +27,8 @@ export class ChatRateLimitService {
     private readonly configService: ChatRateLimitConfigService,
     @Inject(CHAT_RATE_LIMIT_REPOSITORY)
     private readonly repository: ChatRateLimitRepositoryPort,
+    @Inject(CHAT_BURST_COUNTER)
+    private readonly burstCounter: ChatBurstCounterPort,
   ) {}
 
   getSettings(): ChatRateLimitSettings {
@@ -78,13 +82,7 @@ export class ChatRateLimitService {
       return this.buildBypassResult(used, freeFormDailyLimit, usageDate);
     }
 
-    const burstCount = await this.repository.countRecentReservations(
-      psid,
-      new Date(Date.now() - BURST_WINDOW_MS),
-      {
-        includeRefunded: this.configService.getBurstCountsRefunded(),
-      },
-    );
+    const burstCount = await this.burstCounter.getBurstCount(psid);
     if (burstCount >= burstPerMinute) {
       this.logQuotaDeny(
         'BURST_LIMIT',
@@ -127,52 +125,79 @@ export class ChatRateLimitService {
       };
     }
 
-    const outcome = await this.reserveSlotOrRecoverOnConflict(psid, {
+    return this.reserveAndRecordBurst(psid, {
       userId: params.userId,
       usageDate,
       idempotencyKey: params.idempotencyKey,
       dailyLimit: freeFormDailyLimit,
+      freeFormDailyLimit,
+    });
+  }
+
+  private async reserveAndRecordBurst(
+    psid: string,
+    params: {
+      userId?: number;
+      usageDate: string;
+      idempotencyKey: string;
+      dailyLimit: number;
+      freeFormDailyLimit: number;
+    },
+  ): Promise<ChatQuotaCheckResult> {
+    const outcome = await this.reserveSlotOrRecoverOnConflict(psid, {
+      userId: params.userId,
+      usageDate: params.usageDate,
+      idempotencyKey: params.idempotencyKey,
+      dailyLimit: params.dailyLimit,
     });
 
     if (outcome.status === 'daily_limit_exceeded') {
-      const used = await this.repository.getDailyUsageCount(psid, usageDate);
+      const used = await this.repository.getDailyUsageCount(
+        psid,
+        params.usageDate,
+      );
       this.logQuotaDeny(
         'DAILY_LIMIT',
         psid,
         params.idempotencyKey,
         used,
-        freeFormDailyLimit,
+        params.freeFormDailyLimit,
       );
       return {
         allowed: false,
         used,
-        limit: freeFormDailyLimit,
+        limit: params.freeFormDailyLimit,
         remaining: 0,
         reason: 'DAILY_LIMIT',
-        usageDate,
+        usageDate: params.usageDate,
         quotaReserved: false,
       };
     }
 
     if (outcome.status === 'idempotency_conflict') {
-      const used = await this.repository.getDailyUsageCount(psid, usageDate);
+      const used = await this.repository.getDailyUsageCount(
+        psid,
+        params.usageDate,
+      );
       return {
         allowed: false,
         used,
-        limit: freeFormDailyLimit,
-        remaining: Math.max(freeFormDailyLimit - used, 0),
+        limit: params.freeFormDailyLimit,
+        remaining: Math.max(params.freeFormDailyLimit - used, 0),
         reason: 'IDEMPOTENCY_CONFLICT',
-        usageDate,
+        usageDate: params.usageDate,
         quotaReserved: false,
       };
     }
 
+    await this.burstCounter.recordReservation(psid);
+
     return {
       allowed: true,
       used: outcome.freeFormCount,
-      limit: freeFormDailyLimit,
-      remaining: Math.max(freeFormDailyLimit - outcome.freeFormCount, 0),
-      usageDate,
+      limit: params.freeFormDailyLimit,
+      remaining: Math.max(params.freeFormDailyLimit - outcome.freeFormCount, 0),
+      usageDate: params.usageDate,
       quotaReserved: true,
     };
   }
@@ -193,6 +218,10 @@ export class ChatRateLimitService {
     });
 
     if (refunded) {
+      if (!this.configService.getBurstCountsRefunded()) {
+        await this.burstCounter.releaseReservation(psid);
+      }
+
       this.logger.warn(
         `CHAT_QUOTA_REFUND psid=${psid} mid=${idempotencyKey} usageDate=${usageDate}`,
       );

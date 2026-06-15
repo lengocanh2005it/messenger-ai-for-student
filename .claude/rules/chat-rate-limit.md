@@ -25,7 +25,7 @@ Postback menu, nhắc lịch cron, báo cáo proactive **không** qua module nà
 | Nhóm | Biến chính |
 |------|------------|
 | Bật/tắt | `CHAT_RATE_LIMIT_ENABLED`, `CHAT_RATE_LIMIT_WHITELIST_PSIDS` |
-| Limit | `CHAT_FREE_FORM_DAILY_LIMIT`, `CHAT_BURST_PER_MINUTE`, `CHAT_USAGE_TIMEZONE` |
+| Limit | `CHAT_FREE_FORM_DAILY_LIMIT`, `CHAT_BURST_PER_MINUTE`, `CHAT_BURST_STORE` (R3), `CHAT_USAGE_TIMEZONE` |
 | H2 stuck | `CHAT_IDEMPOTENCY_STUCK_RESERVED_MS` |
 | H5 abuse | `CHAT_MERGED_TEXT_MAX_CHARS`, `CHAT_BURST_COUNT_REFUNDED` |
 | H6 ops | `CHAT_IDEMPOTENCY_RETENTION_DAYS` |
@@ -40,6 +40,7 @@ Thêm biến mới → cập nhật `.env.example`.
 | `application/services/chat-rate-limit.service.ts` | application | checkQuota, reserve, refund, markCompleted, recover stuck |
 | `application/services/chat-rate-limit-config.service.ts` | application | Đọc env, whitelist |
 | `infrastructure/persistence/chat-rate-limit.repository.ts` | infrastructure | Transaction idempotency + UPSERT count (H3 hard cap) |
+| `infrastructure/persistence/*-chat-burst-counter.ts` | infrastructure | Burst counter memory/postgres/redis (R3) |
 | `domain/repositories/chat-rate-limit.repository.port.ts` | domain | Port + token `CHAT_RATE_LIMIT_REPOSITORY` |
 
 **Consumer:** `MessengerChatQueueService` inject `ChatRateLimitService` (import `ChatRateLimitModule`).

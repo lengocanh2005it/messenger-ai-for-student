@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ChatRateLimitSettings } from '../../domain/entities/chat-quota.types';
+import type { ChatBurstStoreKind } from '../../domain/entities/chat-burst.types';
 
 @Injectable()
 export class ChatRateLimitConfigService {
@@ -138,6 +139,19 @@ export class ChatRateLimitConfigService {
     }
 
     return raw === 'true' || raw === '1' || raw === 'yes';
+  }
+
+  getBurstStore(): ChatBurstStoreKind {
+    const raw = this.configService
+      .get<string>('CHAT_BURST_STORE')
+      ?.trim()
+      .toLowerCase();
+
+    if (raw === 'memory' || raw === 'postgres' || raw === 'redis') {
+      return raw;
+    }
+
+    return 'postgres';
   }
 
   private readRequiredPositiveNumber(key: string): number {

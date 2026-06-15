@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/unbound-method -- Jest mock method assertions */
 import { ConfigService } from '@nestjs/config';
 import type { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate-limit.repository.port';
+import type { ChatBurstCounterPort } from '../../domain/repositories/chat-burst-counter.port';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
 import { ChatRateLimitService } from './chat-rate-limit.service';
 
@@ -89,11 +90,22 @@ describe('ChatRateLimitService', () => {
       recoverAllStuckReserved: jest.fn(() => Promise.resolve([])),
     };
 
-    const service = new ChatRateLimitService(configService, repository);
+    const burstCounter: ChatBurstCounterPort = {
+      getBurstCount: jest.fn(() => Promise.resolve(options.burstCount ?? 0)),
+      recordReservation: jest.fn(() => Promise.resolve()),
+      releaseReservation: jest.fn(() => Promise.resolve()),
+    };
+
+    const service = new ChatRateLimitService(
+      configService,
+      repository,
+      burstCounter,
+    );
 
     return {
       service,
       repository,
+      burstCounter,
       getCount: () => count,
       getReserveCallCount: () => reserveCallCount,
     };
@@ -174,7 +186,7 @@ describe('ChatRateLimitService', () => {
   });
 
   it('denies reserve on burst limit before daily transaction', async () => {
-    const { service, getCount, getReserveCallCount, repository } =
+    const { service, getCount, getReserveCallCount, burstCounter } =
       createService(true, 0, {
         burstCount: 3,
       });
@@ -183,13 +195,7 @@ describe('ChatRateLimitService', () => {
       idempotencyKey: 'mid-burst',
     });
 
-    const countRecentReservationsMock =
-      repository.countRecentReservations as jest.Mock;
-    expect(countRecentReservationsMock).toHaveBeenCalledWith(
-      'psid-1',
-      expect.any(Date),
-      { includeRefunded: false },
-    );
+    expect(burstCounter.getBurstCount).toHaveBeenCalledWith('psid-1');
 
     expect(result).toMatchObject({
       allowed: false,
@@ -201,6 +207,17 @@ describe('ChatRateLimitService', () => {
     });
     expect(getReserveCallCount()).toBe(0);
     expect(getCount()).toBe(0);
+    expect(burstCounter.recordReservation).not.toHaveBeenCalled();
+  });
+
+  it('records burst reservation after successful reserve', async () => {
+    const { service, burstCounter } = createService(true, 0);
+
+    await service.reserveFreeFormSlot('psid-1', {
+      idempotencyKey: 'mid-ok',
+    });
+
+    expect(burstCounter.recordReservation).toHaveBeenCalledWith('psid-1');
   });
 
   it('bypasses reserve for whitelisted psid', async () => {
@@ -253,7 +270,7 @@ describe('ChatRateLimitService', () => {
   });
 
   it('refunds a reserved slot back to the previous count', async () => {
-    const { service, getCount } = createService(true, 0);
+    const { service, getCount, burstCounter } = createService(true, 0);
 
     const reserved = await service.reserveFreeFormSlot('psid-1', {
       idempotencyKey: 'mid-refund',
@@ -266,6 +283,7 @@ describe('ChatRateLimitService', () => {
       'mid-refund',
     );
 
+    expect(burstCounter.releaseReservation).toHaveBeenCalledWith('psid-1');
     expect(getCount()).toBe(0);
     await expect(service.checkQuota('psid-1')).resolves.toMatchObject({
       allowed: true,
