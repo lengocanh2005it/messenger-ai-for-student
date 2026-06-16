@@ -8,7 +8,6 @@ import { MessengerModule } from '../messenger/messenger.module';
 import { MessengerOutboundModule } from '../messenger/messenger-outbound.module';
 import { StudentReportModule } from '../student-report/student-report.module';
 import { StudyReminderModule } from '../study-reminder/study-reminder.module';
-import { CiDeployService } from './application/services/ci-deploy.service';
 import { DopplerRuntimeSyncService } from './application/services/doppler-runtime-sync.service';
 import { OpsHealthCronService } from './application/services/ops-health-cron.service';
 import { OpsHealthService } from './application/services/ops-health.service';
@@ -49,7 +48,6 @@ import { SchedulerController } from './presentation/controllers/scheduler.contro
     OpsHealthService,
     OpsHealthCronService,
     DopplerRuntimeSyncService,
-    CiDeployService,
   ],
 })
 export class SchedulerModule {}

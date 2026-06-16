@@ -40,6 +40,8 @@ Mỗi deploy `main` (hoặc workflow_dispatch):
 docker build → push ghcr.io/... → SCP + SSH lên VPS (Doppler env khi có DOPPLER_TOKEN)
 ```
 
+Hiện CI deploy chỉ dùng SSH/SCP (không còn endpoint `POST /messenger/ops/ci-deploy`).
+
 Env prod đổi trên Doppler: webhook → `POST /messenger/ops/doppler-sync` (không cần GitHub).
 
 **GitHub secrets bắt buộc cho deploy SSH:**
