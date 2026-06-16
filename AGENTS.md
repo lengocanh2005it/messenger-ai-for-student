@@ -138,7 +138,7 @@ Cùng PR/task với code — cập nhật hàng **agent** (không chỉ `docs/` 
 | Study reminder / sync / dispatch | `docs/study-session-reminder.md`, `.claude/rules/study-reminder.md`, skill `/study-reminder-debug` |
 | Entity / migration / tách DB | `.claude/rules/database.md`, skill `/typeorm-migration`, `.env.example` nếu thêm biến |
 | System prompt LLM | `src/shared/prompts/*.system.txt`, skill `/edit-llm-prompt` |
-| Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `docs/project-overview.md` runbook, `docs/doppler-secrets.md` |
+| Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `.github/workflows/sync-env.yml`, `docs/doppler-secrets.md` |
 | Env mới | `.env.example` + dòng tương ứng trong `docs/project-overview.md` hoặc `AGENTS.md` |
 | Webhook Meta signature / `MESSENGER_APP_SECRET` | `docs/project-overview.md`, `docs/edge-cases-roadmap.md` §1, `AGENTS.md` Security |
 | Gap / roadmap đã đóng | `docs/edge-cases-roadmap.md`, bảng Integration gaps trong `AGENTS.md` |

@@ -68,10 +68,21 @@ Vẫn có thể dùng `.env` + `npm run start:dev` nếu chưa cài Doppler.
 ## 4. Đổi secret prod — full-auto (webhook VPS)
 
 1. Sửa trên Doppler config **`prd`** (dashboard hoặc CLI).
-2. Doppler webhook gọi `POST https://aiassist.aihubproduction.com/messenger/ops/doppler-sync`.
-3. App tải secret mới → ghi `/deploy/.env` → `docker compose up --force-recreate` (~ vài chục giây).
+2. Doppler webhook → `POST https://aiassist.aihubproduction.com/messenger/ops/doppler-sync` (tự sync + restart).
 
-**Không cần** Re-run GitHub Actions chỉ để đổi env (deploy code vẫn qua push `main` như cũ).
+**Không cần** GitHub Actions khi chỉ đổi env.
+
+**Thủ công (không webhook):** `npm run env:sync-prod` hoặc Actions → **Sync production env (no image build)**.
+
+### CI deploy code (`deploy.yml`)
+
+| Thay đổi git | CI làm gì |
+|--------------|-----------|
+| `src/`, `Dockerfile`, `package*.json` | lint + test + **build image** + deploy |
+| Chỉ `docker-compose`, workflow, scripts | **Bỏ qua build** — VPS dùng image `:latest` |
+| Chỉ `docs/` | **Không chạy** workflow |
+
+Docker build vẫn dùng **GHA layer cache** (`cache-from/to: type=gha`).
 
 ### Setup webhook (một lần)
 

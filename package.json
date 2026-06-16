@@ -11,6 +11,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:dev:doppler": "doppler run -- npm run start:dev",
+    "env:sync-prod": "gh workflow run sync-env.yml",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "db:inspect": "node --env-file=.env scripts/inspect-db.mjs",

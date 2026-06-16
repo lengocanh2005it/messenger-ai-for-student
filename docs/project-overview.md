@@ -409,7 +409,7 @@ Bootstrap jobs nhắc lịch: `npm run study-reminder:sync`.
 
 ## 12. Deploy VPS (Docker + GHCR + Doppler)
 
-GitHub Actions (push `main`): lint → test → build → **push image GHCR** → VPS `docker pull` + `docker compose up` [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
+GitHub Actions (push `main`): [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) — **chỉ build image** khi đổi `src/`, `Dockerfile`, `package*.json`; còn lại VPS reuse `:latest`. Env-only: webhook Doppler hoặc [`sync-env.yml`](../.github/workflows/sync-env.yml) / `npm run env:sync-prod`.
 
 | Secret GitHub | Mục đích |
 |---------------|----------|

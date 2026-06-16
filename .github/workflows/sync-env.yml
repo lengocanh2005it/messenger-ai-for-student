@@ -1,0 +1,84 @@
+name: Sync production env (no image build)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  sync-env:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve image (reuse latest)
+        run: |
+          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=${{ env.REGISTRY }}/${REPO_LC}:latest" >> "$GITHUB_ENV"
+          echo "DEPLOY_MODE=reuse-latest" >> "$GITHUB_ENV"
+
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@v3
+
+      - name: Download production env from Doppler
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: |
+          if [ -z "${DOPPLER_TOKEN:-}" ]; then
+            echo "DOPPLER_TOKEN not set — VPS will keep existing .env"
+            exit 0
+          fi
+          doppler secrets download --no-file --format env > production.env
+          echo "Downloaded $(wc -l < production.env) lines from Doppler"
+          echo "has_production_env=true" >> "$GITHUB_ENV"
+
+      - name: Upload production env to VPS
+        if: env.has_production_env == 'true'
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: production.env
+          target: /home/ngoc_anh/messenger-bot/
+          timeout: 60s
+
+      - name: Upload deploy assets to VPS
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: docker-compose.prod.yml,.github/scripts/vps-deploy.sh
+          target: /home/ngoc_anh/messenger-bot/
+          timeout: 60s
+
+      - name: Sync env on VPS
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          DEPLOY_MODE: ${{ env.DEPLOY_MODE }}
+          FORCE_RECREATE: 'true'
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          GHCR_USER: ${{ github.repository_owner }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 10m
+          envs: IMAGE,DEPLOY_MODE,FORCE_RECREATE,GHCR_PULL_TOKEN,GHCR_USER
+          script: |
+            set -euo pipefail
+            chmod +x /home/ngoc_anh/messenger-bot/vps-deploy.sh
+            bash /home/ngoc_anh/messenger-bot/vps-deploy.sh
