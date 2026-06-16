@@ -101,4 +101,29 @@ describe('DopplerRuntimeSyncService', () => {
     chmod.mockRestore();
     unlink.mockRestore();
   });
+
+  it('resolves host compose dir from DEPLOY_HOST_DIR or docker mount inspect', async () => {
+    const service = createService({
+      DEPLOY_HOST_DIR: '/home/ngoc_anh/messenger-bot',
+    });
+
+    await expect(
+      (
+        service as unknown as {
+          resolveHostComposeContext: (
+            containerName: string,
+            envFile: string,
+            composeFile: string,
+          ) => Promise<{ deployDir: string; composeFile: string }>;
+        }
+      ).resolveHostComposeContext(
+        'messenger-bot',
+        '/deploy/.env',
+        '/deploy/docker-compose.prod.yml',
+      ),
+    ).resolves.toEqual({
+      deployDir: '/home/ngoc_anh/messenger-bot',
+      composeFile: '/home/ngoc_anh/messenger-bot/docker-compose.prod.yml',
+    });
+  });
 });

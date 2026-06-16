@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import {
   Injectable,
@@ -120,7 +121,6 @@ export class DopplerRuntimeSyncService {
   }
 
   private async runSync(): Promise<void> {
-    const deployDir = this.requireConfig('DEPLOY_DIR');
     const envFile = this.requireConfig('DEPLOY_ENV_FILE');
     const composeFile = this.requireConfig('DEPLOY_COMPOSE_FILE');
     const containerName =
@@ -175,19 +175,25 @@ export class DopplerRuntimeSyncService {
         throw new Error(`empty image from docker inspect ${containerName}`);
       }
 
+      const hostCompose = await this.resolveHostComposeContext(
+        containerName,
+        envFile,
+        composeFile,
+      );
+
       await execFileAsync(
         'docker',
         [
           'compose',
           '-f',
-          composeFile,
+          hostCompose.composeFile,
           'up',
           '-d',
           '--force-recreate',
           'messenger-bot',
         ],
         {
-          cwd: deployDir,
+          cwd: hostCompose.deployDir,
           env: { ...process.env, IMAGE: image },
           maxBuffer: 10 * 1024 * 1024,
         },
@@ -213,6 +219,48 @@ export class DopplerRuntimeSyncService {
     } finally {
       await fs.unlink(DOPPLER_RUNTIME_ENV_SYNC_TMP).catch(() => undefined);
     }
+  }
+
+  private async resolveHostComposeContext(
+    containerName: string,
+    envFile: string,
+    composeFile: string,
+  ): Promise<{ deployDir: string; composeFile: string }> {
+    const configuredHostDir = this.configService
+      .get<string>('DEPLOY_HOST_DIR')
+      ?.trim();
+    if (configuredHostDir) {
+      return {
+        deployDir: configuredHostDir,
+        composeFile: path.posix.join(
+          configuredHostDir,
+          'docker-compose.prod.yml',
+        ),
+      };
+    }
+
+    const { stdout } = await execFileAsync('docker', [
+      'inspect',
+      containerName,
+      '--format',
+      '{{range .Mounts}}{{if eq .Destination "/deploy/.env"}}{{.Source}}{{end}}{{end}}',
+    ]);
+    const envSource = stdout.trim();
+    if (envSource) {
+      const deployDir = path.posix.dirname(envSource);
+      return {
+        deployDir,
+        composeFile: path.posix.join(
+          deployDir,
+          path.posix.basename(composeFile),
+        ),
+      };
+    }
+
+    return {
+      deployDir: path.posix.dirname(envFile),
+      composeFile,
+    };
   }
 
   private requireConfig(key: string): string {

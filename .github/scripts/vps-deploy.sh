@@ -39,6 +39,7 @@ ensure_production_env_vars() {
   set_env_var ENFORCE_PROD_CHAT_QUOTA true
   set_env_var DOPPLER_RUNTIME_SYNC_ENABLED true
   set_env_var DEPLOY_DIR /deploy
+  set_env_var DEPLOY_HOST_DIR /home/ngoc_anh/messenger-bot
   set_env_var DEPLOY_ENV_FILE /deploy/.env
   set_env_var DEPLOY_COMPOSE_FILE /deploy/docker-compose.prod.yml
   set_env_var DEPLOY_UID "$(id -u)"

@@ -14,7 +14,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache docker-cli curl bash gnupg \
+RUN apk add --no-cache docker-cli docker-cli-compose curl bash gnupg \
   && curl -LsSf https://cli.doppler.com/install.sh | sh -s -- --install-path /usr/local/bin \
   && addgroup -g 1001 -S app \
   && adduser -S app -u 1001 -G app
