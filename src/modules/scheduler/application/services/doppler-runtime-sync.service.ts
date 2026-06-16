@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile);
 
 /** Writable in container; `/deploy/` is only a bind-mounted file, not a directory. */
 export const DOPPLER_RUNTIME_ENV_SYNC_TMP = '/tmp/.env.sync.tmp';
+export const DOPPLER_RUNTIME_COMPOSE_SIDECAR_IMAGE = 'docker:29-cli';
 
 export interface DopplerWebhookPayload {
   project?: { name?: string } | string;
@@ -138,6 +139,12 @@ export class DopplerRuntimeSyncService {
     );
 
     try {
+      const hostCompose = await this.resolveHostComposeContext(
+        containerName,
+        envFile,
+        composeFile,
+      );
+
       const { stdout } = await execFileAsync(
         'doppler',
         [
@@ -162,42 +169,23 @@ export class DopplerRuntimeSyncService {
         },
       );
 
-      await this.writeEnvAtomically(envFile, stdout);
+      const mergedEnv = await this.mergeDeployRuntimeVars(
+        stdout,
+        hostCompose.deployDir,
+      );
+      await this.writeEnvAtomically(envFile, mergedEnv);
 
-      const { stdout: imageRaw } = await execFileAsync('docker', [
-        'inspect',
-        containerName,
-        '--format',
-        '{{.Config.Image}}',
-      ]);
+      const { stdout: imageRaw } = await execFileAsync(
+        'docker',
+        ['inspect', containerName, '--format', '{{.Config.Image}}'],
+        { cwd: '/tmp' },
+      );
       const image = imageRaw.trim();
       if (!image) {
         throw new Error(`empty image from docker inspect ${containerName}`);
       }
 
-      const hostCompose = await this.resolveHostComposeContext(
-        containerName,
-        envFile,
-        composeFile,
-      );
-
-      await execFileAsync(
-        'docker',
-        [
-          'compose',
-          '-f',
-          hostCompose.composeFile,
-          'up',
-          '-d',
-          '--force-recreate',
-          'messenger-bot',
-        ],
-        {
-          cwd: hostCompose.deployDir,
-          env: { ...process.env, IMAGE: image },
-          maxBuffer: 10 * 1024 * 1024,
-        },
-      );
+      await this.recreateContainer(hostCompose, image);
 
       this.logger.log(
         `DOPPLER_RUNTIME_SYNC complete image=${image} env=${envFile}`,
@@ -206,6 +194,90 @@ export class DopplerRuntimeSyncService {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`DOPPLER_RUNTIME_SYNC failed: ${message}`);
     }
+  }
+
+  private async recreateContainer(
+    hostCompose: { deployDir: string; composeFile: string },
+    image: string,
+  ): Promise<void> {
+    await execFileAsync(
+      'docker',
+      [
+        'run',
+        '--rm',
+        '-v',
+        '/var/run/docker.sock:/var/run/docker.sock',
+        '-v',
+        `${hostCompose.deployDir}:${hostCompose.deployDir}`,
+        '-w',
+        hostCompose.deployDir,
+        '-e',
+        `IMAGE=${image}`,
+        DOPPLER_RUNTIME_COMPOSE_SIDECAR_IMAGE,
+        'compose',
+        '-f',
+        hostCompose.composeFile,
+        'up',
+        '-d',
+        '--force-recreate',
+        'messenger-bot',
+      ],
+      {
+        cwd: '/tmp',
+        maxBuffer: 10 * 1024 * 1024,
+      },
+    );
+  }
+
+  private async mergeDeployRuntimeVars(
+    content: string,
+    hostDeployDir: string,
+  ): Promise<string> {
+    const entries = parseEnvLines(content);
+
+    entries.set('DOPPLER_RUNTIME_SYNC_ENABLED', 'true');
+    entries.set('DEPLOY_DIR', '/deploy');
+    entries.set('DEPLOY_HOST_DIR', hostDeployDir);
+    entries.set('DEPLOY_ENV_FILE', '/deploy/.env');
+    entries.set('DEPLOY_COMPOSE_FILE', '/deploy/docker-compose.prod.yml');
+    entries.set(
+      'DEPLOY_UID',
+      String((process.getuid?.() ?? Number(entries.get('DEPLOY_UID'))) || 0),
+    );
+    entries.set(
+      'DEPLOY_GID',
+      String((process.getgid?.() ?? Number(entries.get('DEPLOY_GID'))) || 0),
+    );
+    entries.set('DOCKER_GID', String(await this.readDockerSocketGid()));
+
+    if (!entries.has('HOME')) {
+      entries.set('HOME', '/tmp');
+    }
+
+    if (!entries.has('CHAT_RATE_LIMIT_ENABLED')) {
+      entries.set('CHAT_RATE_LIMIT_ENABLED', 'true');
+    }
+
+    if (!entries.has('ENFORCE_PROD_CHAT_QUOTA')) {
+      entries.set('ENFORCE_PROD_CHAT_QUOTA', 'true');
+    }
+
+    return serializeEnvLines(entries);
+  }
+
+  private async readDockerSocketGid(): Promise<number> {
+    const { stdout } = await execFileAsync(
+      'stat',
+      ['-c', '%g', '/var/run/docker.sock'],
+      { cwd: '/tmp' },
+    );
+    const gid = Number(stdout.trim());
+
+    if (!Number.isFinite(gid)) {
+      throw new Error('invalid DOCKER_GID from docker.sock');
+    }
+
+    return gid;
   }
 
   private async writeEnvAtomically(
@@ -239,12 +311,16 @@ export class DopplerRuntimeSyncService {
       };
     }
 
-    const { stdout } = await execFileAsync('docker', [
-      'inspect',
-      containerName,
-      '--format',
-      '{{range .Mounts}}{{if eq .Destination "/deploy/.env"}}{{.Source}}{{end}}{{end}}',
-    ]);
+    const { stdout } = await execFileAsync(
+      'docker',
+      [
+        'inspect',
+        containerName,
+        '--format',
+        '{{range .Mounts}}{{if eq .Destination "/deploy/.env"}}{{.Source}}{{end}}{{end}}',
+      ],
+      { cwd: '/tmp' },
+    );
     const envSource = stdout.trim();
     if (envSource) {
       const deployDir = path.posix.dirname(envSource);
@@ -271,4 +347,42 @@ export class DopplerRuntimeSyncService {
 
     return value;
   }
+}
+
+function parseEnvLines(content: string): Map<string, string> {
+  const entries = new Map<string, string>();
+
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+
+    const idx = trimmed.indexOf('=');
+    if (idx <= 0) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, idx).trim();
+    let value = trimmed.slice(idx + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    entries.set(key, value);
+  }
+
+  return entries;
+}
+
+function serializeEnvLines(entries: Map<string, string>): string {
+  const body = [...entries.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n');
+
+  return `${body}\n`;
 }

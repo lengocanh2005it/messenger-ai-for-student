@@ -126,4 +126,27 @@ describe('DopplerRuntimeSyncService', () => {
       composeFile: '/home/ngoc_anh/messenger-bot/docker-compose.prod.yml',
     });
   });
+
+  it('merges deploy runtime vars after Doppler download', async () => {
+    const service = createService({});
+    const instance = service as unknown as {
+      readDockerSocketGid: () => Promise<number>;
+      mergeDeployRuntimeVars: (
+        content: string,
+        hostDeployDir: string,
+      ) => Promise<string>;
+    };
+
+    jest.spyOn(instance, 'readDockerSocketGid').mockResolvedValue(114);
+
+    const merged = await instance.mergeDeployRuntimeVars(
+      'FOO=bar\n',
+      '/home/ngoc_anh/messenger-bot',
+    );
+
+    expect(merged).toContain('FOO=bar');
+    expect(merged).toContain('DEPLOY_HOST_DIR=/home/ngoc_anh/messenger-bot');
+    expect(merged).toContain('DOCKER_GID=114');
+    expect(merged).toContain('DOPPLER_RUNTIME_SYNC_ENABLED=true');
+  });
 });
