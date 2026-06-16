@@ -194,7 +194,7 @@ Migration: `1717747200008-CreateMessengerUsersCacheTable`.
 | Method | Path | Mô tả |
 |--------|------|--------|
 | GET | `/webhook` | Xác thực webhook Meta |
-| POST | `/webhook` | Nhận sự kiện messaging |
+| POST | `/webhook` | Nhận sự kiện messaging (guard `X-Hub-Signature-256` khi `MESSENGER_WEBHOOK_SIGNATURE_VERIFY` bật) |
 | GET | `/messenger/m-me-link` | Tạo link `m.me` với `ref`, `topic`, `cadence` |
 | POST | `/messenger/test-send` | Gửi thử báo cáo theo `psid` |
 | POST | `/messenger/profile/setup` | Cấu hình get started + persistent menu |
@@ -250,7 +250,7 @@ Thiếu `OPENAI_API_KEY` → fallback template cứng trong service (không gọ
 
 Xem `.env.example`. Nhóm chính:
 
-- **Meta:** `PAGE_ACCESS_TOKEN`, `VERIFY_TOKEN`, `MESSENGER_PAGE_ID`, `GRAPH_API_VERSION`
+- **Meta:** `PAGE_ACCESS_TOKEN`, `VERIFY_TOKEN`, `MESSENGER_APP_SECRET`, `MESSENGER_WEBHOOK_SIGNATURE_VERIFY`, `MESSENGER_PAGE_ID`, `GRAPH_API_VERSION`
 - **OpenAI:** `OPENAI_API_KEY`, `OPENAI_MODEL`
 - **Wispace API:** `WISPACE_API_USER_CALENDAR_URL`, `WISPACE_API_USER_GOALS_URL`, `WISPACE_API_TASK_SCORE_URL` — auth bằng header `x-psid`
 - **Study reminder:** `STUDY_REMINDER_*` — **bắt buộc**, không hardcode fallback trong code

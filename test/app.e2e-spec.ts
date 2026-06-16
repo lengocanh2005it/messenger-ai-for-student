@@ -52,6 +52,7 @@ describe('AppController (e2e)', () => {
     process.env.GRAPH_API_VERSION = 'v25.0';
     process.env.MESSENGER_PAGE_ID = '1192471430606671';
     process.env.MESSENGER_DB_PATH = dbPath;
+    process.env.MESSENGER_WEBHOOK_SIGNATURE_VERIFY = 'false';
 
     fetchMock = jest.fn(() =>
       Promise.resolve({
@@ -67,7 +68,7 @@ describe('AppController (e2e)', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ rawBody: true });
     await app.init();
   });
 

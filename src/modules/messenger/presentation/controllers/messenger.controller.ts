@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { parseMessengerLinkContext } from '../../../../shared/config/poc.constants';
 import { InternalApiKeyGuard } from '../../../../shared/common/guards/internal-api-key.guard';
+import { MessengerWebhookSignatureGuard } from '../../../../shared/common/guards/messenger-webhook-signature.guard';
 import { MessengerService } from '../../application/services/messenger.service';
 import type { MessengerWebhookPayload } from '../../domain/entities/messenger.types';
 import { MessengerProfileService } from '../../infrastructure/meta/messenger-profile.service';
@@ -31,6 +32,7 @@ export class MessengerController {
   }
 
   @Post('webhook')
+  @UseGuards(MessengerWebhookSignatureGuard)
   @HttpCode(200)
   async receiveWebhook(@Body() payload: MessengerWebhookPayload) {
     if (payload.object !== 'page') {

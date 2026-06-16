@@ -56,6 +56,7 @@ flowchart LR
 | **Đổi `user_id` cùng PSID** | **L3** ✓ — `MessengerMappingService`, `MAPPING_USER_ID_UPDATED`, ops relink |
 | Đăng ký báo cáo trùng topic/cadence | `SUBSCRIPTION_ALREADY_ACTIVE` |
 | Postback dedupe 15s | `isDuplicatePostback` |
+| **POST webhook signature** | `MessengerWebhookSignatureGuard` + `MESSENGER_APP_SECRET` / `X-Hub-Signature-256` |
 | Chat chưa link | `MISSING_USER_REF` |
 | Tin **không phải text** (sticker, ảnh, file) | **L1** — `UNSUPPORTED_MESSAGE_TYPE`, `isUnsupportedUserMessage` |
 | User **chặn bot** / **Meta 24h window** | **L2** ✓ — `*_MESSENGER_24H` log, nhắc lịch terminal fail, cron báo cáo skip |
@@ -65,6 +66,7 @@ flowchart LR
 | Gap | Ảnh hưởng | Khắc phục | Phase |
 |-----|-----------|-----------|-------|
 | **`ref` = `userId` thuần — không verify chủ tài khoản** | IDOR: đổi `ref` → map PSID vào user khác; relink; lộ nhắc lịch/báo cáo | One-time token (production) hoặc HMAC tạm; chặn relink tự do — [messenger-link-security.md](./messenger-link-security.md), luồng + API: [messenger-link-integration.md](./messenger-link-integration.md) | **L4** |
+| ~~POST `/webhook` không verify chữ ký Meta~~ | Payload giả nếu lộ URL webhook | **Done** — `MessengerWebhookSignatureGuard`, `MESSENGER_APP_SECRET`, `rawBody` | Done |
 | ~~Webhook Meta retry; lỗi 1 event~~ | ~~Event khác vẫn xử lý (đúng); event lỗi mất~~ | **DL** ✓ — `messenger_webhook_dead_letters` + auto-retry cron 5 phút + advisory lock + script ops | Done |
 
 ---

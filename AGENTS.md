@@ -139,6 +139,7 @@ Cùng PR/task với code — cập nhật hàng **agent** (không chỉ `docs/` 
 | System prompt LLM | `src/shared/prompts/*.system.txt`, skill `/edit-llm-prompt` |
 | Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `docs/project-overview.md` runbook |
 | Env mới | `.env.example` + dòng tương ứng trong `docs/project-overview.md` hoặc `AGENTS.md` |
+| Webhook Meta signature / `MESSENGER_APP_SECRET` | `docs/project-overview.md`, `docs/edge-cases-roadmap.md` §1, `AGENTS.md` Security |
 | Gap / roadmap đã đóng | `docs/edge-cases-roadmap.md`, bảng Integration gaps trong `AGENTS.md` |
 
 Skill `/verify` — chạy cuối mọi task có sửa code.
@@ -302,7 +303,7 @@ Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar`. Cron 30 p
 - **Không** commit secrets: `.env`, token Meta/OpenAI, `INTERNAL_API_KEY`, DB password.
 - Ops endpoints bảo vệ bởi `InternalApiKeyGuard` — không bỏ guard khi thêm endpoint vận hành.
 - Wispace API: chỉ header `x-psid`, không lưu/log full access token user.
-- Meta webhook: xác thực qua `VERIFY_TOKEN` (GET `/webhook`).
+- Meta webhook: xác thực qua `VERIFY_TOKEN` (GET `/webhook`); POST `/webhook` verify `X-Hub-Signature-256` với `MESSENGER_APP_SECRET` (tắt: `MESSENGER_WEBHOOK_SIGNATURE_VERIFY=false`).
 
 ---
 
