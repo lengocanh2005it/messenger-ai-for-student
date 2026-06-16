@@ -427,6 +427,97 @@ POC gọi verify tại các điểm trong `MessengerService.handleEvent` trướ
 
 ---
 
-## 9. Tóm tắt một dòng
+## 9. Quyết định vận hành (bàn luận)
 
-**WISPACE** phát vé (`token`) khi user login; **Messenger** nhận `ref` từ Meta rồi gửi `{ token, psid }` lên WISPACE verify — chỉ khi OK mới map `psid ↔ userId`.
+Ghi chú align team — chi tiết policy bảo mật: [messenger-link-security.md §7](./messenger-link-security.md#7-quyết-định-thiết-kế-bàn-luận).
+
+### 9.1 Binding một lần — không verify mỗi message
+
+```mermaid
+flowchart LR
+  subgraph ceremony ["Lễ liên kết"]
+    A[m.me?ref=token] --> B[webhook có referral.ref]
+    B --> C[POST verify token + psid]
+    C --> D[lưu user_messenger_mappings]
+  end
+
+  subgraph daily ["Hàng ngày"]
+    E[chat / menu / cron] --> F[findActiveMappingByPsid]
+    F --> G[báo cáo / nhắc lịch / agent]
+  end
+
+  D --> F
+```
+
+Sau bước 7 trong [§7](#7-ví-dụ-end-to-end) (đã map `psid ↔ userId`), mọi tương tác sau **chỉ đọc DB** — không gọi `verify-link-token` nữa.
+
+### 9.2 Bảng sự kiện webhook — ai verify, ai đọc DB
+
+| Sự kiện | `referral.ref`? | Gọi WISPACE verify? | Nguồn `userId` | Code POC (tham chiếu) |
+|---------|-----------------|---------------------|----------------|------------------------|
+| Mở `m.me?ref=token` lần đầu | Có | **Có** (L4) | WISPACE trả sau verify | `handleEvent` → `linkPsidFromContext` |
+| `optin` kèm ref | Có | **Có** (L4) | Như trên | `event.optin` branch |
+| Get Started ngay sau link | Thường có (`postback.referral`) | **Có** nếu còn ref | Như trên | `handlePostbackEvent` |
+| Get Started lần sau (đã link) | Thường **không** | **Không** | `resolveLinkContext` → DB | `handlePostbackEvent` |
+| Menu 「Đăng ký báo cáo」 | **Không** | **Không** | DB mapping | `REGISTER_LEARNING_REPORT` → `registerForScheduledReports` |
+| Chat tự do | **Không** | **Không** | `resolveUserId` → DB | `MessengerChatQueueService.enqueue` |
+| Cron báo cáo / dispatch nhắc lịch | — | **Không** | Mapping theo `psid` / `userId` | `ReportCronService`, `StudyReminderDispatchService` |
+
+**Get Started** thường là moment user bấm lần đầu sau `m.me`, nhưng trigger verify là **`ref` trong webhook**, không phải payload `GET_STARTED`.
+
+### 9.3 Menu 「Đăng ký báo cáo」— hành vi mong đợi
+
+Persistent menu (`messenger-profile.service.ts` — payload `REGISTER_LEARNING_REPORT`):
+
+1. `handlePostbackEvent` gọi `resolveLinkContext(psid, event)`.
+2. Postback **không** mang `referral` → fallback `findActiveMappingByPsid`.
+3. Có mapping → `registerForScheduledReports` (upsert subscription topic/cadence).
+4. Không mapping → `getMissingUserRefMessage()` — user phải mở link từ app WISPACE.
+
+**Không** gọi verify lúc bấm menu: không có token; menu là thao tác trên PSID **đã** được binding trước đó. Tương tự chat, báo cáo, nhắc lịch.
+
+### 9.4 Relink — hiện tại vs L4
+
+| | Code hiện tại (L3) | Sau L4 |
+|--|-------------------|--------|
+| PSID map A, webhook ref/token user B | **Upsert** sang B + `MAPPING_USER_ID_RELINK` | **Từ chối** + log `MAPPING_RELINK_BLOCKED` |
+| Support đổi tài khoản | `POST /messenger/mapping/relink` | Giữ nguyên (ops-only) |
+| User tự đổi (production) | Không an toàn | WISPACE app: unlink → token mới → link lại |
+
+Xem [messenger-link-security.md §7.4](./messenger-link-security.md#74-policy-relink--l3-hiện-tại-vs-l4) cho ba hướng relink (ops / self-service / confirm).
+
+### 9.5 Token TTL & UX hết hạn
+
+| Giai đoạn | `expires_at` gợi ý |
+|-----------|-------------------|
+| Pilot | `now() + 30 phút` |
+| Production | **15–30 phút** + nút 「Tạo lại link」trong app |
+
+| Tình huống | Kết quả |
+|------------|---------|
+| Lan forward link, Hùng mở **trước** Lan | Hùng ăn token; Lan nhận `USED` khi verify |
+| Token `EXPIRED` trước webhook đầu | Bot báo hết hạn; user tạo link mới — **không** fix bằng menu/Get Started |
+| Token `USED`, PSID đã map | Mở lại URL cũ → verify `USED`; chat/menu **vẫn OK** qua mapping DB |
+
+One-time (`used_at`) quan trọng hơn TTL rất ngắn — TTL chủ yếu giảm cửa sổ link **chưa ai dùng** bị forward.
+
+### 9.6 Ma trận quyết định (tóm tắt)
+
+```text
+Webhook event
+│
+├─ Có referral.ref (token mới, chưa used)?
+│   ├─ PSID chưa map → verify WISPACE → link
+│   ├─ PSID map cùng userId → idempotent (topic/cadence)
+│   └─ PSID map userId khác → REJECT (trừ ops relink)
+│
+└─ Không có ref
+    ├─ Có mapping ACTIVE → userId từ DB
+    └─ Không mapping → MISSING_USER_REF
+```
+
+---
+
+## 10. Tóm tắt một dòng
+
+**WISPACE** phát vé (`token`) khi user login; **Messenger** nhận `ref` từ Meta rồi gửi `{ token, psid }` lên WISPACE verify — **một lần lúc link**; sau đó chat / menu / cron chỉ đọc mapping DB.

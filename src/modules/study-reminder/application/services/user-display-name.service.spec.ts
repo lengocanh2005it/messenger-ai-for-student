@@ -81,4 +81,23 @@ describe('UserDisplayNameService', () => {
     await expect(service.resolveDisplayName({ userId: 7 })).resolves.toBe('An');
     expect(cacheGet).not.toHaveBeenCalled();
   });
+
+  it('uses fallback when display_name is null', async () => {
+    cacheGet.mockResolvedValue(null);
+    userRepo.findOne.mockResolvedValue({
+      id: 7,
+      displayName: null,
+      username: null,
+    });
+
+    const service = new UserDisplayNameService(
+      userRepo as never,
+      mappingReader,
+      cache,
+    );
+
+    await expect(service.resolveDisplayName({ userId: 7 })).resolves.toBe(
+      'Chào bạn nha',
+    );
+  });
 });

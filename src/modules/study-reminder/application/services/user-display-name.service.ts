@@ -8,14 +8,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserEntity } from '../../../../infrastructure/database/entities/user.entity';
+import { FALLBACK_DISPLAY_NAME } from '../../../../shared/config/poc.constants';
 import { MESSENGER_MAPPING_READER } from '../ports/messenger-mapping.port';
 import type { MessengerMappingReaderPort } from '../ports/messenger-mapping.port';
 import {
   USER_DISPLAY_NAME_CACHE,
   type UserDisplayNameCachePort,
 } from '../../domain/repositories/user-display-name-cache.port';
-
-const DEFAULT_DISPLAY_NAME = 'bạn';
 
 @Injectable()
 export class UserDisplayNameService implements OnModuleInit {
@@ -46,7 +45,7 @@ export class UserDisplayNameService implements OnModuleInit {
   }): Promise<string> {
     const userId = await this.resolveUserId(params);
     if (!userId) {
-      return DEFAULT_DISPLAY_NAME;
+      return FALLBACK_DISPLAY_NAME;
     }
 
     if (this.displayNameCache?.isAvailable()) {
@@ -65,7 +64,7 @@ export class UserDisplayNameService implements OnModuleInit {
     }
 
     if (!user) {
-      return DEFAULT_DISPLAY_NAME;
+      return FALLBACK_DISPLAY_NAME;
     }
 
     return this.pickDisplayName(displayName, username);
@@ -85,7 +84,7 @@ export class UserDisplayNameService implements OnModuleInit {
       return login;
     }
 
-    return DEFAULT_DISPLAY_NAME;
+    return FALLBACK_DISPLAY_NAME;
   }
 
   private async resolveUserId(params: {

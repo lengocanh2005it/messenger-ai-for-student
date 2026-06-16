@@ -7,6 +7,7 @@ import {
   resolveScheduledAtFromEventDate,
 } from '../../application/utils/study-calendar.utils';
 import { UserCalendarApiService } from './user-calendar-api.service';
+import { WispaceApiError } from '../../../student-report/domain/errors/wispace-api.error';
 import { UserCalendarRecord } from '../../domain/entities/user-calendar.types';
 import {
   CalendarSessionTimeRange,
@@ -22,6 +23,7 @@ interface UserCalendarRow {
 @Injectable()
 export class UserCalendarScheduleService {
   private readonly logger = new Logger(UserCalendarScheduleService.name);
+  private userCalendarsTableAvailable: boolean | null = null;
 
   constructor(
     private readonly userCalendarApiService: UserCalendarApiService,
@@ -55,14 +57,18 @@ export class UserCalendarScheduleService {
       return null;
     }
 
-    const rows = await this.dataSource.query<UserCalendarRow[]>(
-      `
+    const rows = await this.queryUserCalendars(
+      () =>
+        this.dataSource.query<UserCalendarRow[]>(
+          `
       SELECT "Id", "EventDate", "Time"
       FROM "UserCalendars"
       WHERE "Id" = $1 AND "UserId" = $2
       LIMIT 1
       `,
-      [calendarId, userId],
+          [calendarId, userId],
+        ),
+      [],
     );
     const row = rows[0];
     if (!row) {
@@ -137,6 +143,13 @@ export class UserCalendarScheduleService {
         throw error;
       }
 
+      const dbFallbackAvailable = await this.canQueryUserCalendars();
+
+      if (!dbFallbackAvailable) {
+        this.logCalendarApiFailure(psid, error, { dbFallbackAvailable: false });
+        return [];
+      }
+
       this.logger.warn(
         `UserCalendar API failed for psid=${psid}, falling back to DB UserCalendars: ${
           error instanceof Error ? error.message : String(error)
@@ -164,8 +177,10 @@ export class UserCalendarScheduleService {
     userId: number,
     horizonEnd: Date,
   ): Promise<NormalizedStudySession[]> {
-    const rows = await this.dataSource.query<UserCalendarRow[]>(
-      `
+    const rows = await this.queryUserCalendars(
+      () =>
+        this.dataSource.query<UserCalendarRow[]>(
+          `
       SELECT "Id", "EventDate", "Time"
       FROM "UserCalendars"
       WHERE "UserId" = $1
@@ -173,7 +188,9 @@ export class UserCalendarScheduleService {
         AND "EventDate" <= $2
       ORDER BY "EventDate" ASC
       `,
-      [userId, horizonEnd],
+          [userId, horizonEnd],
+        ),
+      [],
     );
 
     const sessions = rows
@@ -200,8 +217,10 @@ export class UserCalendarScheduleService {
     userId: number,
     pastDays: number,
   ): Promise<NormalizedStudySession[]> {
-    const rows = await this.dataSource.query<UserCalendarRow[]>(
-      `
+    const rows = await this.queryUserCalendars(
+      () =>
+        this.dataSource.query<UserCalendarRow[]>(
+          `
       SELECT "Id", "EventDate", "Time"
       FROM "UserCalendars"
       WHERE "UserId" = $1
@@ -209,7 +228,9 @@ export class UserCalendarScheduleService {
         AND "EventDate" >= NOW() - ($2::int * INTERVAL '1 day')
       ORDER BY "EventDate" DESC
       `,
-      [userId, pastDays],
+          [userId, pastDays],
+        ),
+      [],
     );
 
     return rows
@@ -309,5 +330,82 @@ export class UserCalendarScheduleService {
       'Asia/Ho_Chi_Minh';
 
     return formatStoredCalendarDate(value, timezone);
+  }
+
+  private async canQueryUserCalendars(): Promise<boolean> {
+    if (this.userCalendarsTableAvailable !== null) {
+      return this.userCalendarsTableAvailable;
+    }
+
+    const result = await this.dataSource.query<Array<{ reg: string | null }>>(
+      `SELECT to_regclass('public."UserCalendars"') AS reg`,
+    );
+
+    this.userCalendarsTableAvailable = Boolean(result[0]?.reg);
+
+    if (!this.userCalendarsTableAvailable) {
+      this.logger.debug(
+        'UserCalendars table not on connected DB — API-only calendar mode',
+      );
+    }
+
+    return this.userCalendarsTableAvailable;
+  }
+
+  private async queryUserCalendars<T>(
+    queryFn: () => Promise<T>,
+    fallback: T,
+  ): Promise<T> {
+    if (!(await this.canQueryUserCalendars())) {
+      return fallback;
+    }
+
+    try {
+      return await queryFn();
+    } catch (error) {
+      if (this.isMissingRelationError(error)) {
+        this.userCalendarsTableAvailable = false;
+        this.logger.debug(
+          'UserCalendars query skipped — table unavailable on connected DB',
+        );
+        return fallback;
+      }
+
+      throw error;
+    }
+  }
+
+  private isMissingRelationError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'driverError' in error &&
+      typeof (error as { driverError?: { code?: string } }).driverError
+        ?.code === 'string' &&
+      (error as { driverError: { code: string } }).driverError.code === '42P01'
+    );
+  }
+
+  private logCalendarApiFailure(
+    psid: string,
+    error: unknown,
+    params: { dbFallbackAvailable: boolean },
+  ): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const unknownPsid =
+      error instanceof WispaceApiError && error.statusCode === 401;
+
+    if (!params.dbFallbackAvailable && unknownPsid) {
+      this.logger.debug(
+        `UserCalendar skipped for psid=${psid} — Wispace does not recognize x-psid (API-only DB)`,
+      );
+      return;
+    }
+
+    if (!params.dbFallbackAvailable) {
+      this.logger.warn(
+        `UserCalendar API failed for psid=${psid} with no DB fallback: ${message}`,
+      );
+    }
   }
 }

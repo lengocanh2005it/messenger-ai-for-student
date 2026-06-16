@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { RedisConfigService } from '../application/services/redis-config.service';
 import type {
@@ -8,7 +8,9 @@ import type {
 
 @Injectable()
 export class IoredisRedisClient implements RedisClientPort, OnModuleDestroy {
+  private readonly logger = new Logger(IoredisRedisClient.name);
   private readonly client: Redis | null;
+  private loggedSuccessfulPing = false;
 
   constructor(private readonly redisConfig: RedisConfigService) {
     if (!redisConfig.isEnabled()) {
@@ -43,6 +45,7 @@ export class IoredisRedisClient implements RedisClientPort, OnModuleDestroy {
     const startedAt = Date.now();
 
     try {
+      await this.ensureConnected();
       const response = await this.client.ping();
       if (response !== 'PONG') {
         return {
@@ -51,9 +54,12 @@ export class IoredisRedisClient implements RedisClientPort, OnModuleDestroy {
         };
       }
 
+      const latencyMs = Date.now() - startedAt;
+      this.logSuccessfulPing(latencyMs);
+
       return {
         status: 'ok',
-        latencyMs: Date.now() - startedAt,
+        latencyMs,
       };
     } catch (error) {
       return {
@@ -73,5 +79,30 @@ export class IoredisRedisClient implements RedisClientPort, OnModuleDestroy {
     } catch {
       this.client.disconnect();
     }
+  }
+
+  private async ensureConnected(): Promise<void> {
+    if (!this.client || this.client.status === 'ready') {
+      return;
+    }
+
+    if (
+      this.client.status === 'wait' ||
+      this.client.status === 'close' ||
+      this.client.status === 'end'
+    ) {
+      await this.client.connect();
+    }
+  }
+
+  private logSuccessfulPing(latencyMs: number): void {
+    if (this.loggedSuccessfulPing) {
+      return;
+    }
+
+    this.loggedSuccessfulPing = true;
+    this.logger.log(
+      `Redis PING OK (${this.redisConfig.getHost()}:${this.redisConfig.getPort()}, ${latencyMs}ms)`,
+    );
   }
 }

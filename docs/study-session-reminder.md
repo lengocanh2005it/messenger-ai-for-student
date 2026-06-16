@@ -143,7 +143,7 @@ Giữ nguyên `sent` nếu giờ học không đổi — tránh nhắc trùng.
 
 `StudyReminderService` gom context (lịch, goals, band Task 1/2, **tên từ `Users.DisplayName`**) → gọi **OpenAI** → format tin nhắn.
 
-Tên hiển thị: đọc bảng `Users` theo `user_id` (hoặc mapping `psid` → `user_id`). Thứ tự fallback: `DisplayName` → `Username` → `"bạn"`.
+Tên hiển thị: đọc bảng `Users` theo `user_id` (hoặc mapping `psid` → `user_id`). Thứ tự fallback: `DisplayName` → `Username` → `"Chào bạn nha"`.
 
 Dispatch tự động và menu preview đều dùng cùng service này. Không có `OPENAI_API_KEY` → fallback template.
 

@@ -340,7 +340,7 @@ Cursor dùng `AGENTS.md` + `.cursor/rules/` (rule `change-workflow`) + skills gl
 | `POST /messenger/study-calendar/sync` | ✓ Endpoint + sync theo `userId` |
 | Auth ops (`INTERNAL_API_KEY`) | ✓ Header `X-Internal-Api-Key` hoặc Bearer |
 | Wispace wire sync sau đổi lịch | ✓ Gọi `POST /messenger/study-calendar/sync` + `X-Internal-Api-Key` |
-| Tên học viên cho LLM | ✓ Bảng `users` + view `"Users"` trên `ai_chat_bot_db` (`DisplayName` → `'bạn'`) |
+| Tên học viên cho LLM | ✓ Bảng `users` + view `"Users"` trên `ai_chat_bot_db` (`DisplayName` → `'Chào bạn nha'`) |
 | DB POC tách khỏi `writing_ai_hub_db` | ✓ `ai_chat_bot_db` + scripts migrate/drop trên hub cũ |
 | Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✓ `StudyReminderJobRepository.upsertPendingJob` reopen → `pending` |
 | Mapping đổi `user_id` cùng PSID (L3) | ✓ `MessengerMappingService`, `POST /messenger/mapping/relink`, `npm run messenger:relink` |

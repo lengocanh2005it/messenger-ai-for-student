@@ -30,6 +30,8 @@ describe('IoredisRedisClient (enabled)', () => {
       ping: jest.fn().mockResolvedValue('PONG'),
       quit: jest.fn().mockResolvedValue('OK'),
       disconnect: jest.fn(),
+      connect: jest.fn().mockResolvedValue(undefined),
+      status: 'wait',
     };
 
     const redisConfig = {
@@ -43,12 +45,29 @@ describe('IoredisRedisClient (enabled)', () => {
     (client as unknown as { client: typeof mockRedis }).client = mockRedis;
   });
 
-  it('pings successfully', async () => {
+  it('pings successfully and logs PING OK once', async () => {
+    const logSpy = jest
+      .spyOn(
+        (client as unknown as { logger: { log: (message: string) => void } })
+          .logger,
+        'log',
+      )
+      .mockImplementation(() => undefined);
+
     const result = await client.ping();
 
     expect(result.status).toBe('ok');
     expect(result.latencyMs).toEqual(expect.any(Number));
+    expect(mockRedis.connect).toHaveBeenCalled();
     expect(mockRedis.ping).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/^Redis PING OK \(127\.0\.0\.1:6379, \d+ms\)$/),
+    );
+
+    await client.ping();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+
+    logSpy.mockRestore();
   });
 
   it('returns error when ping response is unexpected', async () => {

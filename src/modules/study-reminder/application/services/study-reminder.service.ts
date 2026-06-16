@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
+import { FALLBACK_DISPLAY_NAME } from '../../../../shared/config/poc.constants';
 import { StudentCapacityService } from '../../../student-report/application/services/student-capacity.service';
 import { UserGoalsApiService } from '../../../student-report/infrastructure/wispace/user-goals-api.service';
 import {
@@ -175,7 +176,10 @@ export class StudyReminderService {
     }
 
     return {
-      greeting: `Chào ${input.displayName},`,
+      greeting:
+        input.displayName.trim() === FALLBACK_DISPLAY_NAME
+          ? 'Chào bạn nha,'
+          : `Chào ${input.displayName},`,
       intro: 'mình nhắc bạn về buổi luyện IELTS Writing sắp tới nhé.',
       scheduledTime: input.scheduledTimeLabel,
       tasks,

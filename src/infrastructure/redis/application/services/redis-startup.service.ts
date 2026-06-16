@@ -22,9 +22,6 @@ export class RedisStartupService implements OnModuleInit {
     const result = await this.redisClient.ping();
 
     if (result.status === 'ok') {
-      this.logger.log(
-        `Redis connected (${this.redisConfig.getHost()}:${this.redisConfig.getPort()}, latency ${result.latencyMs}ms)`,
-      );
       return;
     }
 
