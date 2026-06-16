@@ -14,6 +14,10 @@ import {
   DopplerRuntimeSyncService,
   type DopplerWebhookPayload,
 } from '../../application/services/doppler-runtime-sync.service';
+import {
+  CiDeployService,
+  type CiDeployPayload,
+} from '../../application/services/ci-deploy.service';
 import { ReportCronService } from '../../application/services/report-cron.service';
 import { ReportSendRetryDispatchService } from '../../application/services/report-send-retry-dispatch.service';
 
@@ -46,7 +50,14 @@ export class SchedulerController {
     private readonly messengerMappingService: MessengerMappingService,
     private readonly reportSendRetryDispatchService: ReportSendRetryDispatchService,
     private readonly dopplerRuntimeSyncService: DopplerRuntimeSyncService,
+    private readonly ciDeployService: CiDeployService,
   ) {}
+
+  @Post('ops/ci-deploy')
+  @HttpCode(202)
+  ciDeploy(@Body() body: CiDeployPayload) {
+    return this.ciDeployService.scheduleDeploy(body);
+  }
 
   @Post('ops/doppler-sync')
   @HttpCode(202)

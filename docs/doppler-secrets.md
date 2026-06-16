@@ -37,13 +37,35 @@ Hoặc paste từng key trên dashboard. **Không** commit file prod vào git.
 Mỗi deploy `main` (hoặc workflow_dispatch):
 
 ```text
-doppler secrets download → production.env → SCP VPS → .env
-docker build → push ghcr.io/... → VPS docker compose pull && up -d
+docker build → push ghcr.io/... → POST /messenger/ops/ci-deploy (HTTPS, không SSH)
 ```
 
-Nếu **chưa** set `DOPPLER_TOKEN`, CI bỏ qua bước sync env — VPS giữ `.env` cũ.
+Env prod: Doppler webhook → `POST /messenger/ops/doppler-sync` (không qua GitHub).
 
-**`GHCR_PULL_TOKEN`:** classic PAT scope `read:packages` (cùng user sở hữu repo) để VPS `docker login` pull image private.
+**GitHub secrets bắt buộc cho deploy HTTP:**
+
+| Secret | Mục đích |
+|--------|----------|
+| `INTERNAL_API_KEY` | Bearer token — cùng giá trị `INTERNAL_API_KEY` trong Doppler `prd` |
+| `GHCR_PULL_TOKEN` | (tuỳ chọn trên CI) — trên VPS đặt trong Doppler `prd` để container `docker pull` |
+
+**Repository variable (tuỳ chọn):** `VPS_PUBLIC_URL` = `https://aiassist.aihubproduction.com` (mặc định trong script nếu không set).
+
+Nếu **chưa** set `INTERNAL_API_KEY` trên GitHub Actions, bước deploy HTTP fail — thêm secret rồi re-run workflow.
+
+**Lần đầu sau khi bật HTTP deploy:** VPS cần image có endpoint `ci-deploy`. SSH từ máy local (GitHub Actions thường bị chặn port 22):
+
+```bash
+cd ~/messenger-bot
+echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u lengocanh2005it --password-stdin
+export IMAGE=ghcr.io/lengocanh2005it/messenger-ai-for-student:latest
+docker pull "$IMAGE"
+docker compose -f docker-compose.prod.yml up -d --force-recreate
+```
+
+Sau đó mọi push `main` chỉ cần CI build + HTTP trigger.
+
+Nếu **chưa** set `DOPPLER_TOKEN`, workflow sync-env vẫn gọi webhook doppler-sync trên VPS (không tải env qua SCP).
 
 ---
 
