@@ -47,6 +47,7 @@ ensure_production_env_vars() {
   if ! grep -q '^HOME=' "$env_file"; then
     set_env_var HOME /tmp
   fi
+
   echo "Ensured production env flags and deploy paths in .env"
 }
 

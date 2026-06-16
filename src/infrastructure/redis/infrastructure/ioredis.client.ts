@@ -27,6 +27,11 @@ export class IoredisRedisClient implements RedisClientPort, OnModuleDestroy {
       connectTimeout: 5_000,
       enableOfflineQueue: false,
     });
+
+    this.client.on('error', (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.debug(`Redis client error: ${message}`);
+    });
   }
 
   isEnabled(): boolean {

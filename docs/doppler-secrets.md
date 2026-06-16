@@ -23,6 +23,19 @@ doppler secrets upload /path/to/production.env
 
 Hoặc paste từng key trên dashboard. **Không** commit file prod vào git.
 
+**Upload từ `.env` local (đồng bộ lên Doppler):**
+
+```bash
+doppler login
+npm run env:upload-doppler
+# → upload .env lên config dev (PORT=3001) + prd (PORT=5007, DOPPLER_RUNTIME_SYNC_ENABLED=true)
+
+# Chỉ một config:
+node scripts/upload-env-to-doppler.mjs .env prd
+```
+
+Sau khi sửa secret trên Doppler: webhook tự sync VPS, hoặc `npm run env:sync-prod` / Re-run workflow **Sync production env**.
+
 4. Config `dev`: copy từ `prd` rồi chỉnh `PORT=3001`, URL local, tắt ops nếu cần.
 
 ---
