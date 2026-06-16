@@ -8,6 +8,7 @@ fi
 
 TARGET_DIR="${VPS_TARGET_DIR:-/home/ngoc_anh/messenger-bot}"
 SCRIPT_PATH="${1:-${TARGET_DIR}/vps-deploy.sh}"
+SSH_PORT="${VPS_SSH_PORT:-22}"
 MAX_ATTEMPTS="${SSH_MAX_ATTEMPTS:-5}"
 CONNECT_TIMEOUT="${SSH_CONNECT_TIMEOUT:-45}"
 
@@ -18,6 +19,7 @@ chmod 600 ~/.ssh/deploy_key
 HOST="${VPS_USER}@${VPS_HOST}"
 SSH_OPTS=(
   -i ~/.ssh/deploy_key
+  -p "${SSH_PORT}"
   -o StrictHostKeyChecking=no
   -o UserKnownHostsFile=/dev/null
   -o ServerAliveInterval=15

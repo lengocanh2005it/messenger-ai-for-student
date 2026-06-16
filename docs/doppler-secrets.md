@@ -37,35 +37,28 @@ Hoặc paste từng key trên dashboard. **Không** commit file prod vào git.
 Mỗi deploy `main` (hoặc workflow_dispatch):
 
 ```text
-docker build → push ghcr.io/... → POST /messenger/ops/ci-deploy (HTTPS, không SSH)
+docker build → push ghcr.io/... → SCP + SSH lên VPS (Doppler env khi có DOPPLER_TOKEN)
 ```
 
-Env prod: Doppler webhook → `POST /messenger/ops/doppler-sync` (không qua GitHub).
+Env prod đổi trên Doppler: webhook → `POST /messenger/ops/doppler-sync` (không cần GitHub).
 
-**GitHub secrets bắt buộc cho deploy HTTP:**
+**GitHub secrets bắt buộc cho deploy SSH:**
 
 | Secret | Mục đích |
 |--------|----------|
-| `INTERNAL_API_KEY` | Bearer token — cùng giá trị `INTERNAL_API_KEY` trong Doppler `prd` |
-| `GHCR_PULL_TOKEN` | (tuỳ chọn trên CI) — trên VPS đặt trong Doppler `prd` để container `docker pull` |
+| `SSH_PRIVATE_KEY` | Private key khớp `~/.ssh/authorized_keys` trên VPS (`ngoc_anh`) |
+| `VPS_HOST` | IP VPS (vd. `69.62.74.196`) |
+| `VPS_USER` | `ngoc_anh` |
+| `DOPPLER_TOKEN` | (khuyến nghị) Tải `production.env` mỗi deploy |
+| `GHCR_PULL_TOKEN` | (khuyến nghị) `docker pull` trên VPS |
 
-**Repository variable (tuỳ chọn):** `VPS_PUBLIC_URL` = `https://aiassist.aihubproduction.com` (mặc định trong script nếu không set).
+**Repository variable (tuỳ chọn):** `VPS_SSH_PORT` — mặc định `8443` trong workflow. Port **22** trên OS (UFW) đã mở; runner GitHub Actions thường **timeout** tới `:22` do firewall Hostinger hPanel chặn IP cloud. `sshd` lắng nghe thêm **8443** (đã allow trên UFW) — CI dùng port này.
 
-Nếu **chưa** set `INTERNAL_API_KEY` trên GitHub Actions, bước deploy HTTP fail — thêm secret rồi re-run workflow.
+**Mở port 22 cho GitHub (Hostinger hPanel):** VPS → **Security** → **Firewall** → rule **TCP 22** **Accept** từ **Anywhere** (hoặc whitelist IP Actions từ `https://api.github.com/meta` → `actions[]`). Sau đó có thể set `VPS_SSH_PORT=22`.
 
-**Lần đầu sau khi bật HTTP deploy:** VPS cần image có endpoint `ci-deploy`. SSH từ máy local (GitHub Actions thường bị chặn port 22):
+Nếu **chưa** set `SSH_PRIVATE_KEY` / `VPS_*`, bước SCP/SSH fail — thêm secret rồi re-run workflow.
 
-```bash
-cd ~/messenger-bot
-echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u lengocanh2005it --password-stdin
-export IMAGE=ghcr.io/lengocanh2005it/messenger-ai-for-student:latest
-docker pull "$IMAGE"
-docker compose -f docker-compose.prod.yml up -d --force-recreate
-```
-
-Sau đó mọi push `main` chỉ cần CI build + HTTP trigger.
-
-Nếu **chưa** set `DOPPLER_TOKEN`, workflow sync-env vẫn gọi webhook doppler-sync trên VPS (không tải env qua SCP).
+Nếu **chưa** set `DOPPLER_TOKEN`, workflow vẫn deploy image; env trên VPS giữ nguyên (hoặc dùng webhook doppler-sync khi đổi secret).
 
 ---
 
