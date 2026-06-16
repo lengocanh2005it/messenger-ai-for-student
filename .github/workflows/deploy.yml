@@ -188,6 +188,16 @@ jobs:
               exit 1
             fi
 
+            if docker info >/dev/null 2>&1; then
+              DOCKER="docker"
+            elif sudo docker info >/dev/null 2>&1; then
+              DOCKER="sudo docker"
+              echo "Using sudo for docker (user not in docker group)"
+            else
+              echo "ERROR: cannot access docker API (try: sudo usermod -aG docker $USER)"
+              exit 1
+            fi
+
             cd "$DEPLOY_PATH"
             apply_doppler_env_from_ci
 
@@ -206,7 +216,7 @@ jobs:
             echo "Listening port: $PORT"
 
             if [ -n "${GHCR_PULL_TOKEN:-}" ]; then
-              echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+              echo "$GHCR_PULL_TOKEN" | $DOCKER login ghcr.io -u "$GHCR_USER" --password-stdin
             else
               echo "WARNING: GHCR_PULL_TOKEN not set — pull may fail for private images"
             fi
@@ -215,7 +225,7 @@ jobs:
             export PORT
 
             echo "Pulling image: $IMAGE"
-            docker compose -f docker-compose.prod.yml pull
+            $DOCKER compose -f docker-compose.prod.yml pull
 
             echo "Stopping legacy PM2 process (if any)"
             if command -v pm2 >/dev/null 2>&1; then
@@ -223,15 +233,15 @@ jobs:
             fi
 
             echo "Starting container"
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            $DOCKER compose -f docker-compose.prod.yml up -d --remove-orphans
 
-            docker compose -f docker-compose.prod.yml ps
-            docker logs messenger-bot --tail 40 || true
+            $DOCKER compose -f docker-compose.prod.yml ps
+            $DOCKER logs messenger-bot --tail 40 || true
 
             if health_check; then
               echo "Deployment complete — container messenger-bot is healthy"
             else
               echo "ERROR: Health check failed"
-              docker logs messenger-bot --tail 80 || true
+              $DOCKER logs messenger-bot --tail 80 || true
               exit 1
             fi
