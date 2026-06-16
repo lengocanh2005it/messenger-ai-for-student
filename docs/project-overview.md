@@ -260,6 +260,7 @@ Xem `.env.example`. Nhóm chính:
 - **Báo cáo thi:** `WISPACE_REPORT_DAYS_BEFORE_EXAM_MIN/MAX`
 - **DB:** `DB_HOST`, `DB_PORT`, `DB_NAME` (`ai_chat_bot_db`), `DB_USER`, `DB_PASSWORD`, `DB_MIGRATIONS_RUN`
 - **Redis (optional, VPS):** `REDIS_ENABLED`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` — R0–R4 stores + R5 user display cache; `GET /health/redis` khi bật
+  - Nếu Redis chạy trong Docker cùng `messenger-bot` (external network), set `REDIS_HOST=redis` (container name) và `REDIS_PORT=6379` (không cần publish port public).
 - **User display cache (R5):** `USER_DISPLAY_NAME_CACHE_ENABLED`, `USER_DISPLAY_NAME_CACHE_TTL_SECONDS`
 
 ---

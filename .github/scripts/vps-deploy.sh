@@ -47,6 +47,11 @@ ensure_production_env_vars() {
   if ! grep -q '^HOME=' "$env_file"; then
     set_env_var HOME /tmp
   fi
+
+  # Redis chạy bằng Docker (container name: redis) trong external network.
+  # CI/Doppler có thể ghi lại REDIS_HOST cũ (IP/domain), nên luôn ép về giá trị đúng để app resolve được.
+  set_env_var REDIS_HOST redis
+  set_env_var REDIS_PORT 6379
   echo "Ensured production env flags and deploy paths in .env"
 }
 
@@ -129,6 +134,8 @@ fi
 
 echo "Starting container"
 $DOCKER compose -f docker-compose.prod.yml "${RECREATE_FLAGS[@]}"
+
+$DOCKER network connect messenger-redis-shared messenger-bot >/dev/null 2>&1 || true
 
 $DOCKER compose -f docker-compose.prod.yml ps
 $DOCKER logs messenger-bot --tail 40 || true
