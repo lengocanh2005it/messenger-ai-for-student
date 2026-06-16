@@ -100,6 +100,8 @@ Vẫn có thể dùng `.env` + `npm run start:dev` nếu chưa cài Doppler.
 1. Sửa trên Doppler config **`prd`** (dashboard hoặc CLI).
 2. Doppler webhook → `POST https://aiassist.aihubproduction.com/messenger/ops/doppler-sync` (tự sync + restart).
 
+Runtime sync ghi tạm `/tmp/.env.sync.tmp` rồi `copyFile` sang `/deploy/.env` (bind mount host `.env`) — không tạo file cạnh mount trong `/deploy/`.
+
 **Không cần** GitHub Actions khi chỉ đổi env.
 
 **Thủ công (không webhook):** `npm run env:sync-prod` hoặc Actions → **Sync production env (no image build)**.

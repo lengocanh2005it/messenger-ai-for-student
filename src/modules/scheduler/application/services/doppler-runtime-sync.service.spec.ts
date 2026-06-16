@@ -1,5 +1,9 @@
+import { promises as fs } from 'node:fs';
 import { ConfigService } from '@nestjs/config';
-import { DopplerRuntimeSyncService } from './doppler-runtime-sync.service';
+import {
+  DOPPLER_RUNTIME_ENV_SYNC_TMP,
+  DopplerRuntimeSyncService,
+} from './doppler-runtime-sync.service';
 
 describe('DopplerRuntimeSyncService', () => {
   const createService = (values: Record<string, string | undefined>) => {
@@ -65,5 +69,36 @@ describe('DopplerRuntimeSyncService', () => {
 
     expect(result).toEqual({ accepted: true });
     setImmediateSpy.mockRestore();
+  });
+
+  it('writes env via /tmp then copyFile to bind-mounted deploy path', async () => {
+    const writeFile = jest.spyOn(fs, 'writeFile').mockResolvedValue(undefined);
+    const copyFile = jest.spyOn(fs, 'copyFile').mockResolvedValue(undefined);
+    const chmod = jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
+    const unlink = jest.spyOn(fs, 'unlink').mockResolvedValue(undefined);
+
+    const service = createService({});
+    await (
+      service as unknown as {
+        writeEnvAtomically: (envFile: string, content: string) => Promise<void>;
+      }
+    ).writeEnvAtomically('/deploy/.env', 'PORT=5007\n');
+
+    expect(writeFile).toHaveBeenCalledWith(
+      DOPPLER_RUNTIME_ENV_SYNC_TMP,
+      'PORT=5007\n',
+      { mode: 0o600 },
+    );
+    expect(copyFile).toHaveBeenCalledWith(
+      DOPPLER_RUNTIME_ENV_SYNC_TMP,
+      '/deploy/.env',
+    );
+    expect(chmod).toHaveBeenCalledWith('/deploy/.env', 0o600);
+    expect(unlink).toHaveBeenCalledWith(DOPPLER_RUNTIME_ENV_SYNC_TMP);
+
+    writeFile.mockRestore();
+    copyFile.mockRestore();
+    chmod.mockRestore();
+    unlink.mockRestore();
   });
 });

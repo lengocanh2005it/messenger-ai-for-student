@@ -10,6 +10,9 @@ import { ConfigService } from '@nestjs/config';
 
 const execFileAsync = promisify(execFile);
 
+/** Writable in container; `/deploy/` is only a bind-mounted file, not a directory. */
+export const DOPPLER_RUNTIME_ENV_SYNC_TMP = '/tmp/.env.sync.tmp';
+
 export interface DopplerWebhookPayload {
   project?: { name?: string } | string;
   config?: { name?: string } | string;
@@ -159,9 +162,7 @@ export class DopplerRuntimeSyncService {
         },
       );
 
-      const tmpFile = `${envFile}.tmp`;
-      await fs.writeFile(tmpFile, stdout, { mode: 0o600 });
-      await fs.rename(tmpFile, envFile);
+      await this.writeEnvAtomically(envFile, stdout);
 
       const { stdout: imageRaw } = await execFileAsync('docker', [
         'inspect',
@@ -198,6 +199,19 @@ export class DopplerRuntimeSyncService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`DOPPLER_RUNTIME_SYNC failed: ${message}`);
+    }
+  }
+
+  private async writeEnvAtomically(
+    envFile: string,
+    content: string,
+  ): Promise<void> {
+    await fs.writeFile(DOPPLER_RUNTIME_ENV_SYNC_TMP, content, { mode: 0o600 });
+    try {
+      await fs.copyFile(DOPPLER_RUNTIME_ENV_SYNC_TMP, envFile);
+      await fs.chmod(envFile, 0o600);
+    } finally {
+      await fs.unlink(DOPPLER_RUNTIME_ENV_SYNC_TMP).catch(() => undefined);
     }
   }
 
