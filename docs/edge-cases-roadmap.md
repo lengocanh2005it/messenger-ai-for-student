@@ -212,6 +212,7 @@ Rate limit V1 + **H1–H7**, agent tools, history RAM/DB, delivery semantics H4.
 | **≥2 pod cron nhắc** | `claimJob` ✓ + **cron pg_advisory_lock** ✓ | `upsertPendingJob` TOCTOU fixed ✓ (`pg_advisory_xact_lock`) | Done |
 | Cron webhook dedupe cleanup multi-pod | N×DELETE | **pg_advisory_lock** ✓ — chỉ 1 pod chạy mỗi 15 phút | Done |
 | Monitor / alert | Log + scripts | **I1** ✓ runbook + `ops:health`; **S1** ✓ failed/stuck jobs; **DL** ✓ dead-letter cron; **I2** Slack alert | **I2** |
+| **Env prod sync thủ công VPS** | Lệch local/prod; rotate secret phải SSH | **Doppler** + `DOPPLER_TOKEN` trên CI — [doppler-secrets.md](./doppler-secrets.md) | Done (code) — cần setup dashboard |
 | Wispace **schema** đổi | Fallback DB `UserCalendars` | API-only khi ổn định — **I3** | **I3** |
 
 ### I1 — Ops alert nhẹ (không cần Prometheus) ✓

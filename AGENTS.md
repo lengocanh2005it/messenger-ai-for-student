@@ -20,7 +20,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 
 ## Dev environment tips
 
-- Copy `.env.example` → `.env` và điền token thật trước khi chạy sync/cron.
+- Copy `.env.example` → `.env` và điền token thật trước khi chạy sync/cron — hoặc [Doppler](docs/doppler-secrets.md): `doppler setup` + `npm run start:dev:doppler`.
 - **DB prod:** `DB_NAME=ai_chat_bot_db` (không còn `writing_ai_hub_db`).
 - Webhook Meta cần URL public (ngrok/tunnel) trỏ tới `POST /webhook`.
 - Sau lần deploy đầu: gọi `POST /messenger/profile/setup` (header `X-Internal-Api-Key`) — menu prod chỉ **Đăng ký báo cáo** (báo cáo/nhắc lịch bot gửi tự động).
@@ -137,7 +137,7 @@ Cùng PR/task với code — cập nhật hàng **agent** (không chỉ `docs/` 
 | Study reminder / sync / dispatch | `docs/study-session-reminder.md`, `.claude/rules/study-reminder.md`, skill `/study-reminder-debug` |
 | Entity / migration / tách DB | `.claude/rules/database.md`, skill `/typeorm-migration`, `.env.example` nếu thêm biến |
 | System prompt LLM | `src/shared/prompts/*.system.txt`, skill `/edit-llm-prompt` |
-| Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `docs/project-overview.md` runbook |
+| Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `docs/project-overview.md` runbook, `docs/doppler-secrets.md` |
 | Env mới | `.env.example` + dòng tương ứng trong `docs/project-overview.md` hoặc `AGENTS.md` |
 | Webhook Meta signature / `MESSENGER_APP_SECRET` | `docs/project-overview.md`, `docs/edge-cases-roadmap.md` §1, `AGENTS.md` Security |
 | Gap / roadmap đã đóng | `docs/edge-cases-roadmap.md`, bảng Integration gaps trong `AGENTS.md` |

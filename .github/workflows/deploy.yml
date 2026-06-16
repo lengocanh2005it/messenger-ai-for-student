@@ -49,6 +49,21 @@ jobs:
             dist package.json package-lock.json node_modules ecosystem.config.cjs
           du -h messenger-bot-publish.zip
 
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@v3
+
+      - name: Download production env from Doppler
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: |
+          if [ -z "${DOPPLER_TOKEN:-}" ]; then
+            echo "DOPPLER_TOKEN not set — VPS will keep existing .env"
+            exit 0
+          fi
+          doppler secrets download --no-file --format env > production.env
+          echo "Downloaded $(wc -l < production.env) lines from Doppler"
+          echo "has_production_env=true" >> "$GITHUB_ENV"
+
       - name: Upload archive to VPS
         uses: appleboy/scp-action@v1
         with:
@@ -58,6 +73,17 @@ jobs:
           source: messenger-bot-publish.zip
           target: /home/ngoc_anh/messenger-bot/
           timeout: 180s
+
+      - name: Upload production env to VPS
+        if: env.has_production_env == 'true'
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: production.env
+          target: /home/ngoc_anh/messenger-bot/
+          timeout: 60s
 
       - name: Deploy on VPS
         uses: appleboy/ssh-action@v1.2.0
@@ -75,6 +101,7 @@ jobs:
             STAGING_PATH="$DEPLOY_PATH/publish.next"
             PREV_PATH="$DEPLOY_PATH/publish.prev"
             PORT=5007
+            DOPPLER_ENV_APPLIED=false
 
             load_shell() {
               # Non-interactive SSH + set -u breaks typical .bashrc (PS1, etc.)
@@ -199,6 +226,10 @@ jobs:
 
             restore_env_file() {
               local target_dir="$1"
+              if [ "$DOPPLER_ENV_APPLIED" = true ] && [ -f "$DEPLOY_PATH/.env" ]; then
+                cp "$DEPLOY_PATH/.env" "$target_dir/.env"
+                return
+              fi
               if [ -f "$DEPLOY_PATH/.env.backup" ]; then
                 mv "$DEPLOY_PATH/.env.backup" "$target_dir/.env"
               elif [ -f "$DEPLOY_PATH/.env" ]; then
@@ -208,6 +239,17 @@ jobs:
               else
                 echo "WARNING: No .env found under $DEPLOY_PATH"
               fi
+            }
+
+            apply_doppler_env_from_ci() {
+              if [ ! -f "$DEPLOY_PATH/production.env" ]; then
+                return 0
+              fi
+
+              install -m 600 "$DEPLOY_PATH/production.env" "$DEPLOY_PATH/.env"
+              rm -f "$DEPLOY_PATH/production.env"
+              DOPPLER_ENV_APPLIED=true
+              echo "Applied .env from Doppler (CI)"
             }
 
             ensure_production_env_vars() {
@@ -242,6 +284,7 @@ jobs:
             ensure_pm2
 
             cd "$DEPLOY_PATH"
+            apply_doppler_env_from_ci
             if [ ! -f messenger-bot-publish.zip ]; then
               echo "ERROR: messenger-bot-publish.zip not found"
               ls -la
@@ -249,7 +292,7 @@ jobs:
             fi
             echo "Archive size: $(du -h messenger-bot-publish.zip | cut -f1)"
 
-            if [ -f "$PUBLISH_PATH/.env" ]; then
+            if [ "$DOPPLER_ENV_APPLIED" != true ] && [ -f "$PUBLISH_PATH/.env" ]; then
               cp "$PUBLISH_PATH/.env" "$DEPLOY_PATH/.env.backup"
             fi
 

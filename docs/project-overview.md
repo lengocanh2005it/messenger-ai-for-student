@@ -397,8 +397,25 @@ npm run migration:run
 npm run start:dev
 ```
 
+Hoặc **Doppler** (không cần `.env` trên disk): xem [doppler-secrets.md](./doppler-secrets.md) → `doppler setup` + `npm run start:dev:doppler`.
+
 Webhook Meta trỏ tới URL public (ngrok / tunnel) → `POST /webhook`.
 
 Sau deploy menu lần đầu: `POST /messenger/profile/setup`.
 
 Bootstrap jobs nhắc lịch: `npm run study-reminder:sync`.
+
+---
+
+## 12. Deploy VPS & secrets (Doppler)
+
+GitHub Actions (push `main`): lint → test → build → deploy [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
+
+| Secret GitHub | Mục đích |
+|---------------|----------|
+| `VPS_HOST`, `VPS_USER`, `SSH_PRIVATE_KEY` | SSH/SCP |
+| `DOPPLER_TOKEN` | Service token config **prd** — tải env → VPS mỗi deploy |
+
+Khi `DOPPLER_TOKEN` có mặt: CI `doppler secrets download` → `production.env` → SCP → `publish/.env`. Không cần SSH sửa env tay sau khi đã setup.
+
+Chi tiết setup project/config `dev` + `prd`: [doppler-secrets.md](./doppler-secrets.md).
