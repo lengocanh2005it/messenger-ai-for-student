@@ -10,6 +10,10 @@ import { InternalApiKeyGuard } from '../../../../shared/common/guards/internal-a
 import { StudyReminderSyncService } from '../../../study-reminder/application/services/study-reminder-sync.service';
 import { StudyReminderWorkerService } from '../../../study-reminder/application/services/study-reminder-worker.service';
 import { MessengerMappingService } from '../../../messenger/application/services/messenger-mapping.service';
+import {
+  DopplerRuntimeSyncService,
+  type DopplerWebhookPayload,
+} from '../../application/services/doppler-runtime-sync.service';
 import { ReportCronService } from '../../application/services/report-cron.service';
 import { ReportSendRetryDispatchService } from '../../application/services/report-send-retry-dispatch.service';
 
@@ -41,7 +45,14 @@ export class SchedulerController {
     private readonly studyReminderWorkerService: StudyReminderWorkerService,
     private readonly messengerMappingService: MessengerMappingService,
     private readonly reportSendRetryDispatchService: ReportSendRetryDispatchService,
+    private readonly dopplerRuntimeSyncService: DopplerRuntimeSyncService,
   ) {}
+
+  @Post('ops/doppler-sync')
+  @HttpCode(202)
+  dopplerRuntimeSync(@Body() body?: DopplerWebhookPayload) {
+    return this.dopplerRuntimeSyncService.scheduleSync(body);
+  }
 
   @Post('send-reports')
   @HttpCode(200)

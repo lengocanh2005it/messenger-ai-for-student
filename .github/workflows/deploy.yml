@@ -158,7 +158,12 @@ jobs:
 
               set_env_var CHAT_RATE_LIMIT_ENABLED true
               set_env_var ENFORCE_PROD_CHAT_QUOTA true
-              echo "Ensured CHAT_RATE_LIMIT_ENABLED and ENFORCE_PROD_CHAT_QUOTA in .env"
+              set_env_var DOPPLER_RUNTIME_SYNC_ENABLED true
+              set_env_var DEPLOY_DIR /deploy
+              set_env_var DEPLOY_ENV_FILE /deploy/.env
+              set_env_var DEPLOY_COMPOSE_FILE /deploy/docker-compose.prod.yml
+              set_env_var DOCKER_GID "$(stat -c '%g' /var/run/docker.sock)"
+              echo "Ensured production env flags and deploy paths in .env"
             }
 
             apply_doppler_env_from_ci() {

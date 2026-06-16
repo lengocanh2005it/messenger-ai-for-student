@@ -8,6 +8,7 @@ import { MessengerModule } from '../messenger/messenger.module';
 import { MessengerOutboundModule } from '../messenger/messenger-outbound.module';
 import { StudentReportModule } from '../student-report/student-report.module';
 import { StudyReminderModule } from '../study-reminder/study-reminder.module';
+import { DopplerRuntimeSyncService } from './application/services/doppler-runtime-sync.service';
 import { OpsHealthCronService } from './application/services/ops-health-cron.service';
 import { OpsHealthService } from './application/services/ops-health.service';
 import { ReportCronLeaderService } from './application/services/report-cron-leader.service';
@@ -46,6 +47,7 @@ import { SchedulerController } from './presentation/controllers/scheduler.contro
     },
     OpsHealthService,
     OpsHealthCronService,
+    DopplerRuntimeSyncService,
   ],
 })
 export class SchedulerModule {}
