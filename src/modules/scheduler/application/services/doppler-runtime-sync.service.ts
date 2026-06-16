@@ -149,7 +149,12 @@ export class DopplerRuntimeSyncService {
           config,
         ],
         {
-          env: { ...process.env, DOPPLER_TOKEN: token },
+          env: {
+            ...process.env,
+            DOPPLER_TOKEN: token,
+            HOME: '/tmp',
+            DOPPLER_CONFIG_DIR: '/tmp/.doppler',
+          },
           maxBuffer: 10 * 1024 * 1024,
         },
       );
