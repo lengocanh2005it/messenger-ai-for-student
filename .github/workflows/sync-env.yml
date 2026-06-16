@@ -17,6 +17,11 @@ jobs:
   sync-env:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_PORT: ${{ vars.VPS_SSH_PORT || '8443' }}
 
     steps:
       - name: Checkout code
@@ -43,45 +48,26 @@ jobs:
           echo "Downloaded $(wc -l < production.env) lines from Doppler"
           echo "has_production_env=true" >> "$GITHUB_ENV"
 
-      - name: Upload production env to VPS
-        if: env.has_production_env == 'true'
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ vars.VPS_SSH_PORT || 8443 }}
-          source: production.env
-          target: /home/ngoc_anh/messenger-bot/
-          timeout: 60s
+      - name: Prepare VPS upload bundle
+        run: |
+          mkdir -p upload-bundle
+          cp docker-compose.prod.yml upload-bundle/
+          cp .github/scripts/vps-deploy.sh upload-bundle/
+          if [ -f production.env ]; then
+            cp production.env upload-bundle/
+          fi
+          ls -la upload-bundle/
 
-      - name: Upload deploy assets to VPS
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ vars.VPS_SSH_PORT || 8443 }}
-          source: docker-compose.prod.yml,.github/scripts/vps-deploy.sh
-          target: /home/ngoc_anh/messenger-bot/
-          timeout: 60s
+      - name: Upload bundle to VPS (retry)
+        run: bash .github/scripts/upload-to-vps.sh upload-bundle
 
-      - name: Sync env on VPS
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Deploy on VPS (retry)
         env:
           IMAGE: ${{ env.IMAGE }}
           DEPLOY_MODE: ${{ env.DEPLOY_MODE }}
           FORCE_RECREATE: 'true'
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
           GHCR_USER: ${{ github.repository_owner }}
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ vars.VPS_SSH_PORT || 8443 }}
-          command_timeout: 10m
-          envs: IMAGE,DEPLOY_MODE,FORCE_RECREATE,GHCR_PULL_TOKEN,GHCR_USER
-          script: |
-            set -euo pipefail
-            chmod +x /home/ngoc_anh/messenger-bot/vps-deploy.sh
-            bash /home/ngoc_anh/messenger-bot/vps-deploy.sh
+        run: |
+          export IMAGE DEPLOY_MODE FORCE_RECREATE GHCR_PULL_TOKEN GHCR_USER
+          bash .github/scripts/ssh-deploy-vps.sh /home/ngoc_anh/messenger-bot/vps-deploy.sh
