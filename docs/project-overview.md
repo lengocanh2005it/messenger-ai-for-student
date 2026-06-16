@@ -407,15 +407,20 @@ Bootstrap jobs nhắc lịch: `npm run study-reminder:sync`.
 
 ---
 
-## 12. Deploy VPS & secrets (Doppler)
+## 12. Deploy VPS (Docker + GHCR + Doppler)
 
-GitHub Actions (push `main`): lint → test → build → deploy [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
+GitHub Actions (push `main`): lint → test → build → **push image GHCR** → VPS `docker pull` + `docker compose up` [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
 
 | Secret GitHub | Mục đích |
 |---------------|----------|
-| `VPS_HOST`, `VPS_USER`, `SSH_PRIVATE_KEY` | SSH/SCP |
+| `VPS_HOST`, `VPS_USER`, `SSH_PRIVATE_KEY` | SSH deploy |
+| `GHCR_PULL_TOKEN` | PAT `read:packages` — VPS `docker login ghcr.io` để pull image private |
 | `DOPPLER_TOKEN` | Service token config **prd** — tải env → VPS mỗi deploy |
 
-Khi `DOPPLER_TOKEN` có mặt: CI `doppler secrets download` → `production.env` → SCP → `publish/.env`. Không cần SSH sửa env tay sau khi đã setup.
+Image: `ghcr.io/<owner>/messenger-ai-for-student:latest` (tag thêm `:commit-sha`).
+
+Trên VPS: `docker-compose.prod.yml` + `.env` tại `/home/ngoc_anh/messenger-bot/`. Legacy PM2 `publish/` không còn dùng sau migrate.
+
+Khi `DOPPLER_TOKEN` có mặt: CI `doppler secrets download` → SCP `production.env` → `.env`. Không cần SSH sửa env tay.
 
 Chi tiết setup project/config `dev` + `prd`: [doppler-secrets.md](./doppler-secrets.md).

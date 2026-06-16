@@ -12,11 +12,15 @@ concurrency:
 
 permissions:
   contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
 
 jobs:
   deploy-backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
@@ -40,14 +44,32 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Prune to production dependencies
-        run: npm ci --omit=dev
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Create deployment archive
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare image reference
         run: |
-          zip -rq messenger-bot-publish.zip \
-            dist package.json package-lock.json node_modules ecosystem.config.cjs
-          du -h messenger-bot-publish.zip
+          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=${{ env.REGISTRY }}/${REPO_LC}:${{ github.sha }}" >> "$GITHUB_ENV"
+          echo "IMAGE_LATEST=${{ env.REGISTRY }}/${REPO_LC}:latest" >> "$GITHUB_ENV"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}
+            ${{ env.IMAGE_LATEST }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Install Doppler CLI
         uses: dopplerhq/cli-action@v3
@@ -64,16 +86,6 @@ jobs:
           echo "Downloaded $(wc -l < production.env) lines from Doppler"
           echo "has_production_env=true" >> "$GITHUB_ENV"
 
-      - name: Upload archive to VPS
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: messenger-bot-publish.zip
-          target: /home/ngoc_anh/messenger-bot/
-          timeout: 180s
-
       - name: Upload production env to VPS
         if: env.has_production_env == 'true'
         uses: appleboy/scp-action@v1
@@ -85,81 +97,33 @@ jobs:
           target: /home/ngoc_anh/messenger-bot/
           timeout: 60s
 
+      - name: Upload compose file to VPS
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: docker-compose.prod.yml
+          target: /home/ngoc_anh/messenger-bot/
+          timeout: 60s
+
       - name: Deploy on VPS
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          GHCR_USER: ${{ github.repository_owner }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 10m
+          envs: IMAGE,GHCR_PULL_TOKEN,GHCR_USER
           script: |
             set -euo pipefail
 
-            APP_NAME="messenger-bot"
             DEPLOY_PATH="/home/ngoc_anh/messenger-bot"
-            PUBLISH_PATH="$DEPLOY_PATH/publish"
-            STAGING_PATH="$DEPLOY_PATH/publish.next"
-            PREV_PATH="$DEPLOY_PATH/publish.prev"
             PORT=5007
-            DOPPLER_ENV_APPLIED=false
-
-            load_shell() {
-              # Non-interactive SSH + set -u breaks typical .bashrc (PS1, etc.)
-              set +u
-              [ -f /etc/profile ] && . /etc/profile >/dev/null 2>&1 || true
-              [ -f ~/.profile ] && . ~/.profile >/dev/null 2>&1 || true
-              [ -f ~/.bashrc ] && . ~/.bashrc >/dev/null 2>&1 || true
-              export NVM_DIR="$HOME/.nvm"
-              [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" || true
-              set -u
-            }
-
-            resolve_node() {
-              if command -v node >/dev/null 2>&1; then
-                command -v node
-              elif [ -x /usr/bin/node ]; then
-                echo /usr/bin/node
-              elif [ -x /usr/local/bin/node ]; then
-                echo /usr/local/bin/node
-              else
-                find /usr /opt /home/ngoc_anh -name node -type f 2>/dev/null | grep -E 'bin/node$' | head -1
-              fi
-            }
-
-            ensure_pm2() {
-              if command -v pm2 >/dev/null 2>&1; then
-                echo "PM2: $(pm2 -v)"
-                return 0
-              fi
-
-              echo "PM2 not found — installing globally..."
-              npm install -g pm2
-              command -v pm2 >/dev/null 2>&1
-            }
-
-            setup_pm2_startup() {
-              local user home service_unit
-              user="$(whoami)"
-              home="$HOME"
-              service_unit="/etc/systemd/system/pm2-${user}.service"
-
-              if [ -f "$service_unit" ]; then
-                echo "PM2 systemd startup already configured: pm2-${user}"
-                return 0
-              fi
-
-              if command -v systemctl >/dev/null 2>&1 && \
-                 systemctl list-unit-files "pm2-${user}.service" 2>/dev/null | grep -q "pm2-${user}.service"; then
-                echo "PM2 systemd unit already enabled: pm2-${user}"
-                return 0
-              fi
-
-              echo "⚠️ WARNING: PM2 systemd service is not configured for user ${user}."
-              echo "To ensure PM2 starts automatically on server reboot, run this manually ONCE on your VPS:"
-              echo "  pm2 startup"
-              echo "  (then copy & paste the 'sudo' command generated by that output)"
-              echo "  pm2 save"
-            }
 
             read_port_from_env() {
               local env_file="$1"
@@ -176,84 +140,8 @@ jobs:
               fi
             }
 
-            stop_app() {
-              pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
-
-              local pid
-              pid=$(lsof -ti:"$PORT" 2>/dev/null || true)
-              if [ -n "$pid" ]; then
-                kill -TERM "$pid" 2>/dev/null || true
-                sleep 2
-                if ps -p "$pid" >/dev/null 2>&1; then
-                  kill -9 "$pid" 2>/dev/null || true
-                fi
-              fi
-            }
-
-            start_app() {
-              cd "$PUBLISH_PATH"
-              mkdir -p logs
-              pm2 startOrReload ecosystem.config.cjs --update-env
-            }
-
-            health_check() {
-              local attempt
-              for attempt in $(seq 1 30); do
-                if curl -sf "http://127.0.0.1:${PORT}/health/db" >/dev/null; then
-                  echo "Health check passed on attempt ${attempt}"
-                  return 0
-                fi
-                sleep 2
-              done
-              return 1
-            }
-
-            show_logs() {
-              pm2 logs "$APP_NAME" --nostream --lines 40 || true
-            }
-
-            rollback() {
-              echo "Rolling back to previous release..."
-              stop_app
-              rm -rf "$PUBLISH_PATH"
-              if [ -d "$PREV_PATH" ]; then
-                mv "$PREV_PATH" "$PUBLISH_PATH"
-                start_app
-              else
-                echo "No previous release to restore"
-              fi
-            }
-
-            restore_env_file() {
-              local target_dir="$1"
-              if [ "$DOPPLER_ENV_APPLIED" = true ] && [ -f "$DEPLOY_PATH/.env" ]; then
-                cp "$DEPLOY_PATH/.env" "$target_dir/.env"
-                return
-              fi
-              if [ -f "$DEPLOY_PATH/.env.backup" ]; then
-                mv "$DEPLOY_PATH/.env.backup" "$target_dir/.env"
-              elif [ -f "$DEPLOY_PATH/.env" ]; then
-                cp "$DEPLOY_PATH/.env" "$target_dir/.env"
-              elif [ -f "$PUBLISH_PATH/.env" ]; then
-                cp "$PUBLISH_PATH/.env" "$target_dir/.env"
-              else
-                echo "WARNING: No .env found under $DEPLOY_PATH"
-              fi
-            }
-
-            apply_doppler_env_from_ci() {
-              if [ ! -f "$DEPLOY_PATH/production.env" ]; then
-                return 0
-              fi
-
-              install -m 600 "$DEPLOY_PATH/production.env" "$DEPLOY_PATH/.env"
-              rm -f "$DEPLOY_PATH/production.env"
-              DOPPLER_ENV_APPLIED=true
-              echo "Applied .env from Doppler (CI)"
-            }
-
             ensure_production_env_vars() {
-              local env_file="$1/.env"
+              local env_file="$1"
               if [ ! -f "$env_file" ]; then
                 return 0
               fi
@@ -273,72 +161,77 @@ jobs:
               echo "Ensured CHAT_RATE_LIMIT_ENABLED and ENFORCE_PROD_CHAT_QUOTA in .env"
             }
 
-            load_shell
-            NODE_EXEC="$(resolve_node)"
-            if [ -z "$NODE_EXEC" ] || [ ! -x "$NODE_EXEC" ]; then
-              echo "ERROR: node executable not found"
+            apply_doppler_env_from_ci() {
+              if [ ! -f "$DEPLOY_PATH/production.env" ]; then
+                return 0
+              fi
+
+              install -m 600 "$DEPLOY_PATH/production.env" "$DEPLOY_PATH/.env"
+              rm -f "$DEPLOY_PATH/production.env"
+              echo "Applied .env from Doppler (CI)"
+            }
+
+            health_check() {
+              local attempt
+              for attempt in $(seq 1 30); do
+                if curl -sf "http://127.0.0.1:${PORT}/health/db" >/dev/null; then
+                  echo "Health check passed on attempt ${attempt}"
+                  return 0
+                fi
+                sleep 2
+              done
+              return 1
+            }
+
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "ERROR: docker is not installed on VPS"
               exit 1
             fi
-            echo "Using node: $NODE_EXEC ($("$NODE_EXEC" -v))"
-
-            ensure_pm2
 
             cd "$DEPLOY_PATH"
             apply_doppler_env_from_ci
-            if [ ! -f messenger-bot-publish.zip ]; then
-              echo "ERROR: messenger-bot-publish.zip not found"
-              ls -la
-              exit 1
-            fi
-            echo "Archive size: $(du -h messenger-bot-publish.zip | cut -f1)"
 
-            if [ "$DOPPLER_ENV_APPLIED" != true ] && [ -f "$PUBLISH_PATH/.env" ]; then
-              cp "$PUBLISH_PATH/.env" "$DEPLOY_PATH/.env.backup"
+            if [ ! -f .env ]; then
+              if [ -f publish/.env ]; then
+                cp publish/.env .env
+                echo "Migrated .env from legacy publish/ path"
+              else
+                echo "ERROR: No .env found under $DEPLOY_PATH"
+                exit 1
+              fi
             fi
 
-            echo "------ Extract staging release ------"
-            rm -rf "$STAGING_PATH"
-            mkdir -p "$STAGING_PATH"
-            unzip -oq messenger-bot-publish.zip -d "$STAGING_PATH"
-            rm -f messenger-bot-publish.zip
-            restore_env_file "$STAGING_PATH"
-            ensure_production_env_vars "$STAGING_PATH"
-            read_port_from_env "$STAGING_PATH/.env"
+            ensure_production_env_vars .env
+            read_port_from_env .env
             echo "Listening port: $PORT"
 
-            echo "------ Run database migrations ------"
-            cd "$STAGING_PATH"
-            if [ -f .env ]; then
-              "$NODE_EXEC" --env-file=.env ./node_modules/typeorm/cli.js \
-                migration:run \
-                -d dist/infrastructure/database/data-source.js
+            if [ -n "${GHCR_PULL_TOKEN:-}" ]; then
+              echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             else
-              echo "WARNING: Skipping migrations because .env is missing"
+              echo "WARNING: GHCR_PULL_TOKEN not set — pull may fail for private images"
             fi
 
-            echo "------ Swap releases ------"
-            stop_app
-            rm -rf "$PREV_PATH"
-            if [ -d "$PUBLISH_PATH" ]; then
-              mv "$PUBLISH_PATH" "$PREV_PATH"
+            export IMAGE
+            export PORT
+
+            echo "Pulling image: $IMAGE"
+            docker compose -f docker-compose.prod.yml pull
+
+            echo "Stopping legacy PM2 process (if any)"
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 delete messenger-bot >/dev/null 2>&1 || true
             fi
-            mv "$STAGING_PATH" "$PUBLISH_PATH"
 
-            echo "------ Start application with PM2 ------"
-            start_app
-            pm2 status "$APP_NAME"
+            echo "Starting container"
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
-            echo "------ Verify deployment ------"
+            docker compose -f docker-compose.prod.yml ps
+            docker logs messenger-bot --tail 40 || true
+
             if health_check; then
-              rm -rf "$PREV_PATH"
-              setup_pm2_startup
-              pm2 save
-              show_logs
-              pm2 status "$APP_NAME"
-              echo "Deployment complete — PM2 will restore app after reboot"
+              echo "Deployment complete — container messenger-bot is healthy"
             else
               echo "ERROR: Health check failed"
-              show_logs
-              rollback
+              docker logs messenger-bot --tail 80 || true
               exit 1
             fi

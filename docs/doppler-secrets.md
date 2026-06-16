@@ -37,10 +37,13 @@ Hoặc paste từng key trên dashboard. **Không** commit file prod vào git.
 Mỗi deploy `main` (hoặc workflow_dispatch):
 
 ```text
-doppler secrets download → production.env → SCP VPS → publish/.env
+doppler secrets download → production.env → SCP VPS → .env
+docker build → push ghcr.io/... → VPS docker compose pull && up -d
 ```
 
-Nếu **chưa** set `DOPPLER_TOKEN`, CI bỏ qua bước sync — VPS giữ `.env` cũ (hành vi trước đây).
+Nếu **chưa** set `DOPPLER_TOKEN`, CI bỏ qua bước sync env — VPS giữ `.env` cũ.
+
+**`GHCR_PULL_TOKEN`:** classic PAT scope `read:packages` (cùng user sở hữu repo) để VPS `docker login` pull image private.
 
 ---
 
@@ -76,7 +79,7 @@ Không cần SSH sửa `.env` tay.
 - [x] Project + configs `dev` / `prd` trên Doppler (`messenger-bot`)
 - [x] Secrets `prd` từ VPS; `dev` từ local (PORT=3001)
 - [x] GitHub secret `DOPPLER_TOKEN` (service token config `prd`)
-- [ ] Deploy thành công; log CI có dòng `Applied .env from Doppler`
+- [ ] Deploy thành công; log CI có dòng `Applied .env from Doppler` và `Deployment complete — container messenger-bot is healthy`
 - [x] Repo: `.doppler.yaml` + `doppler setup` (dev)
 
 ---
