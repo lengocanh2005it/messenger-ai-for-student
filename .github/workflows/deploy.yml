@@ -162,6 +162,8 @@ jobs:
               set_env_var DEPLOY_DIR /deploy
               set_env_var DEPLOY_ENV_FILE /deploy/.env
               set_env_var DEPLOY_COMPOSE_FILE /deploy/docker-compose.prod.yml
+              set_env_var DEPLOY_UID "$(id -u)"
+              set_env_var DEPLOY_GID "$(id -g)"
               set_env_var DOCKER_GID "$(stat -c '%g' /var/run/docker.sock)"
               echo "Ensured production env flags and deploy paths in .env"
             }
