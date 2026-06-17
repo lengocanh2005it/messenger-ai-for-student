@@ -25,10 +25,10 @@ describe('MessengerChatQueueService distributed mode (H7/R4)', () => {
       getProcessingStuckMs: () => 300_000,
     } as MessengerChatSharedConfigService;
 
-    const sendSenderAction = jest.fn(() => Promise.resolve());
+    const sendSenderActionOptional = jest.fn(() => Promise.resolve());
     const service = new MessengerChatQueueService(
       { get: () => '0' } as never,
-      { sendSenderAction } as never,
+      { sendSenderActionOptional } as never,
       {} as never,
       { getHistory: jest.fn(() => Promise.resolve([])) } as never,
       {

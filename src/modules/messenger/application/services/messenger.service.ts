@@ -708,11 +708,11 @@ export class MessengerService {
   }
 
   private signalMessageSeen(psid: string): void {
-    void this.outbound.sendSenderAction(psid, 'mark_seen');
+    void this.outbound.sendSenderActionOptional(psid, 'mark_seen');
   }
 
   private async signalTyping(psid: string): Promise<void> {
-    await this.outbound.sendSenderAction(psid, 'typing_on');
+    await this.outbound.sendSenderActionOptional(psid, 'typing_on');
   }
 
   private isDuplicateMessageMid(mid: string, psid: string): Promise<boolean> {

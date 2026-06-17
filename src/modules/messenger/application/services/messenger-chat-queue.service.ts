@@ -83,7 +83,7 @@ export class MessengerChatQueueService {
       return;
     }
 
-    void this.outbound.sendSenderAction(input.psid, 'mark_seen');
+    void this.outbound.sendSenderActionOptional(input.psid, 'mark_seen');
 
     if (this.isDistributedMode()) {
       void this.enqueueDistributed(input, text);
@@ -282,7 +282,7 @@ export class MessengerChatQueueService {
     };
 
     try {
-      await this.outbound.sendSenderAction(psid, 'typing_on');
+      await this.outbound.sendSenderActionOptional(psid, 'typing_on');
 
       if (idempotencyKey) {
         const quota = await this.chatRateLimitService.reserveFreeFormSlot(

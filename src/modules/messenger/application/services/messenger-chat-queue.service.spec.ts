@@ -30,12 +30,12 @@ describe('MessengerChatQueueService', () => {
   });
 
   const createService = (options: { shouldEnforce?: boolean } = {}) => {
-    const sendSenderAction = jest.fn(() => Promise.resolve());
+    const sendSenderActionOptional = jest.fn(() => Promise.resolve());
     const sendTextViaPsid = jest.fn(() => Promise.resolve());
     const sendTextBubblesViaPsid = jest.fn(() => Promise.resolve(1));
     const sendRichFollowUps = jest.fn(() => Promise.resolve());
     const outbound = {
-      sendSenderAction,
+      sendSenderActionOptional,
       sendTextViaPsid,
       sendTextBubblesViaPsid,
       sendRichFollowUps,
@@ -105,6 +105,7 @@ describe('MessengerChatQueueService', () => {
 
     return {
       service,
+      sendSenderActionOptional,
       sendTextViaPsid,
       sendTextBubblesViaPsid,
       reply,
@@ -438,6 +439,28 @@ describe('MessengerChatQueueService', () => {
 
     expect(markCompleted).toHaveBeenCalledWith('mid-hint-fail');
     expect(refundFreeFormSlot).not.toHaveBeenCalled();
+  });
+
+  it('uses optional sender actions so typing_on failures do not block chat', async () => {
+    const { service, reply, sendSenderActionOptional } = createService();
+
+    service.enqueue({
+      psid: 'psid-1',
+      userText: 'mình muốn xem tiến độ học tập',
+      idempotencyKey: 'mid-typing',
+    });
+
+    await jest.runOnlyPendingTimersAsync();
+
+    expect(sendSenderActionOptional).toHaveBeenCalledWith(
+      'psid-1',
+      'mark_seen',
+    );
+    expect(sendSenderActionOptional).toHaveBeenCalledWith(
+      'psid-1',
+      'typing_on',
+    );
+    expect(reply).toHaveBeenCalled();
   });
 
   it('sends 24h window guidance when Send API rejects outside window (H4)', async () => {

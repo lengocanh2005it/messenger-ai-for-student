@@ -69,6 +69,22 @@ export class MessengerOutboundService implements MessageSenderPort {
     });
   }
 
+  /** Best-effort UX signal — must not block chat or proactive replies. */
+  async sendSenderActionOptional(
+    psid: string,
+    senderAction: MessengerSenderAction,
+  ): Promise<void> {
+    try {
+      await this.sendSenderAction(psid, senderAction);
+    } catch (error) {
+      this.logger.debug(
+        `Sender action ${senderAction} skipped psid=${psid}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
   async sendTextBubblesViaPsid(params: {
     psid: string;
     text: string;
