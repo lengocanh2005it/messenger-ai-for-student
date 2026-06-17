@@ -15,7 +15,6 @@ import {
   getPocAlreadySubscribedMessage,
   getPocSubscriptionConfirmationMessage,
   getMissingUserRefMessage,
-  parseMessengerLinkContext,
 } from '../../../../shared/config/poc.constants';
 import { StudentReportService } from '../../../student-report/application/services/student-report.service';
 import { StudentReportRetryableError } from '../../../student-report/domain/errors/wispace-api.error';
@@ -49,7 +48,10 @@ import {
   ProactiveMessenger24hSkippedError,
 } from '../utils/proactive-send.utils';
 import { MessengerMappingService } from './messenger-mapping.service';
+import { MessengerLinkContextService } from './messenger-link-context.service';
 import { MessengerOutboundService } from './messenger-outbound.service';
+import { buildMessengerLinkVerifyFailedMessage } from '../messages/messenger-link.messages';
+import type { MessengerLinkVerifyFailureReason } from '../../domain/types/messenger-link-verify.types';
 
 export { MessengerApiError } from './messenger-outbound.service';
 
@@ -63,6 +65,7 @@ export class MessengerService {
     private readonly repository: MessengerRepositoryPort,
     private readonly outbound: MessengerOutboundService,
     private readonly messengerMappingService: MessengerMappingService,
+    private readonly messengerLinkContextService: MessengerLinkContextService,
     private readonly messengerChatQueueService: MessengerChatQueueService,
     private readonly studentReportService: StudentReportService,
     private readonly studyReminderService: StudyReminderService,
@@ -433,14 +436,95 @@ export class MessengerService {
     );
   }
 
-  private extractLinkContextFromEvent(
+  private async attemptLinkFromEvent(
+    psid: string,
     event: MessengerWebhookEvent,
-  ): MessengerLinkContext | undefined {
+  ): Promise<MessengerLinkContext | undefined> {
     const ref = this.extractRefFromEvent(event);
-    const topic = event.optin?.topic;
-    const cadence = event.optin?.frequency;
+    if (!ref) {
+      return undefined;
+    }
 
-    return parseMessengerLinkContext({ ref, topic, cadence });
+    const outcome = await this.messengerLinkContextService.resolveFromRef(
+      psid,
+      {
+        ref,
+        topic: event.optin?.topic,
+        cadence: event.optin?.frequency,
+      },
+    );
+
+    if (outcome.verifyFailureReason) {
+      await this.notifyMessengerLinkVerifyFailure(
+        psid,
+        outcome.verifyFailureReason,
+      );
+      return undefined;
+    }
+
+    if (!outcome.context) {
+      return undefined;
+    }
+
+    const linked = await this.linkPsidFromContext(psid, outcome.context);
+    return linked ? outcome.context : undefined;
+  }
+
+  private async notifyMessengerLinkVerifyFailure(
+    psid: string,
+    reason: MessengerLinkVerifyFailureReason,
+  ): Promise<void> {
+    await this.outbound
+      .sendTextViaPsid({
+        psid,
+        text: buildMessengerLinkVerifyFailedMessage(reason),
+        messageType: 'MESSENGER_LINK_VERIFY_FAILED',
+      })
+      .catch(() => undefined);
+  }
+
+  private async resolveLinkContext(
+    psid: string,
+    event?: MessengerWebhookEvent,
+  ): Promise<MessengerLinkContext | undefined> {
+    if (event) {
+      const ref = this.extractRefFromEvent(event);
+      if (ref) {
+        const outcome = await this.messengerLinkContextService.resolveFromRef(
+          psid,
+          {
+            ref,
+            topic: event.optin?.topic,
+            cadence: event.optin?.frequency,
+          },
+        );
+        if (outcome.context) {
+          return outcome.context;
+        }
+      }
+    }
+
+    const mapping = await this.repository.findActiveMappingByPsid(psid);
+    if (!mapping?.userId) {
+      return undefined;
+    }
+
+    return this.messengerLinkContextService.resolveFromMapping({
+      userId: mapping.userId,
+      topic: mapping.topic,
+      cadence: mapping.cadence,
+    });
+  }
+
+  private async linkPsidFromContext(
+    psid: string,
+    context: MessengerLinkContext,
+  ): Promise<boolean> {
+    const result = await this.messengerMappingService.linkFromContext(
+      psid,
+      context,
+    );
+    return !result.blocked;
   }
 
   private async resolveUserId(
@@ -456,36 +540,6 @@ export class MessengerService {
     return mapping?.userId;
   }
 
-  private async resolveLinkContext(
-    psid: string,
-    event?: MessengerWebhookEvent,
-  ): Promise<MessengerLinkContext | undefined> {
-    if (event) {
-      const fromEvent = this.extractLinkContextFromEvent(event);
-      if (fromEvent) {
-        return fromEvent;
-      }
-    }
-
-    const mapping = await this.repository.findActiveMappingByPsid(psid);
-    if (!mapping?.userId) {
-      return undefined;
-    }
-
-    return parseMessengerLinkContext({
-      ref: String(mapping.userId),
-      topic: mapping.topic,
-      cadence: mapping.cadence,
-    });
-  }
-
-  private async linkPsidFromContext(
-    psid: string,
-    context: MessengerLinkContext,
-  ): Promise<void> {
-    await this.messengerMappingService.linkFromContext(psid, context);
-  }
-
   private async handleEvent(event: MessengerWebhookEvent): Promise<boolean> {
     const psid = event.sender?.id;
     if (!psid) {
@@ -494,18 +548,13 @@ export class MessengerService {
     }
 
     if (event.optin) {
-      const context = parseMessengerLinkContext({
-        ref: event.optin.ref,
-        topic: event.optin.topic,
-        cadence: event.optin.frequency,
-      });
+      const context = await this.attemptLinkFromEvent(psid, event);
 
       if (context) {
-        await this.linkPsidFromContext(psid, context);
         this.logger.log(
           `Linked PSID ${psid} from opt-in (ref=${context.ref}, topic=${context.topic}, cadence=${context.cadence})`,
         );
-      } else {
+      } else if (!this.extractRefFromEvent(event)) {
         this.logger.warn(
           `Opt-in for PSID ${psid} missing ref, topic or cadence`,
         );
@@ -515,10 +564,7 @@ export class MessengerService {
     }
 
     if (event.referral?.ref && !event.postback && !event.message?.text) {
-      const context = this.extractLinkContextFromEvent(event);
-      if (context) {
-        await this.linkPsidFromContext(psid, context);
-      }
+      await this.attemptLinkFromEvent(psid, event);
       return true;
     }
 
@@ -541,15 +587,11 @@ export class MessengerService {
         return true;
       }
 
-      const context = this.extractLinkContextFromEvent(event);
-      if (context) {
-        await this.linkPsidFromContext(psid, context);
-      }
-
+      const linkedContext = await this.attemptLinkFromEvent(psid, event);
       const userId = await this.resolveUserId(psid, event);
       const userText = event.message.text.trim();
 
-      if (!userId && !context) {
+      if (!userId) {
         this.signalMessageSeen(psid);
         void this.outbound
           .sendTextViaPsid({
@@ -581,7 +623,8 @@ export class MessengerService {
         psid,
         userId,
         userText,
-        linkContext: context ?? (await this.resolveLinkContext(psid, event)),
+        linkContext:
+          linkedContext ?? (await this.resolveLinkContext(psid, event)),
         idempotencyKey: messageMid,
       });
       return true;
@@ -635,10 +678,9 @@ export class MessengerService {
 
     this.signalMessageSeen(psid);
 
-    const context = await this.resolveLinkContext(psid, event);
-    if (context) {
-      await this.linkPsidFromContext(psid, context);
-    }
+    const linkedContext = await this.attemptLinkFromEvent(psid, event);
+    const context =
+      linkedContext ?? (await this.resolveLinkContext(psid, event));
 
     this.logger.log(`PSID: ${psid}`);
     this.logger.log(`USER_ID: ${context?.userId ?? 'unknown'}`);

@@ -4,12 +4,16 @@ import { StudyReminderSyncService } from '../../../study-reminder/application/se
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
 import { UserMessengerMapping } from '../../domain/entities/messenger.types';
-import { buildMappingUserIdRelinkedMessage } from '../messages/messenger-link.messages';
+import {
+  buildMappingUserIdRelinkedMessage,
+  buildMappingRelinkBlockedMessage,
+} from '../messages/messenger-link.messages';
 import { MessengerOutboundService } from './messenger-outbound.service';
 
 export interface RelinkMappingResult {
   mapping: UserMessengerMapping;
   relinked: boolean;
+  blocked?: boolean;
   previousUserId?: number;
   syncedStudyReminders: boolean;
 }
@@ -28,7 +32,11 @@ export class MessengerMappingService {
   async linkFromContext(
     psid: string,
     context: MessengerLinkContext,
-    options?: { notifyUser?: boolean; syncStudyReminders?: boolean },
+    options?: {
+      notifyUser?: boolean;
+      syncStudyReminders?: boolean;
+      allowRelink?: boolean;
+    },
   ): Promise<RelinkMappingResult> {
     return this.relinkPsidToUserId({
       psid,
@@ -37,6 +45,7 @@ export class MessengerMappingService {
       cadence: context.cadence,
       notifyUser: options?.notifyUser ?? true,
       syncStudyReminders: options?.syncStudyReminders ?? true,
+      allowRelink: options?.allowRelink ?? false,
     });
   }
 
@@ -47,11 +56,34 @@ export class MessengerMappingService {
     cadence?: MessengerLinkContext['cadence'];
     notifyUser?: boolean;
     syncStudyReminders?: boolean;
+    allowRelink?: boolean;
   }): Promise<RelinkMappingResult> {
     const existing = await this.repository.findActiveMappingByPsid(params.psid);
     const previousUserId = existing?.userId;
     const relinked = previousUserId != null && previousUserId !== params.userId;
 
+    if (relinked && !params.allowRelink) {
+      this.logger.warn(
+        `MAPPING_RELINK_BLOCKED psid=${params.psid} from=${previousUserId} to=${params.userId}`,
+      );
+
+      if (params.notifyUser !== false) {
+        await this.outbound.sendTextViaPsid({
+          psid: params.psid,
+          userId: previousUserId ?? undefined,
+          text: buildMappingRelinkBlockedMessage(),
+          messageType: 'MAPPING_RELINK_BLOCKED',
+        });
+      }
+
+      return {
+        mapping: existing!,
+        relinked: false,
+        blocked: true,
+        previousUserId,
+        syncedStudyReminders: false,
+      };
+    }
     const mapping = await this.repository.upsertPsidUserLink({
       psid: params.psid,
       userId: params.userId,

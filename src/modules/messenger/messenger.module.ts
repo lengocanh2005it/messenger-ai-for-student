@@ -20,8 +20,10 @@ import { MessengerMessageLogCleanupService } from './application/services/messen
 import { MessengerWebhookDeadLetterCronService } from './application/services/messenger-webhook-dead-letter-cron.service';
 import { MessengerChatSharedConfigService } from './application/services/messenger-chat-shared-config.service';
 import { MessengerMappingService } from './application/services/messenger-mapping.service';
+import { MessengerLinkContextService } from './application/services/messenger-link-context.service';
 import { MessengerService } from './application/services/messenger.service';
 import { MessengerProfileService } from './infrastructure/meta/messenger-profile.service';
+import { WispaceMessengerTokenVerifyService } from './infrastructure/wispace/wispace-messenger-token-verify.service';
 import { CHAT_QUEUE_STORE } from './domain/repositories/chat-queue.store.port';
 import { CHAT_HISTORY_STORE } from './domain/repositories/chat-history.store.port';
 import { WEBHOOK_DEDUPE_STORE } from './domain/repositories/webhook-dedupe.store.port';
@@ -79,6 +81,8 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     MessengerAgentToolsService,
     MessengerProfileService,
     MessengerMappingService,
+    MessengerLinkContextService,
+    WispaceMessengerTokenVerifyService,
     MessengerWebhookDeadLetterRepository,
     {
       provide: MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY,

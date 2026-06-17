@@ -348,7 +348,27 @@ Dùng **một lần** khi Meta webhook báo user vừa mở link (`referral.ref`
 
 **Messenger không gửi `userId`** — WISPACE tra từ bảng token.
 
-#### Response thành công `200 OK`
+#### Response thành công `200 OK` (contract WISPACE hiện tại)
+
+```json
+{
+  "success": true,
+  "userId": 143,
+  "username": "Tab Valenskyeee",
+  "email": "billbonny29@gmail.com"
+}
+```
+
+| Field | Kiểu | Mô tả |
+|-------|------|-------|
+| `success` | boolean | `true` khi token hợp lệ |
+| `userId` | number | Chủ tài khoản gắn với token |
+| `username` | string | Tên hiển thị (optional, POC không lưu) |
+| `email` | string | Email (optional, POC không lưu) |
+
+Messenger POC map `topic` / `cadence` mặc định (`IELTS` / `WEEKLY`) khi API không trả các field này.
+
+#### Response thành công (draft L4 cũ — tham khảo)
 
 ```json
 {
@@ -358,13 +378,6 @@ Dùng **một lần** khi Meta webhook báo user vừa mở link (`referral.ref`
   "cadence": "WEEKLY"
 }
 ```
-
-| Field | Kiểu | Mô tả |
-|-------|------|-------|
-| `valid` | boolean | Luôn `true` khi HTTP 200 |
-| `userId` | number | Chủ tài khoản gắn với token |
-| `topic` | string | Copy từ row token (hoặc default) |
-| `cadence` | string | `DAILY` \| `WEEKLY` \| `MONTHLY` |
 
 **Side effect (bắt buộc):** trong cùng transaction, set `used_at = now()` cho token — **one-time**.
 
@@ -400,8 +413,8 @@ Messenger POC map `reason` → tin user-facing (vd. 「Link hết hạn, vui lò
 
 ```env
 MESSENGER_LINK_MODE=token
-WISPACE_LINK_VERIFY_URL=https://backend.aihubproduction.com/internal/messenger/verify-link-token
-INTERNAL_API_KEY=...   # secret dùng chung với các ops API khác
+WISPACE_API_VERIFY_MESSENGER_TOKEN=https://backend.aihubproduction.com/api/User/verify-messenger-token
+WISPACE_INTERNAL_KEY=...
 ```
 
 POC gọi verify tại các điểm trong `MessengerService.handleEvent` trước `linkPsidFromContext`.

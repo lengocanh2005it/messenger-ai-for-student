@@ -88,6 +88,7 @@ export class SchedulerController {
       psid,
       userId,
       notifyUser: false,
+      allowRelink: true,
     });
   }
 
