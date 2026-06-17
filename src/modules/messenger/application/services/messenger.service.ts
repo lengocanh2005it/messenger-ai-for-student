@@ -51,7 +51,10 @@ import { MessengerMappingService } from './messenger-mapping.service';
 import { MessengerLinkContextService } from './messenger-link-context.service';
 import { MessengerOutboundService } from './messenger-outbound.service';
 import { buildMessengerLinkVerifyFailedMessage } from '../messages/messenger-link.messages';
-import type { MessengerLinkVerifyFailureReason } from '../../domain/types/messenger-link-verify.types';
+import type {
+  MessengerLinkAttemptResult,
+  MessengerLinkVerifyFailureReason,
+} from '../../domain/types/messenger-link-verify.types';
 
 export { MessengerApiError } from './messenger-outbound.service';
 
@@ -439,10 +442,10 @@ export class MessengerService {
   private async attemptLinkFromEvent(
     psid: string,
     event: MessengerWebhookEvent,
-  ): Promise<MessengerLinkContext | undefined> {
+  ): Promise<MessengerLinkAttemptResult> {
     const ref = this.extractRefFromEvent(event);
     if (!ref) {
-      return undefined;
+      return { status: 'no_ref' };
     }
 
     const outcome = await this.messengerLinkContextService.resolveFromRef(
@@ -459,15 +462,19 @@ export class MessengerService {
         psid,
         outcome.verifyFailureReason,
       );
-      return undefined;
+      return { status: 'verify_failed' };
     }
 
     if (!outcome.context) {
-      return undefined;
+      return { status: 'invalid_ref' };
     }
 
     const linked = await this.linkPsidFromContext(psid, outcome.context);
-    return linked ? outcome.context : undefined;
+    if (linked) {
+      return { status: 'linked', context: outcome.context };
+    }
+
+    return { status: 'blocked' };
   }
 
   private async notifyMessengerLinkVerifyFailure(
@@ -481,6 +488,47 @@ export class MessengerService {
         messageType: 'MESSENGER_LINK_VERIFY_FAILED',
       })
       .catch(() => undefined);
+  }
+
+  private async resolveLinkContextFromMapping(
+    psid: string,
+  ): Promise<MessengerLinkContext | undefined> {
+    const mapping = await this.repository.findActiveMappingByPsid(psid);
+    if (!mapping?.userId) {
+      return undefined;
+    }
+
+    return this.messengerLinkContextService.resolveFromMapping({
+      userId: mapping.userId,
+      topic: mapping.topic,
+      cadence: mapping.cadence,
+    });
+  }
+
+  private async resolveLinkContextAfterAttempt(
+    psid: string,
+    event: MessengerWebhookEvent | undefined,
+    attempt: MessengerLinkAttemptResult,
+  ): Promise<MessengerLinkContext | undefined> {
+    if (attempt.status === 'linked' && attempt.context) {
+      return attempt.context;
+    }
+
+    if (attempt.status === 'blocked' || attempt.status === 'verify_failed') {
+      return this.resolveLinkContextFromMapping(psid);
+    }
+
+    if (attempt.context) {
+      return attempt.context;
+    }
+
+    return this.resolveLinkContext(psid, event);
+  }
+
+  private linkAttemptBlocksWelcome(
+    attempt: MessengerLinkAttemptResult,
+  ): boolean {
+    return attempt.status === 'blocked' || attempt.status === 'verify_failed';
   }
 
   private async resolveLinkContext(
@@ -504,16 +552,7 @@ export class MessengerService {
       }
     }
 
-    const mapping = await this.repository.findActiveMappingByPsid(psid);
-    if (!mapping?.userId) {
-      return undefined;
-    }
-
-    return this.messengerLinkContextService.resolveFromMapping({
-      userId: mapping.userId,
-      topic: mapping.topic,
-      cadence: mapping.cadence,
-    });
+    return this.resolveLinkContextFromMapping(psid);
   }
 
   private async linkPsidFromContext(
@@ -548,11 +587,11 @@ export class MessengerService {
     }
 
     if (event.optin) {
-      const context = await this.attemptLinkFromEvent(psid, event);
+      const linkAttempt = await this.attemptLinkFromEvent(psid, event);
 
-      if (context) {
+      if (linkAttempt.status === 'linked' && linkAttempt.context) {
         this.logger.log(
-          `Linked PSID ${psid} from opt-in (ref=${context.ref}, topic=${context.topic}, cadence=${context.cadence})`,
+          `Linked PSID ${psid} from opt-in (ref=${linkAttempt.context.ref}, topic=${linkAttempt.context.topic}, cadence=${linkAttempt.context.cadence})`,
         );
       } else if (!this.extractRefFromEvent(event)) {
         this.logger.warn(
@@ -587,7 +626,12 @@ export class MessengerService {
         return true;
       }
 
-      const linkedContext = await this.attemptLinkFromEvent(psid, event);
+      const linkAttempt = await this.attemptLinkFromEvent(psid, event);
+      const linkedContext = await this.resolveLinkContextAfterAttempt(
+        psid,
+        event,
+        linkAttempt,
+      );
       const userId = await this.resolveUserId(psid, event);
       const userText = event.message.text.trim();
 
@@ -624,7 +668,10 @@ export class MessengerService {
         userId,
         userText,
         linkContext:
-          linkedContext ?? (await this.resolveLinkContext(psid, event)),
+          linkedContext ??
+          (await this.resolveLinkContextAfterAttempt(psid, event, {
+            status: 'no_ref',
+          })),
         idempotencyKey: messageMid,
       });
       return true;
@@ -678,9 +725,12 @@ export class MessengerService {
 
     this.signalMessageSeen(psid);
 
-    const linkedContext = await this.attemptLinkFromEvent(psid, event);
-    const context =
-      linkedContext ?? (await this.resolveLinkContext(psid, event));
+    const linkAttempt = await this.attemptLinkFromEvent(psid, event);
+    const context = await this.resolveLinkContextAfterAttempt(
+      psid,
+      event,
+      linkAttempt,
+    );
 
     this.logger.log(`PSID: ${psid}`);
     this.logger.log(`USER_ID: ${context?.userId ?? 'unknown'}`);
@@ -729,6 +779,10 @@ export class MessengerService {
     }
 
     if (payload === 'GET_STARTED') {
+      if (this.linkAttemptBlocksWelcome(linkAttempt)) {
+        return true;
+      }
+
       await this.signalTyping(psid);
       await this.outbound.sendTextViaPsid({
         psid,
@@ -736,6 +790,10 @@ export class MessengerService {
         text: await this.buildWelcomeMessage(psid, context?.userId),
         messageType: 'WELCOME',
       });
+      return true;
+    }
+
+    if (this.linkAttemptBlocksWelcome(linkAttempt)) {
       return true;
     }
 

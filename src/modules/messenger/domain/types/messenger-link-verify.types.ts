@@ -27,3 +27,15 @@ export interface MessengerLinkResolveOutcome {
   context?: MessengerLinkContext;
   verifyFailureReason?: MessengerLinkVerifyFailureReason;
 }
+
+export type MessengerLinkAttemptStatus =
+  | 'no_ref'
+  | 'linked'
+  | 'verify_failed'
+  | 'blocked'
+  | 'invalid_ref';
+
+export interface MessengerLinkAttemptResult {
+  status: MessengerLinkAttemptStatus;
+  context?: MessengerLinkContext;
+}
