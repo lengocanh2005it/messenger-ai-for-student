@@ -46,7 +46,7 @@ describe('MessengerLinkContextService', () => {
     const service = createService(
       {
         MESSENGER_LINK_MODE: 'token',
-        WISPACE_API_VERIFY_MESSENGER_TOKEN:
+        WISPACE_API_VERIFY_MESSENGER_TOKEN_URL:
           'https://backend.aihubproduction.com/api/User/verify-messenger-token',
       },
       verify,

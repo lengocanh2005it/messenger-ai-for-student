@@ -9,7 +9,7 @@ describe('WispaceMessengerTokenVerifyService', () => {
     const configService = {
       get: (key: string) =>
         ({
-          WISPACE_API_VERIFY_MESSENGER_TOKEN: verifyUrl,
+          WISPACE_API_VERIFY_MESSENGER_TOKEN_URL: verifyUrl,
           WISPACE_INTERNAL_KEY: 'internal-secret',
           ...env,
         })[key],

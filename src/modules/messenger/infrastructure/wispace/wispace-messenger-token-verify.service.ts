@@ -65,11 +65,11 @@ export class WispaceMessengerTokenVerifyService {
 
   private getVerifyUrl(): string {
     const url = this.configService
-      .get<string>('WISPACE_API_VERIFY_MESSENGER_TOKEN')
+      .get<string>('WISPACE_API_VERIFY_MESSENGER_TOKEN_URL')
       ?.trim();
     if (!url) {
       throw new InternalServerErrorException(
-        'WISPACE_API_VERIFY_MESSENGER_TOKEN must be set in .env',
+        'WISPACE_API_VERIFY_MESSENGER_TOKEN_URL must be set in .env',
       );
     }
 

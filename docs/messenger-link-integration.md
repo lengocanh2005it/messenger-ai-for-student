@@ -413,7 +413,7 @@ Messenger POC map `reason` → tin user-facing (vd. 「Link hết hạn, vui lò
 
 ```env
 MESSENGER_LINK_MODE=token
-WISPACE_API_VERIFY_MESSENGER_TOKEN=https://backend.aihubproduction.com/api/User/verify-messenger-token
+WISPACE_API_VERIFY_MESSENGER_TOKEN_URL=https://backend.aihubproduction.com/api/User/verify-messenger-token
 WISPACE_INTERNAL_KEY=...
 ```
 

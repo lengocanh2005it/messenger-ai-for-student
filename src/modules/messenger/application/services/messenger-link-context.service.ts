@@ -24,7 +24,7 @@ export class MessengerLinkContextService {
 
     return Boolean(
       this.configService
-        .get<string>('WISPACE_API_VERIFY_MESSENGER_TOKEN')
+        .get<string>('WISPACE_API_VERIFY_MESSENGER_TOKEN_URL')
         ?.trim(),
     );
   }
