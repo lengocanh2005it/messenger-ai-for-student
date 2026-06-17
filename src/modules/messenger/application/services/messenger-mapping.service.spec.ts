@@ -6,6 +6,8 @@ describe('MessengerMappingService', () => {
       findActiveMappingByPsid: jest.fn(() =>
         Promise.resolve({ userId: 100, psid: 'psid-1' }),
       ),
+      findActiveMappingByUserId: jest.fn(() => Promise.resolve(null)),
+      deactivateConflictingActiveMappings: jest.fn(() => Promise.resolve()),
       upsertPsidUserLink: jest.fn(() =>
         Promise.resolve({
           id: 1,
@@ -54,6 +56,7 @@ describe('MessengerMappingService', () => {
       findActiveMappingByPsid: jest.fn(() =>
         Promise.resolve({ userId: 100, psid: 'psid-1' }),
       ),
+      findActiveMappingByUserId: jest.fn(() => Promise.resolve(null)),
       upsertPsidUserLink: jest.fn(),
     };
 
@@ -82,6 +85,43 @@ describe('MessengerMappingService', () => {
     expect(repository.upsertPsidUserLink).not.toHaveBeenCalled();
     expect(outbound.sendTextViaPsid).toHaveBeenCalledWith(
       expect.objectContaining({ messageType: 'MAPPING_RELINK_BLOCKED' }),
+    );
+  });
+
+  it('blocks when userId already maps a different PSID (1 user -> 1 psid)', async () => {
+    const repository = {
+      findActiveMappingByPsid: jest.fn(() => Promise.resolve(null)),
+      findActiveMappingByUserId: jest.fn(() =>
+        Promise.resolve({ userId: 143, psid: 'psid-old' }),
+      ),
+      upsertPsidUserLink: jest.fn(),
+    };
+
+    const outbound = {
+      sendTextViaPsid: jest.fn(() => Promise.resolve()),
+    };
+
+    const studyReminderSyncService = {
+      syncUpcomingSessions: jest.fn(() => Promise.resolve({})),
+    };
+
+    const service = new MessengerMappingService(
+      repository as never,
+      outbound as never,
+      studyReminderSyncService as never,
+    );
+
+    const result = await service.linkFromContext('psid-new', {
+      ref: 'token',
+      userId: 143,
+      topic: 'IELTS',
+      cadence: 'WEEKLY',
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(repository.upsertPsidUserLink).not.toHaveBeenCalled();
+    expect(outbound.sendTextViaPsid).toHaveBeenCalledWith(
+      expect.objectContaining({ messageType: 'MAPPING_USER_PSID_CONFLICT' }),
     );
   });
 });

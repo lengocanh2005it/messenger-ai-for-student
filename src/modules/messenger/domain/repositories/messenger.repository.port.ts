@@ -30,6 +30,10 @@ export interface MessengerRepositoryPort {
   findActiveSubscribedMappings(): Promise<UserMessengerMapping[]>;
   findActiveMappingsWithPsid(): Promise<UserMessengerMapping[]>;
   cleanupActiveDuplicateMappings(): Promise<number>;
+  deactivateConflictingActiveMappings(params: {
+    psid: string;
+    userId: number;
+  }): Promise<void>;
   hasSentScheduledReportToday(psid: string): Promise<boolean>;
   logMessage(params: {
     userId?: number;

@@ -14,6 +14,14 @@ export function buildMappingRelinkBlockedMessage(): string {
   );
 }
 
+/** L4: userId đã map PSID khác — một tài khoản WISPACE chỉ một Messenger. */
+export function buildMappingUserLinkedOtherPsidMessage(): string {
+  return (
+    'Tài khoản WISPACE này đã liên kết Messenger khác.\n\n' +
+    'Nếu bạn cần đổi thiết bị, hãy mở app WISPACE → ngắt kết nối Messenger → tạo link mới từ Messenger đó.'
+  );
+}
+
 export function buildMessengerLinkVerifyFailedMessage(
   reason: 'NOT_FOUND' | 'EXPIRED' | 'USED' | 'INVALID_FORMAT',
 ): string {

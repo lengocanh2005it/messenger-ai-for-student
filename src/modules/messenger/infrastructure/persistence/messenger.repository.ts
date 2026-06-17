@@ -263,7 +263,49 @@ export class MessengerRepository implements MessengerRepositoryPort {
       RETURNING id
       `,
     );
-    return result.length;
+    const byPsid = result.length;
+
+    const byUser = await this.mappingRepo.manager.query<Array<{ id: number }>>(
+      `
+      WITH keepers AS (
+        SELECT DISTINCT ON (user_id) id
+        FROM user_messenger_mappings
+        WHERE status = 'ACTIVE' AND user_id IS NOT NULL
+        ORDER BY user_id, id DESC
+      )
+      UPDATE user_messenger_mappings
+      SET status = 'INACTIVE', updated_at = now()
+      WHERE status = 'ACTIVE'
+        AND user_id IS NOT NULL
+        AND id NOT IN (SELECT id FROM keepers)
+      RETURNING id
+      `,
+    );
+
+    return byPsid + byUser.length;
+  }
+
+  async deactivateConflictingActiveMappings(params: {
+    psid: string;
+    userId: number;
+  }): Promise<void> {
+    await this.mappingRepo.update(
+      {
+        userId: params.userId,
+        psid: Not(params.psid),
+        status: 'ACTIVE',
+      },
+      { status: 'INACTIVE' },
+    );
+
+    await this.mappingRepo.update(
+      {
+        psid: params.psid,
+        userId: Not(params.userId),
+        status: 'ACTIVE',
+      },
+      { status: 'INACTIVE' },
+    );
   }
 
   async findActiveMetaTokenMappingByPsid(

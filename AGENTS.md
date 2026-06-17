@@ -345,7 +345,8 @@ Cursor dùng `AGENTS.md` + `.cursor/rules/` (rule `change-workflow`) + skills gl
 | Tên học viên cho LLM | ✓ Bảng `users` + view `"Users"` trên `ai_chat_bot_db` (`DisplayName` → `'Chào bạn nha'`) |
 | DB POC tách khỏi `writing_ai_hub_db` | ✓ `ai_chat_bot_db` + scripts migrate/drop trên hub cũ |
 | Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✓ `StudyReminderJobRepository.upsertPendingJob` reopen → `pending` |
-| Mapping đổi `user_id` cùng PSID (L3) | ✓ `MessengerMappingService`, `POST /messenger/mapping/relink`, `npm run messenger:relink` |
+| Mapping đổi `user_id` cùng PSID (L3) | ✓ Chặn webhook; ops `POST /messenger/mapping/relink` + `allowRelink` |
+| Mapping 1:1 `userId` ↔ `psid` (L4) | ✓ Chặn webhook cả hai chiều; unique index ACTIVE trên DB |
 | Multi-pod cron báo cáo 08:00 (R4) | ✓ Claim table + advisory lock + `CRON_LEADER_ENABLED` |
 | Chat hai chiều + rate limit V1 | ✓ Reserve/refund/burst/whitelist/hint |
 | Rate limit hardening H1–H7 | ✓ H2–H7 code; H1 = bật `CHAT_RATE_LIMIT_ENABLED` trên env prod |

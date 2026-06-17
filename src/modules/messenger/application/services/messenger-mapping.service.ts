@@ -7,6 +7,7 @@ import { UserMessengerMapping } from '../../domain/entities/messenger.types';
 import {
   buildMappingUserIdRelinkedMessage,
   buildMappingRelinkBlockedMessage,
+  buildMappingUserLinkedOtherPsidMessage,
 } from '../messages/messenger-link.messages';
 import { MessengerOutboundService } from './messenger-outbound.service';
 
@@ -58,9 +59,16 @@ export class MessengerMappingService {
     syncStudyReminders?: boolean;
     allowRelink?: boolean;
   }): Promise<RelinkMappingResult> {
-    const existing = await this.repository.findActiveMappingByPsid(params.psid);
-    const previousUserId = existing?.userId;
+    const existingByPsid = await this.repository.findActiveMappingByPsid(
+      params.psid,
+    );
+    const existingByUserId = await this.repository.findActiveMappingByUserId(
+      params.userId,
+    );
+    const previousUserId = existingByPsid?.userId;
     const relinked = previousUserId != null && previousUserId !== params.userId;
+    const userLinkedOtherPsid =
+      existingByUserId?.psid != null && existingByUserId.psid !== params.psid;
 
     if (relinked && !params.allowRelink) {
       this.logger.warn(
@@ -77,13 +85,43 @@ export class MessengerMappingService {
       }
 
       return {
-        mapping: existing!,
+        mapping: existingByPsid!,
         relinked: false,
         blocked: true,
         previousUserId,
         syncedStudyReminders: false,
       };
     }
+
+    if (userLinkedOtherPsid && !params.allowRelink) {
+      this.logger.warn(
+        `MAPPING_USER_PSID_CONFLICT userId=${params.userId} existingPsid=${existingByUserId.psid} newPsid=${params.psid}`,
+      );
+
+      if (params.notifyUser !== false) {
+        await this.outbound.sendTextViaPsid({
+          psid: params.psid,
+          text: buildMappingUserLinkedOtherPsidMessage(),
+          messageType: 'MAPPING_USER_PSID_CONFLICT',
+        });
+      }
+
+      return {
+        mapping: existingByUserId,
+        relinked: false,
+        blocked: true,
+        previousUserId,
+        syncedStudyReminders: false,
+      };
+    }
+
+    if (params.allowRelink) {
+      await this.repository.deactivateConflictingActiveMappings({
+        psid: params.psid,
+        userId: params.userId,
+      });
+    }
+
     const mapping = await this.repository.upsertPsidUserLink({
       psid: params.psid,
       userId: params.userId,
