@@ -25,7 +25,7 @@ POC NestJS Clean Architecture: Messenger webhook + báo cáo AI + nhắc lịch 
 
 ## Auth & API
 
-- Wispace API: header `x-psid` (PSID Messenger).
+- Wispace API: headers `x-psid` (PSID Messenger) + `X-Internal-Key` (`WISPACE_INTERNAL_KEY`).
 - Ops HTTP: `X-Internal-Api-Key` hoặc `Authorization: Bearer` = `INTERNAL_API_KEY`.
 - Không commit `.env`.
 

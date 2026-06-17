@@ -105,8 +105,18 @@ export class UserGoalsApiService {
       );
     }
 
+    const internalKey = this.configService
+      .get<string>('WISPACE_INTERNAL_KEY')
+      ?.trim();
+    if (!internalKey) {
+      throw new InternalServerErrorException(
+        'WISPACE_INTERNAL_KEY must be set in .env',
+      );
+    }
+
     return {
       'x-psid': psid.trim(),
+      'X-Internal-Key': internalKey,
       Accept: 'application/json',
     };
   }
