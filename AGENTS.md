@@ -139,7 +139,7 @@ Cùng PR/task với code — cập nhật hàng **agent** (không chỉ `docs/` 
 | Entity / migration / tách DB | `.claude/rules/database.md`, skill `/typeorm-migration`, `.env.example` nếu thêm biến |
 | Bỏ fallback DB UserCalendars (I3) | `user-calendar-schedule.service.ts`, `docs/study-session-reminder.md`, `docs/edge-cases-roadmap.md` |
 | System prompt LLM | `src/shared/prompts/*.system.txt`, skill `/edit-llm-prompt` |
-| Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `.github/workflows/sync-env.yml`, `docs/doppler-secrets.md`, `deploy/nginx/` |
+| Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `docs/c2-master-implementation-plan.md`, `docs/doppler-secrets.md`, `docs/scale-phase-b-runbook.md`, `deploy/nginx/` |
 | Env mới | `.env.example` + dòng tương ứng trong `docs/project-overview.md` hoặc `AGENTS.md` |
 | Webhook Meta signature / `MESSENGER_APP_SECRET` | `docs/project-overview.md`, `docs/edge-cases-roadmap.md` §1, `AGENTS.md` Security |
 | Gap / roadmap đã đóng | `docs/edge-cases-roadmap.md`, bảng Integration gaps trong `AGENTS.md` |
@@ -351,7 +351,7 @@ Cursor dùng `AGENTS.md` + `.cursor/rules/` (rule `change-workflow`) + skills gl
 | Multi-pod cron báo cáo 08:00 (R4) | ✓ Claim table + advisory lock + `CRON_LEADER_ENABLED` |
 | Chat hai chiều + rate limit V1 | ✓ Reserve/refund/burst/whitelist/hint |
 | Rate limit hardening H1–H7 | ✓ H2–H7 code; H1 = bật `CHAT_RATE_LIMIT_ENABLED` trên env prod |
-| Tier / event store (Phase 7–8) | ✗ Optional — [§5.8](docs/chat-rate-limit-quota.md) |
+| Tier / event store (Phase 7–8) | ✗ Optional — master plan [c2-master-implementation-plan.md](docs/c2-master-implementation-plan.md); full §5.8 [chat-rate-limit-quota.md](docs/chat-rate-limit-quota.md) |
 | Gap toàn dự án (link, báo cáo, nhắc, ops) | Roadmap — [edge-cases-roadmap.md](docs/edge-cases-roadmap.md) |
 
 Khi đóng gap: cập nhật `docs/study-session-reminder.md` và bảng trên.

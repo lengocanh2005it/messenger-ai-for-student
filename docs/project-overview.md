@@ -292,7 +292,7 @@ node scripts/drop-poc-tables-old-db.mjs       # drop POC + migrations trên writ
 ## 10. Phạm vi POC & hạn chế
 
 - **Một instance** — `CRON_LEADER_ENABLED=false` (mặc định); bật `CHAT_RATE_LIMIT_ENABLED=true` trên prod.
-- **Scale ≥2 instance** — chat: `CHAT_QUEUE_SHARED=true` (H7); báo cáo 08:00: `CRON_LEADER_ENABLED` + bảng `messenger_scheduled_report_claims` (R4 ✓).
+- **Scale ≥2 instance** — chat: `CHAT_QUEUE_SHARED=true` (H7); báo cáo 08:00: `CRON_LEADER_ENABLED` + bảng `messenger_scheduled_report_claims` (R4 ✓). Runbook chuẩn bị: [scale-phase-b-runbook.md](./scale-phase-b-runbook.md).
 - **Chỉ Messenger** — user chưa map `psid` không nhận tin.
 - **Tích hợp lịch học** — Wispace gọi `POST /messenger/study-calendar/sync` khi đổi lịch (S0 ✓); cron 30 phút là dự phòng.
 - **API UserCalendar** — cần `WISPACE_API_USER_CALENDAR_URL`; không còn fallback DB.

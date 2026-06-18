@@ -10,6 +10,9 @@ POC **WISPACE × Facebook Messenger** — báo cáo học tập, nhắc lịch h
 | [messenger-link-security.md](./messenger-link-security.md) | Bảo mật `ref` / `userId`: rủi ro IDOR, HMAC vs one-time token, trade-off, phase L4 |
 | [messenger-link-integration.md](./messenger-link-integration.md) | Luồng link chi tiết (hiện tại vs L4) + **contract API WISPACE** (body/response) |
 | [study-session-reminder.md](./study-session-reminder.md) | Nhắc lịch: sync → jobs → dispatch → LLM; `POST /messenger/study-calendar/sync` |
+| [c2-master-implementation-plan.md](./c2-master-implementation-plan.md) | **Master plan C2** — quota Q0–Q2 + LLM T0–T2; PR-A→D; checklist trước implement |
+| [llm-usage-tracking-plan.md](./llm-usage-tracking-plan.md) | Pointer → master plan (bản rút gọn) |
+| [scale-phase-b-runbook.md](./scale-phase-b-runbook.md) | **Chuẩn bị** scale 2 instance (Giai đoạn B); sau C2 |
 
 Hướng dẫn AI agent: [AGENTS.md](../AGENTS.md). Quy tắc tầng code: `.claude/rules/clean-architecture.md`.
 
