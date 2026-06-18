@@ -99,7 +99,7 @@ export class StudentReportService {
       this.configService.get<string>('CHAT_USAGE_TIMEZONE')?.trim() ??
       'Asia/Ho_Chi_Minh';
     const usageDate = todayUsageDate(timezone);
-    await this.llmUsageRecorder.recordFromCompletion({
+    this.llmUsageRecorder.recordFromCompletion({
       feature: 'STUDENT_REPORT',
       psid,
       model,

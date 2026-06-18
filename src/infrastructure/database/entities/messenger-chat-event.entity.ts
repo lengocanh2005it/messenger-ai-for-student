@@ -1,9 +1,4 @@
-import {
-  Column,
-  Entity,
-  Index,
-  PrimaryGeneratedColumn,
-} from 'typeorm';
+import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity('messenger_chat_events')
 @Index('idx_chat_events_aggregate_time', ['aggregateId', 'occurredAt'])

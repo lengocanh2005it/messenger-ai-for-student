@@ -1,13 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { ChatCompletion } from 'openai/resources/chat/completions';
 import type {
   LlmUsageFeature,
   RecordLlmUsageInput,
 } from '../../domain/entities/llm-usage.types';
-import {
-  LLM_USAGE_REPOSITORY,
-  type LlmUsageRepositoryPort,
-} from '../../domain/repositories/llm-usage.repository.port';
+import { LlmUsageBullQueueService } from '../../infrastructure/queue/llm-usage-bull-queue.service';
 import { LlmUsageConfigService } from './llm-usage-config.service';
 
 export interface RecordLlmUsageFromCompletionInput {
@@ -26,17 +23,15 @@ export class LlmUsageRecorderService {
 
   constructor(
     private readonly configService: LlmUsageConfigService,
-    @Inject(LLM_USAGE_REPOSITORY)
-    private readonly repository: LlmUsageRepositoryPort,
+    private readonly bullQueue: LlmUsageBullQueueService,
   ) {}
 
   isEnabled(): boolean {
     return this.configService.isEnabled();
   }
 
-  async recordFromCompletion(
-    input: RecordLlmUsageFromCompletionInput,
-  ): Promise<void> {
+  /** Non-blocking — BullMQ enqueue (retry) or inline fallback. */
+  recordFromCompletion(input: RecordLlmUsageFromCompletionInput): void {
     const usage = input.response.usage;
     if (!usage) {
       this.logger.warn(
@@ -44,7 +39,7 @@ export class LlmUsageRecorderService {
       );
     }
 
-    await this.recordUsage({
+    this.recordUsage({
       feature: input.feature,
       psid: input.psid,
       userId: input.userId,
@@ -58,22 +53,15 @@ export class LlmUsageRecorderService {
     });
   }
 
-  async recordUsage(input: RecordLlmUsageInput): Promise<void> {
+  /** Non-blocking — BullMQ enqueue (retry) or inline fallback. */
+  recordUsage(input: RecordLlmUsageInput): void {
     if (!this.isEnabled()) {
       return;
     }
 
-    try {
-      await this.repository.insertUsage({
-        ...input,
-        usageDate: this.configService.todayUsageDate(),
-      });
-    } catch (error) {
-      this.logger.error(
-        `LLM_USAGE_INSERT_FAILED feature=${input.feature} correlation=${input.correlationId ?? 'n/a'}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    this.bullQueue.enqueue({
+      ...input,
+      usageDate: this.configService.todayUsageDate(),
+    });
   }
 }

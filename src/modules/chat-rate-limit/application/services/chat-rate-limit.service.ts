@@ -93,7 +93,7 @@ export class ChatRateLimitService {
         burstCount,
         burstPerMinute,
       );
-      await this.quotaEventRecorder.recordDeniedBestEffort({
+      this.quotaEventRecorder.recordDeniedBestEffort({
         psid,
         userId: params.userId,
         usageDate,
@@ -124,7 +124,7 @@ export class ChatRateLimitService {
         usedBefore,
         freeFormDailyLimit,
       );
-      await this.quotaEventRecorder.recordDeniedBestEffort({
+      this.quotaEventRecorder.recordDeniedBestEffort({
         psid,
         userId: params.userId,
         usageDate,
@@ -181,7 +181,7 @@ export class ChatRateLimitService {
         used,
         params.freeFormDailyLimit,
       );
-      await this.quotaEventRecorder.recordDeniedBestEffort({
+      this.quotaEventRecorder.recordDeniedBestEffort({
         psid,
         userId: params.userId,
         usageDate: params.usageDate,

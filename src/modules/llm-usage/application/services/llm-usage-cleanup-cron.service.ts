@@ -29,9 +29,7 @@ export class LlmUsageCleanupCronService {
     );
 
     if (result === null) {
-      this.logger.debug(
-        'llm-usage-cleanup skipped — lock held by another pod',
-      );
+      this.logger.debug('llm-usage-cleanup skipped — lock held by another pod');
     }
   }
 }

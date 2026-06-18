@@ -275,7 +275,8 @@ Import `LlmUsageModule` từ: `MessengerModule`, `StudentReportModule`, `StudyRe
 ### H.3. Recorder semantics
 
 - `LLM_USAGE_ENABLED=false` → no-op  
-- Insert fail → `Logger.error`, **không** throw  
+- Insert **BullMQ** queue `llm-usage-write` (retry + backoff) khi `REDIS_ENABLED=true`; **startup + enqueue đều `setImmediate`** — không block webhook/chat  
+- Insert fail → BullMQ retry; enqueue fail → inline fallback + log  
 - `response.usage` missing → tokens 0 + warn  
 
 ### H.4. PR-D scripts
@@ -317,6 +318,9 @@ CHAT_QUOTA_EVENTS_RETENTION_DAYS=365
 LLM_USAGE_ENABLED=true
 LLM_USAGE_TIMEZONE=Asia/Ho_Chi_Minh
 LLM_USAGE_RETENTION_DAYS=180
+LLM_USAGE_BULLMQ_ENABLED=true
+LLM_USAGE_BULLMQ_ATTEMPTS=3
+LLM_USAGE_BULLMQ_BACKOFF_MS=2000
 
 # Q2 doc — chưa enforce weekly trong code đợt 1
 # CHAT_QUOTA_WINDOW=daily

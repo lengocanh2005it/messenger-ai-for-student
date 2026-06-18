@@ -195,10 +195,15 @@ describe('ChatRateLimitService', () => {
   });
 
   it('denies reserve on burst limit before daily transaction', async () => {
-    const { service, getCount, getReserveCallCount, burstCounter, quotaEventRecorder } =
-      createService(true, 0, {
-        burstCount: 3,
-      });
+    const {
+      service,
+      getCount,
+      getReserveCallCount,
+      burstCounter,
+      quotaEventRecorder,
+    } = createService(true, 0, {
+      burstCount: 3,
+    });
 
     const result = await service.reserveFreeFormSlot('psid-1', {
       idempotencyKey: 'mid-burst',

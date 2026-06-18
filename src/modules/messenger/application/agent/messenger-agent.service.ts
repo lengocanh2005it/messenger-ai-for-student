@@ -114,7 +114,7 @@ export class MessengerAgentService {
         tool_choice: 'auto',
       });
 
-      await this.llmUsageRecorder.recordFromCompletion({
+      this.llmUsageRecorder.recordFromCompletion({
         feature: 'FREE_FORM_CHAT',
         psid: input.psid,
         userId: input.userId,

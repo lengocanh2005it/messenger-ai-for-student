@@ -31,7 +31,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Cron nội bộ (sync 30 phút, dispatch adaptive S2) chạy trong process — không qua API key.
 - Debug jobs nhắc lịch: `npm run study-reminder:jobs` (`--failed`, `--stuck`, `--summary`).
 - Tra quota chat: `npm run chat-quota:status` (`--psid`, `--user-id`, `--date`, `--ops`); rebuild counter: `chat-quota:rebuild` (`--dry-run`).
-- Tra token LLM: `npm run llm-usage:status` (`--psid`, `--feature`, `--ops`).
+- Tra token LLM: `npm run llm-usage:status` (`--psid`, `--feature`, `--ops`); persist qua BullMQ queue `llm-usage-write` khi `REDIS_ENABLED=true`.
 - Ops health I1+S1: `npm run ops:health` (cron 09:00 ICT trong app khi `OPS_HEALTH_ALERT_ENABLED=true`).
 - Doppler webhook prod: sửa secret `prd` → `POST /messenger/ops/doppler-sync` tự sync `.env` + restart container ([doppler-secrets.md](docs/doppler-secrets.md) §4).
 - Audit log cleanup: cron `messenger-message-log-cleanup` — 03:00 ICT ngày 1 hàng tháng; `MESSENGER_MESSAGE_LOG_RETENTION_DAYS=90` (tắt: `MESSENGER_MESSAGE_LOG_CLEANUP_ENABLED=false`).

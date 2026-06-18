@@ -161,7 +161,7 @@ export class StudyReminderService {
       ],
     });
 
-    await this.llmUsageRecorder.recordFromCompletion({
+    this.llmUsageRecorder.recordFromCompletion({
       feature: 'STUDY_REMINDER',
       psid: context.psid,
       userId: context.userId,

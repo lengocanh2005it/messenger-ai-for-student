@@ -8,6 +8,7 @@ import {
   CHAT_QUOTA_EVENT_REPOSITORY,
   type ChatQuotaEventRepositoryPort,
 } from '../../domain/repositories/chat-quota-event.repository.port';
+import { runInBackground } from '../../../../shared/utils/run-in-background.utils';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
 
 @Injectable()
@@ -80,35 +81,37 @@ export class ChatQuotaEventRecorderService {
     });
   }
 
-  async recordDeniedBestEffort(input: {
+  recordDeniedBestEffort(input: {
     psid: string;
     userId?: number;
     usageDate: string;
     reason: ChatQuotaDenyReason;
     limit: number;
     used: number;
-  }): Promise<void> {
+  }): void {
     if (!this.isEnabled()) {
       return;
     }
 
-    try {
-      await this.eventRepository.insertDenied({
-        psid: input.psid,
-        userId: input.userId,
-        usageDate: input.usageDate,
-        payload: {
-          reason: input.reason,
-          limit: input.limit,
-          used: input.used,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        `CHAT_QUOTA_EVENT_DENIED_INSERT_FAILED psid=${input.psid} reason=${input.reason}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    runInBackground(
+      () =>
+        this.eventRepository.insertDenied({
+          psid: input.psid,
+          userId: input.userId,
+          usageDate: input.usageDate,
+          payload: {
+            reason: input.reason,
+            limit: input.limit,
+            used: input.used,
+          },
+        }),
+      (error) => {
+        this.logger.warn(
+          `CHAT_QUOTA_EVENT_DENIED_INSERT_FAILED psid=${input.psid} reason=${input.reason}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      },
+    );
   }
 }
