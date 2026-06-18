@@ -23,11 +23,6 @@ interface TestDatabase {
   }>;
 }
 
-interface TestSendResponse {
-  ok: boolean;
-  message: string;
-}
-
 interface MessengerProfilePayload {
   get_started: {
     payload: string;
@@ -154,43 +149,9 @@ describe('AppController (e2e)', () => {
     });
   });
 
-  it('/messenger/test-send sends hardcoded learning report', async () => {
-    await request(app.getHttpServer())
-      .post('/messenger/test-send')
-      .send({
-        psid: '123456789',
-      })
-      .expect(200)
-      .expect((response) => {
-        const body = response.body as TestSendResponse;
-        expect(body.ok).toBe(true);
-        expect(body.message).toContain('Báo cáo học tập hôm nay:');
-      });
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, options] = fetchMock.mock.calls[0] as [URL, RequestInit];
-    expect(JSON.parse(options.body as string)).toEqual({
-      recipient: {
-        id: '123456789',
-      },
-      message: {
-        text: [
-          'Báo cáo học tập hôm nay:',
-          '',
-          'Reading: 6.0',
-          'Listening: 5.5',
-          'Writing: 5.0',
-          '',
-          'Gợi ý: Bạn nên tập trung luyện Listening trong tuần này.',
-        ].join('\n'),
-      },
-    });
-  });
-
   it('/messenger/profile/setup configures Get Started, greeting, and menu', async () => {
     await request(app.getHttpServer())
       .post('/messenger/profile/setup')
-      .send({})
       .expect(200)
       .expect({
         ok: true,

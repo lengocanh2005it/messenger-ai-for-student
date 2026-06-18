@@ -9,7 +9,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   MessengerLinkContext,
-  buildMMeLink,
   buildPocPsidToken,
   buildWelcomeMessage,
   getPocAlreadySubscribedMessage,
@@ -19,7 +18,10 @@ import {
 import { StudentReportService } from '../../../student-report/application/services/student-report.service';
 import { StudentReportRetryableError } from '../../../student-report/domain/errors/wispace-api.error';
 import { buildStudentReportApiRetryMessage } from '../../../student-report/application/messages/student-report.messages';
-import { getNoUpcomingStudySessionMessage } from '../../../study-reminder/application/messages/study-reminder.messages';
+import {
+  getNoUpcomingStudySessionMessage,
+  getStudyReminderLeadTimeNotice,
+} from '../../../study-reminder/application/messages/study-reminder.messages';
 import { StudyReminderScheduleService } from '../../../study-reminder/application/services/study-reminder-schedule.service';
 import { StudyReminderService } from '../../../study-reminder/application/services/study-reminder.service';
 import { UserDisplayNameService } from '../../../study-reminder/application/services/user-display-name.service';
@@ -50,7 +52,13 @@ import {
 import { MessengerMappingService } from './messenger-mapping.service';
 import { MessengerLinkContextService } from './messenger-link-context.service';
 import { MessengerOutboundService } from './messenger-outbound.service';
+import { MessengerRescheduleConfirmationService } from './messenger-reschedule-confirmation.service';
 import { buildMessengerLinkVerifyFailedMessage } from '../messages/messenger-link.messages';
+import {
+  CANCEL_RESCHEDULE_POSTBACK,
+  CONFIRM_RESCHEDULE_POSTBACK,
+} from '../constants/messenger-reschedule.constants';
+import { buildRescheduleSuccessRichFollowUp } from '../formatters/messenger-rich-message.builder';
 import type {
   MessengerLinkAttemptResult,
   MessengerLinkVerifyFailureReason,
@@ -75,6 +83,7 @@ export class MessengerService {
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
     private readonly userDisplayNameService: UserDisplayNameService,
     private readonly chatRateLimitConfig: ChatRateLimitConfigService,
+    private readonly rescheduleConfirmationService: MessengerRescheduleConfirmationService,
     @Inject(WEBHOOK_DEDUPE_STORE)
     private readonly webhookDedupeStore: WebhookDedupeStorePort,
     @Optional()
@@ -88,20 +97,6 @@ export class MessengerService {
     }
 
     return challenge ?? '';
-  }
-
-  buildMMeLink(context: MessengerLinkContext): string {
-    const pageRef =
-      this.configService.get<string>('MESSENGER_PAGE_USERNAME')?.trim() ||
-      this.configService.get<string>('MESSENGER_PAGE_ID')?.trim();
-
-    if (!pageRef) {
-      throw new InternalServerErrorException(
-        'MESSENGER_PAGE_ID or MESSENGER_PAGE_USERNAME is missing',
-      );
-    }
-
-    return buildMMeLink(pageRef, context);
   }
 
   async handleWebhook(payload: MessengerWebhookPayload): Promise<{
@@ -268,52 +263,6 @@ export class MessengerService {
 
       if (error instanceof ProactiveMessenger24hSkippedError) {
         return '';
-      }
-
-      throw error;
-    }
-  }
-
-  async sendReportToPsid(
-    psid: string,
-    options?: { allowDuplicate?: boolean },
-  ): Promise<{ report: string; skipped: boolean }> {
-    if (!options?.allowDuplicate) {
-      const alreadySent =
-        await this.repository.hasSentScheduledReportToday(psid);
-      if (alreadySent) {
-        this.logger.log(
-          `Skip test-send psid=${psid}: scheduled report already sent today (R5)`,
-        );
-        return { report: '', skipped: true };
-      }
-    }
-
-    const userId = await this.resolveUserId(psid);
-
-    try {
-      const report = await this.studentReportService.generateReport(psid);
-      await this.sendReportBubbles({
-        psid,
-        userId,
-        text: report,
-        messageType: 'LEARNING_REPORT',
-      });
-      return { report, skipped: false };
-    } catch (error) {
-      if (error instanceof StudentReportRetryableError) {
-        const retryMessage = buildStudentReportApiRetryMessage();
-        await this.sendReportBubbles({
-          psid,
-          userId,
-          text: retryMessage,
-          messageType: 'LEARNING_REPORT_API_DEFERRED',
-        });
-        return { report: retryMessage, skipped: false };
-      }
-
-      if (error instanceof ProactiveMessenger24hSkippedError) {
-        return { report: '', skipped: false };
       }
 
       throw error;
@@ -778,6 +727,23 @@ export class MessengerService {
       return true;
     }
 
+    if (payload === CONFIRM_RESCHEDULE_POSTBACK) {
+      await this.signalTyping(psid);
+      await this.handleConfirmReschedulePostback(psid, context?.userId);
+      return true;
+    }
+
+    if (payload === CANCEL_RESCHEDULE_POSTBACK) {
+      const message = this.rescheduleConfirmationService.cancel(psid);
+      await this.outbound.sendTextViaPsid({
+        psid,
+        userId: context?.userId,
+        text: message,
+        messageType: 'RESCHEDULE_CANCELLED',
+      });
+      return true;
+    }
+
     if (payload === 'GET_STARTED') {
       if (this.linkAttemptBlocksWelcome(linkAttempt)) {
         return true;
@@ -805,6 +771,49 @@ export class MessengerService {
       messageType: 'WELCOME',
     });
     return true;
+  }
+
+  private async handleConfirmReschedulePostback(
+    psid: string,
+    userId?: number,
+  ): Promise<void> {
+    const result = await this.rescheduleConfirmationService.confirm(
+      psid,
+      userId,
+    );
+
+    if (!result.confirmed) {
+      await this.outbound.sendTextViaPsid({
+        psid,
+        userId,
+        text: result.message,
+        messageType: 'RESCHEDULE_CONFIRM_FAILED',
+      });
+      return;
+    }
+
+    const minutesBefore =
+      this.studyReminderScheduleService.getOutboxSettings().minutesBefore;
+
+    await this.outbound.sendTextViaPsid({
+      psid,
+      userId,
+      text: [
+        `Mình đã dời buổi học sang ${result.scheduledTimeLabel} cho bạn rồi nhé ✅`,
+        getStudyReminderLeadTimeNotice(minutesBefore),
+      ].join('\n\n'),
+      messageType: 'RESCHEDULE_CONFIRMED',
+    });
+
+    await this.outbound.sendRichFollowUps({
+      psid,
+      userId,
+      followUps: [
+        buildRescheduleSuccessRichFollowUp({
+          scheduledTimeLabel: result.scheduledTimeLabel,
+        }),
+      ],
+    });
   }
 
   private signalMessageSeen(psid: string): void {

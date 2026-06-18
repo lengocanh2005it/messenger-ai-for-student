@@ -26,7 +26,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Sau lần deploy đầu: gọi `POST /messenger/profile/setup` (header `X-Internal-Api-Key`) — menu prod chỉ **Đăng ký báo cáo** (báo cáo/nhắc lịch bot gửi tự động).
 - Sửa file trong `src/shared/prompts/*.system.txt` → **bắt buộc** `npm run build` (Nest copy assets sang `dist/shared/prompts/`).
 - Study reminder: biến `STUDY_REMINDER_*` **bắt buộc** — dùng `readRequiredPositiveNumber`, không hardcode fallback trong code.
-- Wispace API auth: header **`x-psid`** (PSID Messenger) + **`X-Internal-Key`** (`WISPACE_INTERNAL_KEY`); liên kết mapping qua **`POST WISPACE_API_VERIFY_MESSENGER_TOKEN_URL`** body `{ token, psid }` khi `MESSENGER_LINK_MODE=token`.
+- Wispace API auth: header **`x-psid`** (PSID Messenger) + **`X-Internal-Key`** (`WISPACE_INTERNAL_KEY`); liên kết mapping **bắt buộc** verify token qua **`POST WISPACE_API_VERIFY_MESSENGER_TOKEN_URL`** (`MESSENGER_LINK_MODE=token`; startup fail nếu thiếu config).
 - Ops HTTP (`/messenger/study-calendar/sync`, `send-reports`, …) cần header **`X-Internal-Api-Key`** hoặc `Authorization: Bearer …` khớp `INTERNAL_API_KEY`.
 - Cron nội bộ (sync 30 phút, dispatch adaptive S2) chạy trong process — không qua API key.
 - Debug jobs nhắc lịch: `npm run study-reminder:jobs` (`--failed`, `--stuck`, `--summary`).
@@ -346,7 +346,7 @@ Cursor dùng `AGENTS.md` + `.cursor/rules/` (rule `change-workflow`) + skills gl
 | DB POC tách khỏi `writing_ai_hub_db` | ✓ `ai_chat_bot_db` + scripts migrate/drop trên hub cũ |
 | Upsert job đã `sent` khi đổi giờ cùng `session_key` | ✓ `StudyReminderJobRepository.upsertPendingJob` reopen → `pending` |
 | Mapping đổi `user_id` cùng PSID (L3) | ✓ Chặn webhook; ops `POST /messenger/mapping/relink` + `allowRelink` |
-| Mapping 1:1 `userId` ↔ `psid` (L4) | ✓ Chặn webhook cả hai chiều; unique index ACTIVE trên DB |
+| Mapping 1:1 `userId` ↔ `psid` (L4) | ✓ Token-only link + chặn relink webhook; unique index ACTIVE trên DB |
 | Multi-pod cron báo cáo 08:00 (R4) | ✓ Claim table + advisory lock + `CRON_LEADER_ENABLED` |
 | Chat hai chiều + rate limit V1 | ✓ Reserve/refund/burst/whitelist/hint |
 | Rate limit hardening H1–H7 | ✓ H2–H7 code; H1 = bật `CHAT_RATE_LIMIT_ENABLED` trên env prod |

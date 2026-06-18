@@ -21,6 +21,8 @@ import { MessengerWebhookDeadLetterCronService } from './application/services/me
 import { MessengerChatSharedConfigService } from './application/services/messenger-chat-shared-config.service';
 import { MessengerMappingService } from './application/services/messenger-mapping.service';
 import { MessengerLinkContextService } from './application/services/messenger-link-context.service';
+import { MessengerLinkStartupService } from './application/services/messenger-link-startup.service';
+import { MessengerRescheduleConfirmationService } from './application/services/messenger-reschedule-confirmation.service';
 import { MessengerService } from './application/services/messenger.service';
 import { MessengerProfileService } from './infrastructure/meta/messenger-profile.service';
 import { WispaceMessengerTokenVerifyService } from './infrastructure/wispace/wispace-messenger-token-verify.service';
@@ -82,6 +84,8 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     MessengerProfileService,
     MessengerMappingService,
     MessengerLinkContextService,
+    MessengerLinkStartupService,
+    MessengerRescheduleConfirmationService,
     WispaceMessengerTokenVerifyService,
     MessengerWebhookDeadLetterRepository,
     {

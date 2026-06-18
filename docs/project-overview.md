@@ -195,9 +195,9 @@ Migration: `1717747200008-CreateMessengerUsersCacheTable`.
 |--------|------|--------|
 | GET | `/webhook` | Xác thực webhook Meta |
 | POST | `/webhook` | Nhận sự kiện messaging (guard `X-Hub-Signature-256` khi `MESSENGER_WEBHOOK_SIGNATURE_VERIFY` bật) |
-| GET | `/messenger/m-me-link` | Tạo link `m.me` với `ref`, `topic`, `cadence` |
-| POST | `/messenger/test-send` | Gửi thử báo cáo theo `psid` |
-| POST | `/messenger/profile/setup` | Cấu hình get started + persistent menu |
+| POST | `/messenger/profile/setup` | Cấu hình get started + persistent menu (cần `INTERNAL_API_KEY`) |
+
+Link `m.me` chỉ do **WISPACE backend** phát hành (opaque token) — không còn `GET /messenger/m-me-link`.
 
 ### Vận hành & tích hợp Wispace
 
@@ -211,7 +211,6 @@ Tất cả endpoint dưới đây yêu cầu header **`X-Internal-Api-Key`** (ho
 | POST | `/messenger/sync-study-reminders` | — | Sync toàn bộ user (ops / cron dự phòng) |
 | POST | `/messenger/send-study-reminders` | — | Sync + dispatch job đến hạn |
 | POST | `/messenger/profile/setup` | — | Cấu hình menu bot (ops) |
-| POST | `/messenger/test-send` | `{ "psid": string, "allowDuplicate"?: boolean }` | Gửi thử báo cáo (ops); mặc định skip nếu đã có cron hôm nay |
 
 Cron nội bộ (sync 30 phút, dispatch adaptive) **không** qua HTTP — không cần API key.
 

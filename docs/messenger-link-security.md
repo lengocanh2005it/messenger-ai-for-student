@@ -194,12 +194,12 @@ CREATE INDEX idx_messenger_link_tokens_user ON messenger_link_tokens (user_id);
 ### Feature flag gợi ý
 
 ```env
-MESSENGER_LINK_MODE=legacy|signed|token
-MESSENGER_LINK_SIGNING_SECRET=...   # mode signed
-MESSENGER_LINK_TOKEN_VERIFY_URL=... # mode token
+MESSENGER_LINK_MODE=token
+WISPACE_API_VERIFY_MESSENGER_TOKEN_URL=...
+WISPACE_INTERNAL_KEY=...
 ```
 
-Rollout: `legacy` → `signed` (pilot) → `token` (production).
+POC **chỉ** hỗ trợ `token` — `legacy` / `signed` đã gỡ; startup fail nếu thiếu verify URL hoặc `MESSENGER_LINK_MODE` khác `token`.
 
 ---
 

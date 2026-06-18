@@ -16,7 +16,7 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **L1** ✓ | Tin không phải text → reply hướng dẫn | 0.5 ngày | Trung bình |
 | **L2** ✓ | Policy Send 24h cho báo cáo / nhắc lịch | 0.5–1 ngày | Trung bình |
 | **L3** ✓ | Mapping đổi `user_id` (PSID giữ nguyên) | 1 ngày | Thấp (hiếm) |
-| **L4** | Bảo mật link `ref` — token one-time / HMAC | 1–2 ngày | **Cao** — trước go-live user thật |
+| **L4** ✓ | Bảo mật link `ref` — token one-time (POC); HMAC optional bridge | 1–2 ngày | **Cao** — trước go-live user thật |
 | **R1** ✓ | Báo cáo: empty score → tin thân thiện | 0.5 ngày | Trung bình |
 | **R2** ✓ | Báo cáo: chia bubble dài | 0.5 ngày | Thấp |
 | **R3** ✓ | Báo cáo: phân loại lỗi Wispace (defer cron / UX menu) | 1–1.5 ngày | Trung bình |
@@ -58,6 +58,7 @@ flowchart LR
 | Postback dedupe 15s | `isDuplicatePostback` |
 | **POST webhook signature** | `MessengerWebhookSignatureGuard` + `MESSENGER_APP_SECRET` / `X-Hub-Signature-256` |
 | Chat chưa link | `MISSING_USER_REF` |
+| **Link token-only (L4)** | `MessengerLinkContextService` verify WISPACE; startup fail nếu thiếu config; legacy `ref=userId` đã gỡ |
 | Tin **không phải text** (sticker, ảnh, file) | **L1** — `UNSUPPORTED_MESSAGE_TYPE`, `isUnsupportedUserMessage` |
 | User **chặn bot** / **Meta 24h window** | **L2** ✓ — `*_MESSENGER_24H` log, nhắc lịch terminal fail, cron báo cáo skip |
 
@@ -65,7 +66,7 @@ flowchart LR
 
 | Gap | Ảnh hưởng | Khắc phục | Phase |
 |-----|-----------|-----------|-------|
-| **`ref` = `userId` thuần — không verify chủ tài khoản** | IDOR: đổi `ref` → map PSID vào user khác; relink; lộ nhắc lịch/báo cáo | One-time token (production) hoặc HMAC tạm; chặn relink tự do — [messenger-link-security.md](./messenger-link-security.md), luồng + API: [messenger-link-integration.md](./messenger-link-integration.md) | **L4** |
+| ~~**`ref` = `userId` thuần — không verify chủ tài khoản**~~ | ~~IDOR~~ | **Done (POC)** — token-only + startup validator; link `m.me` chỉ WISPACE — [messenger-link-security.md](./messenger-link-security.md) | **L4** ✓ |
 | ~~POST `/webhook` không verify chữ ký Meta~~ | Payload giả nếu lộ URL webhook | **Done** — `MessengerWebhookSignatureGuard`, `MESSENGER_APP_SECRET`, `rawBody` | Done |
 | ~~Webhook Meta retry; lỗi 1 event~~ | ~~Event khác vẫn xử lý (đúng); event lỗi mất~~ | **DL** ✓ — `messenger_webhook_dead_letters` + auto-retry cron 5 phút + advisory lock + script ops | Done |
 
@@ -198,7 +199,7 @@ Rate limit V1 + **H1–H7**, agent tools, history RAM/DB, delivery semantics H4.
 |-----|-----------|-----------|-------|
 | Tier theo gói Wispace | Mọi user cùng `CHAT_FREE_FORM_DAILY_LIMIT` | Phase 7: limit theo `user_id` / API gói — [§5.8](./chat-rate-limit-quota.md) | **C1** |
 | Event store / billing | Khó audit chi phí LLM theo tháng | `messenger_chat_events` + projection — Phase 8 | **C2** |
-| Tool đổi lịch qua chat | Phụ thuộc đã link + sync Wispace | Đã có tool; harden error message khi API lỗi | — |
+| Tool đổi lịch qua chat | **Confirm postback** — `reschedule_study_session` chỉ stage; API Wispace chạy khi bấm «Xác nhận đổi lịch» | Done |
 
 ---
 

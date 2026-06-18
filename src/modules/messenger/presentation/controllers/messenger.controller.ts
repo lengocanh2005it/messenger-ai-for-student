@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,7 +8,6 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { parseMessengerLinkContext } from '../../../../shared/config/poc.constants';
 import { InternalApiKeyGuard } from '../../../../shared/common/guards/internal-api-key.guard';
 import { MessengerWebhookSignatureGuard } from '../../../../shared/common/guards/messenger-webhook-signature.guard';
 import { MessengerService } from '../../application/services/messenger.service';
@@ -51,54 +49,6 @@ export class MessengerController {
     return {
       ok: true,
       ...result,
-    };
-  }
-
-  @Get('messenger/m-me-link')
-  getMMeLink(
-    @Query('ref') ref?: string,
-    @Query('topic') topic?: string,
-    @Query('cadence') cadence?: string,
-  ) {
-    const context = parseMessengerLinkContext({ ref, topic, cadence });
-    if (!context) {
-      throw new BadRequestException(
-        'Query param ref is required (WISPACE userId). topic and cadence are optional.',
-      );
-    }
-
-    return {
-      ref: context.ref,
-      topic: context.topic,
-      cadence: context.cadence,
-      userId: context.userId,
-      url: this.messengerService.buildMMeLink(context),
-    };
-  }
-
-  @Post('messenger/test-send')
-  @UseGuards(InternalApiKeyGuard)
-  @HttpCode(200)
-  async testSend(
-    @Body()
-    body: {
-      psid: string;
-      allowDuplicate?: boolean;
-    },
-  ) {
-    const psid = body?.psid?.trim();
-    if (!psid) {
-      throw new BadRequestException('psid is required');
-    }
-
-    const result = await this.messengerService.sendReportToPsid(psid, {
-      allowDuplicate: body.allowDuplicate === true,
-    });
-
-    return {
-      ok: true,
-      skipped: result.skipped,
-      message: result.report,
     };
   }
 

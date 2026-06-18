@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
   MessengerLinkContext,
   parseMessengerLinkContext,
@@ -12,22 +11,8 @@ export class MessengerLinkContextService {
   private readonly logger = new Logger(MessengerLinkContextService.name);
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly wispaceTokenVerifyService: WispaceMessengerTokenVerifyService,
   ) {}
-
-  isTokenLinkMode(): boolean {
-    const mode = this.configService.get<string>('MESSENGER_LINK_MODE')?.trim();
-    if (mode) {
-      return mode.toLowerCase() === 'token';
-    }
-
-    return Boolean(
-      this.configService
-        .get<string>('WISPACE_API_VERIFY_MESSENGER_TOKEN_URL')
-        ?.trim(),
-    );
-  }
 
   async resolveFromRef(
     psid: string,
@@ -40,11 +25,6 @@ export class MessengerLinkContextService {
     const ref = input.ref?.trim();
     if (!ref) {
       return {};
-    }
-
-    if (!this.isTokenLinkMode()) {
-      const context = parseMessengerLinkContext(input);
-      return context ? { context } : {};
     }
 
     try {

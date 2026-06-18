@@ -76,6 +76,12 @@ Port queue: `CHAT_QUEUE_STORE`. Port history: `CHAT_HISTORY_STORE`.
 - 1 flush = 1 lượt (khi enforcement bật)
 - Thiếu `mid` + enforcement → skip / `CHAT_MISSING_MID` (H5)
 
+## Đổi lịch qua chat
+
+- Tool `reschedule_study_session` **không** gọi Wispace ngay — `MessengerRescheduleConfirmationService` stage pending + nút postback.
+- Chỉ khi user bấm `CONFIRM_RESCHEDULE` → `StudyCalendarCommandService.rescheduleSession`.
+- Postback: `CONFIRM_RESCHEDULE` / `CANCEL_RESCHEDULE` trong `messenger.service.ts`.
+
 ## Test
 
 - `messenger-chat-queue.service.spec.ts`

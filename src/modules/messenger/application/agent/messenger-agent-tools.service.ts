@@ -23,7 +23,6 @@ import type { MessengerRepositoryPort } from '../../domain/repositories/messenge
 import {
   buildCalendarEntriesRichFollowUp,
   buildReminderPreviewRichFollowUp,
-  buildRescheduleSuccessRichFollowUp,
   buildStudySessionsRichFollowUps,
   buildUserGoalsRichFollowUp,
 } from '../formatters/messenger-rich-message.builder';
@@ -38,6 +37,7 @@ import {
   MessengerAgentToolName,
 } from './messenger-agent.tools';
 import type { MessengerAgentReply } from './messenger-agent.service';
+import { MessengerRescheduleConfirmationService } from '../services/messenger-reschedule-confirmation.service';
 
 export interface MessengerAgentToolContext {
   psid: string;
@@ -59,6 +59,7 @@ export class MessengerAgentToolsService {
     private readonly studyReminderService: StudyReminderService,
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
     private readonly studyCalendarCommandService: StudyCalendarCommandService,
+    private readonly rescheduleConfirmationService: MessengerRescheduleConfirmationService,
   ) {}
 
   async tryFastDefaultReschedule(
@@ -85,38 +86,30 @@ export class MessengerAgentToolsService {
 
     const entry = list.entries[0];
 
-    try {
-      const result = await this.studyCalendarCommandService.rescheduleSession({
-        psid: ctx.psid,
-        userId: ctx.userId,
-        calendarId: entry.calendarId,
-        schedulingMode: 'default_next_day_same_time',
-      });
+    const staged = await this.rescheduleConfirmationService.stage({
+      psid: ctx.psid,
+      userId: ctx.userId,
+      calendarId: entry.calendarId,
+      schedulingMode: 'default_next_day_same_time',
+    });
 
-      const minutesBefore =
-        this.studyReminderScheduleService.getOutboxSettings().minutesBefore;
-
-      return {
-        text: sanitizeMessengerText(
-          [
-            `Mình đã dời buổi học sang ${result.scheduledTimeLabel} cho bạn rồi nhé ✅`,
-            getStudyReminderLeadTimeNotice(minutesBefore),
-          ].join('\n\n'),
-        ),
-        richFollowUps: [
-          buildRescheduleSuccessRichFollowUp({
-            scheduledTimeLabel: result.scheduledTimeLabel,
-          }),
-        ],
-      };
-    } catch (error) {
-      this.logger.warn(
-        `Fast default reschedule failed psid=${ctx.psid}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+    if ('error' in staged) {
       return null;
     }
+
+    const minutesBefore =
+      this.studyReminderScheduleService.getOutboxSettings().minutesBefore;
+
+    return {
+      text: sanitizeMessengerText(
+        [
+          'Mình đã chuẩn bị đổi lịch theo yêu cầu của bạn.',
+          'Bấm «Xác nhận đổi lịch» bên dưới để hoàn tất — nếu không muốn đổi nữa thì bấm Hủy nhé.',
+          getStudyReminderLeadTimeNotice(minutesBefore),
+        ].join('\n\n'),
+      ),
+      richFollowUps: [staged.richFollowUp],
+    };
   }
 
   async execute(
@@ -249,7 +242,7 @@ export class MessengerAgentToolsService {
       };
     }
 
-    const result = await this.studyCalendarCommandService.rescheduleSession({
+    const staged = await this.rescheduleConfirmationService.stage({
       psid: ctx.psid,
       userId: ctx.userId,
       calendarId: matchedEntry.calendarId,
@@ -258,21 +251,18 @@ export class MessengerAgentToolsService {
       newTime: this.readOptionalString(args.newTime),
     });
 
-    this.clearScheduleListFollowUps(ctx);
-    this.pushRichFollowUp(
-      ctx,
-      buildRescheduleSuccessRichFollowUp({
-        scheduledTimeLabel: result.scheduledTimeLabel,
-      }),
-    );
+    if ('error' in staged) {
+      return staged;
+    }
+
+    this.pushRichFollowUp(ctx, staged.richFollowUp);
 
     return {
-      rescheduled: true,
-      schedulingMode: result.schedulingMode,
-      cancelledCalendarId: result.cancelledCalendarId,
-      newCalendarId: result.created.id,
-      scheduledTimeLabel: result.scheduledTimeLabel,
-      outboxSyncQueued: result.outboxSyncQueued,
+      pendingConfirmation: true,
+      sessionLabel: staged.sessionLabel,
+      summary: staged.summary,
+      message:
+        'Đã gửi nút xác nhận. Chỉ đổi lịch sau khi học viên bấm «Xác nhận đổi lịch» trên Messenger.',
     };
   }
 
@@ -425,18 +415,6 @@ export class MessengerAgentToolsService {
         ctx.richFollowUps.push(followUp);
       }
     }
-  }
-
-  /** Drop list cards queued earlier in the same reply (e.g. before reschedule). */
-  private clearScheduleListFollowUps(ctx: MessengerAgentToolContext): void {
-    const scheduleListTypes = new Set([
-      'CHAT_CALENDAR_GENERIC',
-      'CHAT_SESSIONS_GENERIC',
-    ]);
-
-    ctx.richFollowUps = ctx.richFollowUps.filter(
-      (followUp) => !scheduleListTypes.has(followUp.messageType),
-    );
   }
 
   private readPositiveInteger(value: unknown): number | undefined {

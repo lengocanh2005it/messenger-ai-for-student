@@ -98,7 +98,7 @@ export const MESSENGER_AGENT_TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'reschedule_study_session',
       description:
-        'Thực hiện dời buổi học sau khi đã biết calendarId. default_next_day_same_time = cùng giờ, +1 ngày so với buổi đang dời (buổi ngày mai → ngày kia). explicit khi học viên nêu rõ ngày/giờ mới.',
+        'Chuẩn bị dời buổi học (gửi nút xác nhận cho học viên; chỉ thực hiện sau khi bấm Xác nhận). default_next_day_same_time = cùng giờ, +1 ngày so với buổi đang dời (buổi ngày mai → ngày kia). explicit khi học viên nêu rõ ngày/giờ mới.',
       parameters: {
         type: 'object',
         properties: {

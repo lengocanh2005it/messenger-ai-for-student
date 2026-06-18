@@ -18,7 +18,7 @@ Read `.claude/rules/prompts.md` before editing.
 
 1. Sửa `.system.txt` — output hướng tới tin Messenger tiếng Việt.
 2. `npm run build` (copy sang `dist/shared/prompts/`).
-3. Test: menu bot preview hoặc `POST /messenger/test-send` (ops key).
+3. Test: menu bot preview hoặc `POST /messenger/send-reports` với `{ "psid": "..." }` (ops key).
 
 ## Không làm
 
