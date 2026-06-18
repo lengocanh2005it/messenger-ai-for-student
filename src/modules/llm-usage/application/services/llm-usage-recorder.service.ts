@@ -50,6 +50,11 @@ export class LlmUsageRecorderService {
       openaiResponseId: input.response.id,
       correlationId: input.correlationId,
       toolRound: input.toolRound,
+      estimatedCostUsd: this.configService.estimateCostUsdForModel(
+        input.model,
+        usage?.prompt_tokens ?? 0,
+        usage?.completion_tokens ?? 0,
+      ),
     });
   }
 
@@ -59,8 +64,18 @@ export class LlmUsageRecorderService {
       return;
     }
 
+    const estimatedCostUsd =
+      input.estimatedCostUsd !== undefined
+        ? input.estimatedCostUsd
+        : this.configService.estimateCostUsdForModel(
+            input.model,
+            input.promptTokens,
+            input.completionTokens,
+          );
+
     this.bullQueue.enqueue({
       ...input,
+      estimatedCostUsd,
       usageDate: this.configService.todayUsageDate(),
     });
   }

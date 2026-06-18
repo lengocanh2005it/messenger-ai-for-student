@@ -210,6 +210,8 @@ Tất cả endpoint dưới đây yêu cầu header **`X-Internal-Api-Key`** (ho
 | POST | `/messenger/sync-study-reminders` | — | Sync toàn bộ user (ops / cron dự phòng) |
 | POST | `/messenger/send-study-reminders` | — | Sync + dispatch job đến hạn |
 | POST | `/messenger/profile/setup` | — | Cấu hình menu bot (ops) |
+| GET | `/messenger/ops/llm-usage/summary` | Query: `psid` **hoặc** `userId`; `from`/`to` (YYYY-MM-DD, mặc định hôm nay) | Tổng token + USD ước tính theo feature cho một học viên |
+| GET | `/messenger/ops/llm-usage/fleet` | Query: `date` (YYYY-MM-DD, mặc định hôm nay) | Tổng token + USD ước tính toàn fleet theo feature |
 
 Cron nội bộ (sync 30 phút, dispatch adaptive) **không** qua HTTP — không cần API key.
 
@@ -250,6 +252,7 @@ Xem `.env.example`. Nhóm chính:
 
 - **Meta:** `PAGE_ACCESS_TOKEN`, `VERIFY_TOKEN`, `MESSENGER_APP_SECRET`, `MESSENGER_WEBHOOK_SIGNATURE_VERIFY`, `MESSENGER_PAGE_ID`, `GRAPH_API_VERSION`
 - **OpenAI:** `OPENAI_API_KEY`, `OPENAI_MODEL`
+- **LLM usage (C2):** `LLM_USAGE_*`, `LLM_USAGE_BULLMQ_*`; USD ước tính: `LLM_COST_USD_PER_1M_INPUT_TOKENS_<MODEL>` / `LLM_COST_USD_PER_1M_OUTPUT_TOKENS_<MODEL>` (ví dụ `gpt-5.4` → `GPT_5_4`: input `2.50`, output `15.00` theo [OpenAI pricing](https://developers.openai.com/api/docs/pricing); ≠ hóa đơn thật)
 - **Wispace API:** `WISPACE_API_USER_CALENDAR_URL`, `WISPACE_API_USER_GOALS_URL`, `WISPACE_API_TASK_SCORE_URL`, `WISPACE_INTERNAL_KEY` — auth: `x-psid` + `X-Internal-Key`
 - **Study reminder:** `STUDY_REMINDER_*` — **bắt buộc**, không hardcode fallback trong code
 - **Chat rate limit:** `CHAT_RATE_LIMIT_ENABLED`, `CHAT_FREE_FORM_DAILY_LIMIT`, `CHAT_BURST_PER_MINUTE`, `CHAT_BURST_STORE` (R3), `CHAT_USAGE_TIMEZONE`, `CHAT_RATE_LIMIT_WHITELIST_PSIDS`, `CHAT_QUOTA_REMAINING_HINT_THRESHOLD`, `CHAT_IDEMPOTENCY_STUCK_RESERVED_MS` (H2), `CHAT_MERGED_TEXT_MAX_CHARS` / `CHAT_BURST_COUNT_REFUNDED` (H5), `CHAT_IDEMPOTENCY_RETENTION_DAYS` (H6)
@@ -282,6 +285,8 @@ npm run chat-quota:status -- --ops   # I1 fleet summary
 npm run chat-quota:status -- --psid=<psid> --date=2026-06-15
 npm run chat-quota:recover-stuck   # H2: refund stuck reserved
 npm run chat-quota:cleanup         # H6: xóa idempotency completed/refunded cũ
+npm run llm-usage:status           # Tra token LLM (--psid, --user-id, --ops)
+npm run chat-quota:rebuild         # Q1: rebuild daily counter từ events
 # Ops DB migrate (một lần):
 node scripts/migrate-hub-to-chat-bot-db.mjs   # copy POC tables hub → ai_chat_bot_db
 node scripts/drop-poc-tables-old-db.mjs       # drop POC + migrations trên writing_ai_hub_db

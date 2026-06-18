@@ -9,6 +9,7 @@ describe('LlmUsageRecorderService', () => {
     const configService = {
       isEnabled: () => true,
       todayUsageDate: () => '2026-06-18',
+      estimateCostUsdForModel: () => '0.001500',
     } as LlmUsageConfigService;
 
     const service = new LlmUsageRecorderService(configService, bullQueue);

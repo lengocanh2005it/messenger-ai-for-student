@@ -18,4 +18,5 @@ export interface RecordLlmUsageInput {
   toolRound?: number;
   status?: LlmUsageStatus;
   errorMessage?: string;
+  estimatedCostUsd?: string | null;
 }

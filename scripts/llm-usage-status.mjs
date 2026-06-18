@@ -76,7 +76,7 @@ async function main() {
   await client.connect();
 
   try {
-    if (args.ops) {
+        if (args.ops) {
       const summary = await client.query(
         `
           SELECT
@@ -84,7 +84,8 @@ async function main() {
             COUNT(*)::int AS calls,
             COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
             COALESCE(SUM(completion_tokens), 0)::int AS completion_tokens,
-            COALESCE(SUM(total_tokens), 0)::int AS total_tokens
+            COALESCE(SUM(total_tokens), 0)::int AS total_tokens,
+            COALESCE(SUM(estimated_cost_usd), 0)::text AS estimated_cost_usd
           FROM llm_usage_events
           WHERE usage_date = $1::date
           GROUP BY feature
@@ -98,8 +99,12 @@ async function main() {
         console.log('  (no rows)');
       } else {
         for (const row of summary.rows) {
+          const usd =
+            Number(row.estimated_cost_usd) > 0
+              ? ` usd=${row.estimated_cost_usd}`
+              : '';
           console.log(
-            `  ${row.feature}: calls=${row.calls} prompt=${row.prompt_tokens} completion=${row.completion_tokens} total=${row.total_tokens}`,
+            `  ${row.feature}: calls=${row.calls} prompt=${row.prompt_tokens} completion=${row.completion_tokens} total=${row.total_tokens}${usd}`,
           );
         }
       }
@@ -139,6 +144,7 @@ async function main() {
           prompt_tokens,
           completion_tokens,
           total_tokens,
+          estimated_cost_usd,
           correlation_id,
           tool_round,
           occurred_at
@@ -163,6 +169,7 @@ async function main() {
           promptTokens: row.prompt_tokens,
           completionTokens: row.completion_tokens,
           totalTokens: row.total_tokens,
+          estimatedCostUsd: row.estimated_cost_usd,
           correlationId: row.correlation_id,
           toolRound: row.tool_round,
           occurredAt: row.occurred_at,

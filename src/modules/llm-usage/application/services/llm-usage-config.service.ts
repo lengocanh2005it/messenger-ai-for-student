@@ -1,5 +1,10 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  buildInputCostEnvKey,
+  buildOutputCostEnvKey,
+  estimateCostUsd,
+} from '../utils/llm-usage-cost.util';
 
 function todayUsageDate(timezone: string, now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -108,5 +113,45 @@ export class LlmUsageConfigService {
     }
 
     return Math.floor(value);
+  }
+
+  getModelInputUsdPer1M(model: string): number | null {
+    return this.readPositiveNumber(buildInputCostEnvKey(model));
+  }
+
+  getModelOutputUsdPer1M(model: string): number | null {
+    return this.readPositiveNumber(buildOutputCostEnvKey(model));
+  }
+
+  estimateCostUsdForModel(
+    model: string,
+    promptTokens: number,
+    completionTokens: number,
+  ): string | null {
+    return estimateCostUsd(
+      promptTokens,
+      completionTokens,
+      this.getModelInputUsdPer1M(model),
+      this.getModelOutputUsdPer1M(model),
+    );
+  }
+
+  getCostDisclaimer(): string {
+    return 'Estimated from env LLM_COST_USD_PER_1M_* pricing; not an OpenAI invoice.';
+  }
+
+  private readPositiveNumber(envKey: string): number | null {
+    const raw = this.configService.get<string>(envKey)?.trim();
+
+    if (!raw) {
+      return null;
+    }
+
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) {
+      return null;
+    }
+
+    return value;
   }
 }
