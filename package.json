@@ -26,6 +26,8 @@
     "chat-quota:status": "node --env-file=.env scripts/chat-quota-status.mjs",
     "chat-quota:recover-stuck": "node --env-file=.env scripts/chat-quota-recover-stuck.mjs",
     "chat-quota:cleanup": "node --env-file=.env scripts/chat-quota-cleanup-idempotency.mjs",
+    "chat-quota:rebuild": "node --env-file=.env scripts/chat-quota-rebuild.mjs",
+    "llm-usage:status": "node --env-file=.env scripts/llm-usage-status.mjs",
     "webhook:dead-letter": "node --env-file=.env scripts/webhook-dead-letter.mjs",
     "migration:run": "npm run build && node --env-file=.env ./node_modules/typeorm/cli.js migration:run -d dist/infrastructure/database/data-source.js",
     "migration:revert": "npm run build && node --env-file=.env ./node_modules/typeorm/cli.js migration:revert -d dist/infrastructure/database/data-source.js",

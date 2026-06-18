@@ -29,6 +29,7 @@ Postback menu, nhắc lịch cron, báo cáo proactive **không** qua module nà
 | H2 stuck | `CHAT_IDEMPOTENCY_STUCK_RESERVED_MS` |
 | H5 abuse | `CHAT_MERGED_TEXT_MAX_CHARS`, `CHAT_BURST_COUNT_REFUNDED` |
 | H6 ops | `CHAT_IDEMPOTENCY_RETENTION_DAYS` |
+| C2 Q0 | `CHAT_QUOTA_EVENTS_ENABLED`, `CHAT_QUOTA_EVENTS_RETENTION_DAYS`, `chat-quota:rebuild` |
 | UX | `CHAT_QUOTA_REMAINING_HINT_THRESHOLD` |
 
 Thêm biến mới → cập nhật `.env.example`.

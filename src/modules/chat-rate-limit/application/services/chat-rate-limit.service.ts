@@ -14,6 +14,7 @@ import {
 } from '../../domain/repositories/chat-burst-counter.port';
 import { todayUsageDate } from '../utils/chat-usage-date.utils';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
+import { ChatQuotaEventRecorderService } from './chat-quota-event-recorder.service';
 
 /**
  * Reserve runs before LLM (Phase 3 queue hook). Refund on LLM/Send failure.
@@ -29,6 +30,7 @@ export class ChatRateLimitService {
     private readonly repository: ChatRateLimitRepositoryPort,
     @Inject(CHAT_BURST_COUNTER)
     private readonly burstCounter: ChatBurstCounterPort,
+    private readonly quotaEventRecorder: ChatQuotaEventRecorderService,
   ) {}
 
   getSettings(): ChatRateLimitSettings {
@@ -91,6 +93,14 @@ export class ChatRateLimitService {
         burstCount,
         burstPerMinute,
       );
+      await this.quotaEventRecorder.recordDeniedBestEffort({
+        psid,
+        userId: params.userId,
+        usageDate,
+        reason: 'BURST_LIMIT',
+        limit: burstPerMinute,
+        used: burstCount,
+      });
       return {
         allowed: false,
         used: burstCount,
@@ -114,6 +124,14 @@ export class ChatRateLimitService {
         usedBefore,
         freeFormDailyLimit,
       );
+      await this.quotaEventRecorder.recordDeniedBestEffort({
+        psid,
+        userId: params.userId,
+        usageDate,
+        reason: 'DAILY_LIMIT',
+        limit: freeFormDailyLimit,
+        used: usedBefore,
+      });
       return {
         allowed: false,
         used: usedBefore,
@@ -163,6 +181,14 @@ export class ChatRateLimitService {
         used,
         params.freeFormDailyLimit,
       );
+      await this.quotaEventRecorder.recordDeniedBestEffort({
+        psid,
+        userId: params.userId,
+        usageDate: params.usageDate,
+        reason: 'DAILY_LIMIT',
+        limit: params.freeFormDailyLimit,
+        used,
+      });
       return {
         allowed: false,
         used,
@@ -206,6 +232,7 @@ export class ChatRateLimitService {
     psid: string,
     usageDate: string,
     idempotencyKey: string,
+    options?: { userId?: number },
   ): Promise<void> {
     if (!this.configService.shouldEnforceForPsid(psid)) {
       return;
@@ -215,6 +242,8 @@ export class ChatRateLimitService {
       psid,
       usageDate,
       idempotencyKey,
+      releaseReason: 'send_failed',
+      userId: options?.userId,
     });
 
     if (refunded) {

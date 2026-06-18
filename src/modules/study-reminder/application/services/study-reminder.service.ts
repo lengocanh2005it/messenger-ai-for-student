@@ -14,6 +14,7 @@ import {
   StudyReminderLlmInput,
   StudyReminderLlmOutput,
 } from '../../domain/entities/study-schedule.types';
+import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { UserDisplayNameService } from './user-display-name.service';
 import { StudyReminderScheduleService } from './study-reminder-schedule.service';
 import { StudySessionSourceService } from './study-session-source.service';
@@ -30,12 +31,13 @@ export class StudyReminderService {
     private readonly userGoalsApiService: UserGoalsApiService,
     private readonly studentCapacityService: StudentCapacityService,
     private readonly userDisplayNameService: UserDisplayNameService,
+    private readonly llmUsageRecorder: LlmUsageRecorderService,
   ) {}
 
   async generateReminderForSession(
     psid: string,
     session: NormalizedStudySession,
-    options?: { userId?: number; displayName?: string },
+    options?: { userId?: number; displayName?: string; jobId?: number },
   ): Promise<string> {
     const bundle = await this.generateReminderBundleForSession(
       psid,
@@ -48,7 +50,7 @@ export class StudyReminderService {
   async generateReminderBundleForSession(
     psid: string,
     session: NormalizedStudySession,
-    options?: { userId?: number; displayName?: string },
+    options?: { userId?: number; displayName?: string; jobId?: number },
   ): Promise<{ text: string; output: StudyReminderLlmOutput }> {
     const displayName =
       options?.displayName?.trim() ||
@@ -57,7 +59,11 @@ export class StudyReminderService {
         userId: options?.userId,
       }));
     const input = await this.buildLlmInput(psid, session, displayName);
-    const output = await this.generateAiReminder(input);
+    const output = await this.generateAiReminder(input, {
+      psid,
+      userId: options?.userId,
+      jobId: options?.jobId,
+    });
     return {
       text: this.formatReminder(output),
       output,
@@ -128,6 +134,7 @@ export class StudyReminderService {
 
   private async generateAiReminder(
     input: StudyReminderLlmInput,
+    context: { psid: string; userId?: number; jobId?: number },
   ): Promise<StudyReminderLlmOutput> {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
 
@@ -152,6 +159,16 @@ export class StudyReminderService {
           content: JSON.stringify(input),
         },
       ],
+    });
+
+    await this.llmUsageRecorder.recordFromCompletion({
+      feature: 'STUDY_REMINDER',
+      psid: context.psid,
+      userId: context.userId,
+      model,
+      response,
+      correlationId:
+        context.jobId !== undefined ? String(context.jobId) : context.psid,
     });
 
     const content = response.choices[0]?.message?.content;

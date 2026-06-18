@@ -12,6 +12,7 @@ import type {
   ReserveFreeFormSlotOutcome,
   ReserveIdempotencyInput,
 } from '../../domain/entities/chat-idempotency.types';
+import { ChatQuotaEventRecorderService } from '../../application/services/chat-quota-event-recorder.service';
 import { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate-limit.repository.port';
 
 class DailyLimitExceededError extends Error {
@@ -28,6 +29,7 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
     private readonly dailyUsageRepo: Repository<MessengerChatDailyUsageEntity>,
     @InjectRepository(MessengerChatIdempotencyEntity)
     private readonly idempotencyRepo: Repository<MessengerChatIdempotencyEntity>,
+    private readonly quotaEventRecorder: ChatQuotaEventRecorderService,
   ) {}
 
   async getDailyUsageCount(psid: string, usageDate: string): Promise<number> {
@@ -148,9 +150,19 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
           throw new DailyLimitExceededError();
         }
 
+        const freeFormCount = rows[0]?.free_form_count ?? 0;
+        await this.quotaEventRecorder.recordReservedInTransaction(manager, {
+          psid: input.psid,
+          userId: input.userId,
+          usageDate: input.usageDate,
+          idempotencyKey: input.idempotencyKey,
+          limit: input.dailyLimit,
+          usedAfter: freeFormCount,
+        });
+
         return {
           status: 'reserved',
-          freeFormCount: rows[0]?.free_form_count ?? 0,
+          freeFormCount,
         };
       });
     } catch (error) {
@@ -166,7 +178,11 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
     psid: string;
     usageDate: string;
     idempotencyKey: string;
+    releaseReason?: 'send_failed' | 'stuck_recover';
+    userId?: number;
   }): Promise<boolean> {
+    const releaseReason = params.releaseReason ?? 'send_failed';
+
     return this.dailyUsageRepo.manager.transaction(async (manager) => {
       const refundedRows: Array<{ idempotency_key: string }> =
         await manager.query(
@@ -183,16 +199,27 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
         return false;
       }
 
-      await manager.query(
+      const usageRows: Array<{ free_form_count: number }> = await manager.query(
         `
           UPDATE messenger_chat_daily_usage
           SET
             free_form_count = GREATEST(free_form_count - 1, 0),
             updated_at = now()
           WHERE psid = $1 AND usage_date = $2::date
+          RETURNING free_form_count
         `,
         [params.psid, params.usageDate],
       );
+
+      const usedAfter = usageRows[0]?.free_form_count ?? 0;
+      await this.quotaEventRecorder.recordReleasedInTransaction(manager, {
+        psid: params.psid,
+        userId: params.userId,
+        usageDate: params.usageDate,
+        idempotencyKey: params.idempotencyKey,
+        reason: releaseReason,
+        usedAfter,
+      });
 
       return true;
     });
@@ -354,16 +381,28 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
           return 'not_found';
         }
 
-        await manager.query(
-          `
+        const usageRows: Array<{ free_form_count: number }> =
+          await manager.query(
+            `
             UPDATE messenger_chat_daily_usage
             SET
               free_form_count = GREATEST(free_form_count - 1, 0),
               updated_at = now()
             WHERE psid = $1 AND usage_date = $2::date
+            RETURNING free_form_count
           `,
-          [row.psid, row.usage_date],
-        );
+            [row.psid, row.usage_date],
+          );
+
+        const usedAfter = usageRows[0]?.free_form_count ?? 0;
+        await this.quotaEventRecorder.recordReleasedInTransaction(manager, {
+          psid: row.psid,
+          userId: row.user_id ?? undefined,
+          usageDate: row.usage_date,
+          idempotencyKey,
+          reason: 'stuck_recover',
+          usedAfter,
+        });
 
         await manager.query(
           `

@@ -10,6 +10,7 @@ import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { StudentReportModule } from './modules/student-report/student-report.module';
 import { StudyReminderModule } from './modules/study-reminder/study-reminder.module';
 import { ChatRateLimitModule } from './modules/chat-rate-limit/chat-rate-limit.module';
+import { LlmUsageModule } from './modules/llm-usage/llm-usage.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { ChatRateLimitModule } from './modules/chat-rate-limit/chat-rate-limit.m
     MessengerModule,
     SchedulerModule,
     ChatRateLimitModule,
+    LlmUsageModule,
   ],
   controllers: [AppController],
   providers: [AppService],

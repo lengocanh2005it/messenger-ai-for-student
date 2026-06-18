@@ -1,6 +1,6 @@
 # Master plan — C2 Quota hybrid + LLM usage (+ roadmap sau)
 
-**Trạng thái:** PLAN ONLY — **chưa implement** cho đến khi tick **§M Checklist bắt đầu**.
+**Trạng thái:** IMPLEMENTED (PR-A → PR-D trên nhánh `docs/c2-master-plan-and-ops-runbooks`).
 
 Tài liệu **đầy đủ một chỗ**: kiến trúc, schema, từng PR, file sửa, test, deploy, ops, phase sau (C1 / I2 / scale). Implement **theo thứ tự §D**, không nhảy phase.
 

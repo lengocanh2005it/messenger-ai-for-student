@@ -17,6 +17,7 @@ import type { ChatHistoryMessage } from '../services/messenger-chat-history.serv
 import type { MessengerRichFollowUp } from '../../domain/entities/messenger-rich-message.types';
 import { isObviouslyOffTopic } from '../../../../shared/utils/messenger-scope.utils';
 import { buildWispaceScopeRedirectMessage } from '../messages/wispace-scope.messages';
+import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { MESSENGER_AGENT_TOOLS } from './messenger-agent.tools';
 
 export interface MessengerAgentReply {
@@ -30,6 +31,8 @@ export interface MessengerAgentInput {
   userText: string;
   linkContext?: MessengerLinkContext;
   history?: ChatHistoryMessage[];
+  /** message.mid — LLM usage correlation id */
+  correlationId?: string;
 }
 
 @Injectable()
@@ -42,6 +45,7 @@ export class MessengerAgentService {
     private readonly configService: ConfigService,
     private readonly toolsService: MessengerAgentToolsService,
     private readonly userDisplayNameService: UserDisplayNameService,
+    private readonly llmUsageRecorder: LlmUsageRecorderService,
   ) {}
 
   async reply(input: MessengerAgentInput): Promise<MessengerAgentReply> {
@@ -108,6 +112,16 @@ export class MessengerAgentService {
         messages,
         tools: MESSENGER_AGENT_TOOLS,
         tool_choice: 'auto',
+      });
+
+      await this.llmUsageRecorder.recordFromCompletion({
+        feature: 'FREE_FORM_CHAT',
+        psid: input.psid,
+        userId: input.userId,
+        model,
+        response,
+        correlationId: input.correlationId,
+        toolRound: round,
       });
 
       const choice = response.choices[0]?.message;

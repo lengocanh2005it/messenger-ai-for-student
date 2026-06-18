@@ -77,7 +77,7 @@ export class StudyReminderDispatchService {
           await this.studyReminderService.generateReminderForSession(
             job.psid,
             session,
-            { userId: job.userId },
+            { userId: job.userId, jobId: job.id },
           );
         await this.messageSender.sendTextViaPsid({
           psid: job.psid,

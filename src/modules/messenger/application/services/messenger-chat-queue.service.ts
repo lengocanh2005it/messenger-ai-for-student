@@ -343,6 +343,7 @@ export class MessengerChatQueueService {
         userText: mergedText,
         linkContext,
         history: await this.chatHistory.getHistory(psid),
+        correlationId: idempotencyKey,
       });
 
       const assistantText = reply.text.trim();

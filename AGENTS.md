@@ -30,7 +30,8 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Ops HTTP (`/messenger/study-calendar/sync`, `send-reports`, …) cần header **`X-Internal-Api-Key`** hoặc `Authorization: Bearer …` khớp `INTERNAL_API_KEY`.
 - Cron nội bộ (sync 30 phút, dispatch adaptive S2) chạy trong process — không qua API key.
 - Debug jobs nhắc lịch: `npm run study-reminder:jobs` (`--failed`, `--stuck`, `--summary`).
-- Tra quota chat: `npm run chat-quota:status` (`--psid`, `--user-id`, `--date`, `--ops`).
+- Tra quota chat: `npm run chat-quota:status` (`--psid`, `--user-id`, `--date`, `--ops`); rebuild counter: `chat-quota:rebuild` (`--dry-run`).
+- Tra token LLM: `npm run llm-usage:status` (`--psid`, `--feature`, `--ops`).
 - Ops health I1+S1: `npm run ops:health` (cron 09:00 ICT trong app khi `OPS_HEALTH_ALERT_ENABLED=true`).
 - Doppler webhook prod: sửa secret `prd` → `POST /messenger/ops/doppler-sync` tự sync `.env` + restart container ([doppler-secrets.md](docs/doppler-secrets.md) §4).
 - Audit log cleanup: cron `messenger-message-log-cleanup` — 03:00 ICT ngày 1 hàng tháng; `MESSENGER_MESSAGE_LOG_RETENTION_DAYS=90` (tắt: `MESSENGER_MESSAGE_LOG_CLEANUP_ENABLED=false`).
@@ -71,6 +72,8 @@ npm run study-reminder:sync         # build + migrate + sync + dispatch
 npm run study-reminder:jobs         # in jobs trong DB (--failed, --stuck, --summary)
 npm run ops:health                  # I1+S1 combined ops snapshot
 npm run chat-quota:status           # tra quota chat (psid / userId / ngày / --ops)
+npm run chat-quota:rebuild            # rebuild counter từ messenger_chat_events (--dry-run)
+npm run llm-usage:status              # tra token LLM theo feature/psid (--ops)
 npm run chat-quota:recover-stuck    # H2: refund stuck reserved (optional --dry-run)
 npm run chat-quota:cleanup          # H6: xóa idempotency completed/refunded cũ (optional --dry-run)
 # Ops DB migrate (một lần, cần DB_PASSWORD):

@@ -2,6 +2,7 @@ import { EntityManager, Repository } from 'typeorm';
 import { MessengerChatDailyUsageEntity } from '../../../../infrastructure/database/entities/messenger-chat-daily-usage.entity';
 import { MessengerChatIdempotencyEntity } from '../../../../infrastructure/database/entities/messenger-chat-idempotency.entity';
 import { ChatRateLimitRepository } from './chat-rate-limit.repository';
+import type { ChatQuotaEventRecorderService } from '../../application/services/chat-quota-event-recorder.service';
 
 type DailyUsageRow = {
   psid: string;
@@ -23,6 +24,12 @@ describe('ChatRateLimitRepository', () => {
   let repository: ChatRateLimitRepository;
   let dailyUsageStore: Map<string, DailyUsageRow>;
   let idempotencyStore: Map<string, IdempotencyRow>;
+  let quotaEventRecorder: jest.Mocked<
+    Pick<
+      ChatQuotaEventRecorderService,
+      'recordReservedInTransaction' | 'recordReleasedInTransaction'
+    >
+  >;
 
   const usageKey = (psid: string, usageDate: string) => `${psid}:${usageDate}`;
 
@@ -302,7 +309,16 @@ describe('ChatRateLimitRepository', () => {
       manager,
     } as unknown as Repository<MessengerChatIdempotencyEntity>;
 
-    repository = new ChatRateLimitRepository(dailyUsageRepo, idempotencyRepo);
+    quotaEventRecorder = {
+      recordReservedInTransaction: jest.fn(() => Promise.resolve()),
+      recordReleasedInTransaction: jest.fn(() => Promise.resolve()),
+    };
+
+    repository = new ChatRateLimitRepository(
+      dailyUsageRepo,
+      idempotencyRepo,
+      quotaEventRecorder as unknown as ChatQuotaEventRecorderService,
+    );
   });
 
   it('returns zero when no daily usage row exists', async () => {
@@ -414,6 +430,15 @@ describe('ChatRateLimitRepository', () => {
     await expect(
       repository.getDailyUsageCount('psid-1', '2026-06-15'),
     ).resolves.toBe(1);
+    expect(quotaEventRecorder.recordReservedInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        psid: 'psid-1',
+        idempotencyKey: 'mid-tx',
+        usedAfter: 1,
+        limit: 15,
+      }),
+    );
   });
 
   it('returns idempotency conflict without incrementing usage', async () => {
@@ -447,6 +472,15 @@ describe('ChatRateLimitRepository', () => {
     await expect(
       repository.getDailyUsageCount('psid-1', '2026-06-15'),
     ).resolves.toBe(0);
+    expect(quotaEventRecorder.recordReleasedInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        psid: 'psid-1',
+        idempotencyKey: 'mid-refund',
+        reason: 'send_failed',
+        usedAfter: 0,
+      }),
+    );
   });
 
   it('completes reserved idempotency without decrementing usage', async () => {
