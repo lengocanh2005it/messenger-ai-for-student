@@ -47,9 +47,10 @@ export class LlmUsageBullQueueService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.initPromise = new Promise<void>((resolve, reject) => {
-      runInBackground(async () => {
+      runInBackground(() => {
         this.startQueueAndWorker();
         resolve();
+        return Promise.resolve();
       }, reject);
     });
   }
