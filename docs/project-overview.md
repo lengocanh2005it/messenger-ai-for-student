@@ -421,6 +421,8 @@ Image: `ghcr.io/<owner>/messenger-ai-for-student:latest` (tag thêm `:commit-sha
 
 Trên VPS: `docker-compose.prod.yml` + `.env` tại `/home/ngoc_anh/messenger-bot/`. Legacy PM2 `publish/` không còn dùng sau migrate.
 
+**Public URL prod:** `https://aiassist.aihubproduction.com` (Nginx → `127.0.0.1:5007`). Docker bind **localhost only** — không expose `:5007` ra internet. Nginx: `client_max_body_size` + rate limit `POST /webhook` — xem [`deploy/nginx/README.md`](../deploy/nginx/README.md).
+
 Khi `DOPPLER_TOKEN` có mặt: CI `doppler secrets download` → SCP `production.env` → `.env`. Không cần SSH sửa env tay.
 
 Chi tiết setup project/config `dev` + `prd`: [doppler-secrets.md](./doppler-secrets.md).

@@ -22,6 +22,7 @@ import { MessengerChatSharedConfigService } from './application/services/messeng
 import { MessengerMappingService } from './application/services/messenger-mapping.service';
 import { MessengerLinkContextService } from './application/services/messenger-link-context.service';
 import { MessengerLinkStartupService } from './application/services/messenger-link-startup.service';
+import { MessengerWebhookStartupService } from './application/services/messenger-webhook-startup.service';
 import { MessengerRescheduleConfirmationService } from './application/services/messenger-reschedule-confirmation.service';
 import { MessengerService } from './application/services/messenger.service';
 import { MessengerProfileService } from './infrastructure/meta/messenger-profile.service';
@@ -85,6 +86,7 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     MessengerMappingService,
     MessengerLinkContextService,
     MessengerLinkStartupService,
+    MessengerWebhookStartupService,
     MessengerRescheduleConfirmationService,
     WispaceMessengerTokenVerifyService,
     MessengerWebhookDeadLetterRepository,

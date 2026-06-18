@@ -68,6 +68,7 @@ flowchart LR
 |-----|-----------|-----------|-------|
 | ~~**`ref` = `userId` thuần — không verify chủ tài khoản**~~ | ~~IDOR~~ | **Done (POC)** — token-only + startup validator; link `m.me` chỉ WISPACE — [messenger-link-security.md](./messenger-link-security.md) | **L4** ✓ |
 | ~~POST `/webhook` không verify chữ ký Meta~~ | Payload giả nếu lộ URL webhook | **Done** — `MessengerWebhookSignatureGuard`, `MESSENGER_APP_SECRET`, `rawBody` | Done |
+| ~~Port app public / flood bypass Nginx~~ | Bỏ qua rate limit + body cap | **Done** — Docker `127.0.0.1:PORT`; Nginx `deploy/nginx/` trên VPS | Done |
 | ~~Webhook Meta retry; lỗi 1 event~~ | ~~Event khác vẫn xử lý (đúng); event lỗi mất~~ | **DL** ✓ — `messenger_webhook_dead_letters` + auto-retry cron 5 phút + advisory lock + script ops | Done |
 
 ---

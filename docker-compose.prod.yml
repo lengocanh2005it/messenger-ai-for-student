@@ -9,7 +9,7 @@ services:
     environment:
       HOME: /tmp
     ports:
-      - '${PORT:-5007}:${PORT:-5007}'
+      - '127.0.0.1:${PORT:-5007}:${PORT:-5007}'
     group_add:
       - '${DOCKER_GID:?DOCKER_GID is required}'
     volumes:

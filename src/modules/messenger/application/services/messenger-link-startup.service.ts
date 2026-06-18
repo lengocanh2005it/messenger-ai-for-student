@@ -4,13 +4,17 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  isTestRuntime,
+  readMessengerTokenVerifyUrl,
+} from '../../../../shared/config/production-runtime.utils';
 
 @Injectable()
 export class MessengerLinkStartupService implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {}
 
   onModuleInit(): void {
-    if (this.isTestRuntime()) {
+    if (isTestRuntime(this.configService)) {
       return;
     }
 
@@ -21,9 +25,7 @@ export class MessengerLinkStartupService implements OnModuleInit {
       );
     }
 
-    const verifyUrl = this.configService
-      .get<string>('WISPACE_API_VERIFY_MESSENGER_TOKEN_URL')
-      ?.trim();
+    const verifyUrl = readMessengerTokenVerifyUrl(this.configService);
     if (!verifyUrl) {
       throw new InternalServerErrorException(
         'WISPACE_API_VERIFY_MESSENGER_TOKEN_URL must be set — Messenger account linking requires WISPACE token verify',
@@ -38,9 +40,5 @@ export class MessengerLinkStartupService implements OnModuleInit {
         'WISPACE_INTERNAL_KEY must be set for messenger link token verify',
       );
     }
-  }
-
-  private isTestRuntime(): boolean {
-    return this.configService.get<string>('NODE_ENV')?.trim() === 'test';
   }
 }

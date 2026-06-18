@@ -1,6 +1,12 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  OnModuleInit,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
+import { isStrictProductionRuntime } from '../../../../shared/config/production-runtime.utils';
 
 @Injectable()
 export class ChatRateLimitStartupService implements OnModuleInit {
@@ -12,32 +18,16 @@ export class ChatRateLimitStartupService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    if (!this.isProductionRuntime()) {
+    if (!isStrictProductionRuntime(this.configService)) {
       return;
     }
 
     if (!this.chatRateLimitConfigService.isEnabled()) {
-      this.logger.warn(
-        'CHAT_RATE_LIMIT_ENABLED is false in production — free-form chat quota is not enforced (H1)',
+      throw new InternalServerErrorException(
+        'CHAT_RATE_LIMIT_ENABLED must be true in production — free-form chat quota is required (H1)',
       );
     }
-  }
 
-  private isProductionRuntime(): boolean {
-    const nodeEnv = this.configService.get<string>('NODE_ENV')?.trim();
-    if (nodeEnv === 'production') {
-      return true;
-    }
-
-    const enforceProdQuota = this.configService
-      .get<string>('ENFORCE_PROD_CHAT_QUOTA')
-      ?.trim()
-      .toLowerCase();
-
-    return (
-      enforceProdQuota === 'true' ||
-      enforceProdQuota === '1' ||
-      enforceProdQuota === 'yes'
-    );
+    this.logger.log('CHAT_RATE_LIMIT_ENABLED is true in production runtime');
   }
 }
