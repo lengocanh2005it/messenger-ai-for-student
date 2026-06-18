@@ -6,6 +6,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
+import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
+import { todayUsageDate } from '../../../chat-rate-limit/application/utils/chat-usage-date.utils';
 import { StudentReportNoScoreDataError } from '../../domain/errors/student-report-no-score-data.error';
 import {
   StudentReportRetryableError,
@@ -29,12 +31,13 @@ export class StudentReportService {
   constructor(
     private readonly configService: ConfigService,
     private readonly studentCapacityService: StudentCapacityService,
+    private readonly llmUsageRecorder: LlmUsageRecorderService,
   ) {}
 
   async generateReport(psid: string): Promise<string> {
     try {
       const input = await this.studentCapacityService.getCapacityData(psid);
-      const report = await this.generateAiReport(input);
+      const report = await this.generateAiReport(psid, input);
       return this.formatReport(report);
     } catch (error) {
       if (error instanceof StudentReportNoScoreDataError) {
@@ -63,6 +66,7 @@ export class StudentReportService {
   }
 
   private async generateAiReport(
+    psid: string,
     input: StudentCapacityInput,
   ): Promise<StudentCapacityReport> {
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
@@ -88,6 +92,19 @@ export class StudentReportService {
           content: JSON.stringify(input),
         },
       ],
+    });
+
+    const timezone =
+      this.configService.get<string>('LLM_USAGE_TIMEZONE')?.trim() ??
+      this.configService.get<string>('CHAT_USAGE_TIMEZONE')?.trim() ??
+      'Asia/Ho_Chi_Minh';
+    const usageDate = todayUsageDate(timezone);
+    this.llmUsageRecorder.recordFromCompletion({
+      feature: 'STUDENT_REPORT',
+      psid,
+      model,
+      response,
+      correlationId: `${psid}:${usageDate}`,
     });
 
     const content = response.choices[0]?.message?.content;

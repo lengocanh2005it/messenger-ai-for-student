@@ -29,6 +29,8 @@ export interface ChatRateLimitRepositoryPort {
     psid: string;
     usageDate: string;
     idempotencyKey: string;
+    releaseReason?: 'send_failed' | 'stuck_recover';
+    userId?: number;
   }): Promise<boolean>;
 
   completeReservedSlot(idempotencyKey: string): Promise<boolean>;

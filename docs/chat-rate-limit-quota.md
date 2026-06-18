@@ -626,7 +626,7 @@ class ChatRateLimitService {
 |-----------|----------|------------|
 | **V2 UX** | Hint “còn X lượt” khi `remaining ≤ threshold` | ✓ Phase 6 (code) |
 | **V3 Tier** | Limit theo `user_id` / gói Wispace | Chưa |
-| **V4 Event store** | `messenger_chat_events` + replay / billing | Chưa |
+| **V4 Event store** | `messenger_chat_events` + replay / billing | ✓ Q0 hybrid + `chat-quota:rebuild` |
 | **H1–H7** | Hardening edge cases vận hành (§5.10, sau §5.9) | H1 ✓; H2 ✓; H4 ✓; H5 ✓; **H3 ✓**; **H6 ✓**; **H7 ✓** |
 
 ### 5.9. Kế hoạch triển khai theo phase (full rate limit)

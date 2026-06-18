@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate-limit.repository.port';
 import type { ChatBurstCounterPort } from '../../domain/repositories/chat-burst-counter.port';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
+import { ChatQuotaEventRecorderService } from './chat-quota-event-recorder.service';
 import { ChatRateLimitService } from './chat-rate-limit.service';
 
 describe('ChatRateLimitService', () => {
@@ -28,6 +29,7 @@ describe('ChatRateLimitService', () => {
           CHAT_IDEMPOTENCY_STUCK_RESERVED_MS: '600000',
           CHAT_MERGED_TEXT_MAX_CHARS: '4000',
           CHAT_BURST_COUNT_REFUNDED: 'false',
+          CHAT_QUOTA_EVENTS_ENABLED: 'true',
         };
         return values[key];
       },
@@ -96,16 +98,23 @@ describe('ChatRateLimitService', () => {
       releaseReservation: jest.fn(() => Promise.resolve()),
     };
 
+    const quotaEventRecorder = {
+      recordDeniedBestEffort: jest.fn(() => Promise.resolve()),
+      isEnabled: jest.fn(() => true),
+    } as unknown as ChatQuotaEventRecorderService;
+
     const service = new ChatRateLimitService(
       configService,
       repository,
       burstCounter,
+      quotaEventRecorder,
     );
 
     return {
       service,
       repository,
       burstCounter,
+      quotaEventRecorder,
       getCount: () => count,
       getReserveCallCount: () => reserveCallCount,
     };
@@ -186,16 +195,27 @@ describe('ChatRateLimitService', () => {
   });
 
   it('denies reserve on burst limit before daily transaction', async () => {
-    const { service, getCount, getReserveCallCount, burstCounter } =
-      createService(true, 0, {
-        burstCount: 3,
-      });
+    const {
+      service,
+      getCount,
+      getReserveCallCount,
+      burstCounter,
+      quotaEventRecorder,
+    } = createService(true, 0, {
+      burstCount: 3,
+    });
 
     const result = await service.reserveFreeFormSlot('psid-1', {
       idempotencyKey: 'mid-burst',
     });
 
     expect(burstCounter.getBurstCount).toHaveBeenCalledWith('psid-1');
+    expect(quotaEventRecorder.recordDeniedBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        psid: 'psid-1',
+        reason: 'BURST_LIMIT',
+      }),
+    );
 
     expect(result).toMatchObject({
       allowed: false,

@@ -26,7 +26,7 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **S1** ✓ | Alert ops job `failed` / stuck nhắc lịch | 0.5 ngày | Trung bình |
 | **S2** ✓ | Adaptive dispatch poll (scale) | 1–2 ngày | Khi outbox lớn |
 | **C1** | Tier quota theo gói Wispace | 2+ ngày | Product sau |
-| **C2** | Event store / billing LLM | 2+ ngày | Product sau |
+| **C2** | Event store / billing LLM | ✓ MVP (hybrid Q0 + `llm_usage_events`) — [c2-master-implementation-plan.md](./c2-master-implementation-plan.md) |
 | **I1** ✓ | Alert / grep `CHAT_QUOTA_*` + runbook | 0.5 ngày | Trung bình |
 | **DL** ✓ | Dead-letter webhook + auto-retry cron | 1.5 ngày | Multi-pod / production |
 | **I2** | Monitor tổng hợp (Slack/webhook ops) | 1 ngày | Khi có user thật |
@@ -199,7 +199,7 @@ Rate limit V1 + **H1–H7**, agent tools, history RAM/DB, delivery semantics H4.
 | Gap | Ảnh hưởng | Khắc phục | Phase |
 |-----|-----------|-----------|-------|
 | Tier theo gói Wispace | Mọi user cùng `CHAT_FREE_FORM_DAILY_LIMIT` | Phase 7: limit theo `user_id` / API gói — [§5.8](./chat-rate-limit-quota.md) | **C1** |
-| Event store / billing | Khó audit chi phí LLM theo tháng | `messenger_chat_events` + projection — Phase 8 | **C2** |
+| Event store / billing | Khó audit chi phí LLM theo tháng | [c2-master-implementation-plan.md](./c2-master-implementation-plan.md) | **C2** ✓ MVP |
 | Tool đổi lịch qua chat | **Confirm postback** — `reschedule_study_session` chỉ stage; API Wispace chạy khi bấm «Xác nhận đổi lịch» | Done |
 
 ---

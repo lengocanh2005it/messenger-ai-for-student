@@ -23,4 +23,10 @@ export const ADVISORY_LOCK = {
 
   /** Monthly purge of messenger_message_logs audit rows. */
   MESSENGER_MESSAGE_LOG_CLEANUP: 884_200_906,
+
+  /** Monthly purge of messenger_chat_events quota audit rows. */
+  CHAT_QUOTA_EVENTS_CLEANUP: 884_200_907,
+
+  /** Monthly purge of llm_usage_events rows. */
+  LLM_USAGE_CLEANUP: 884_200_908,
 } as const;

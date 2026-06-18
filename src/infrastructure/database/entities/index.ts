@@ -1,4 +1,6 @@
 export { MessengerChatDailyUsageEntity } from './messenger-chat-daily-usage.entity';
+export { MessengerChatEventEntity } from './messenger-chat-event.entity';
+export { LlmUsageEventEntity } from './llm-usage-event.entity';
 export { MessengerWebhookDeadLetterEntity } from './messenger-webhook-dead-letter.entity';
 export { MessengerChatIdempotencyEntity } from './messenger-chat-idempotency.entity';
 export { MessengerMessageLogEntity } from './messenger-message-log.entity';

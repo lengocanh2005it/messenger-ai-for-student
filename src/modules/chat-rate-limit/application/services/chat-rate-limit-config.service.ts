@@ -141,6 +141,36 @@ export class ChatRateLimitConfigService {
     return raw === 'true' || raw === '1' || raw === 'yes';
   }
 
+  isQuotaEventsEnabled(): boolean {
+    const raw = this.configService
+      .get<string>('CHAT_QUOTA_EVENTS_ENABLED')
+      ?.trim()
+      .toLowerCase();
+
+    if (!raw) {
+      return true;
+    }
+
+    return raw === 'true' || raw === '1' || raw === 'yes';
+  }
+
+  getQuotaEventsRetentionDays(): number {
+    const raw = this.configService
+      .get<string>('CHAT_QUOTA_EVENTS_RETENTION_DAYS')
+      ?.trim();
+
+    if (!raw) {
+      return 365;
+    }
+
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      return 365;
+    }
+
+    return Math.floor(value);
+  }
+
   getBurstStore(): ChatBurstStoreKind {
     const raw = this.configService
       .get<string>('CHAT_BURST_STORE')
