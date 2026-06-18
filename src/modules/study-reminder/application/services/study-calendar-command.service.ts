@@ -112,7 +112,6 @@ export class StudyCalendarCommandService {
     const source = await this.findCalendarRecord(
       params.psid,
       params.calendarId,
-      params.userId,
     );
     const timezone =
       this.studyReminderScheduleService.getOutboxSettings().timezone;
@@ -187,12 +186,10 @@ export class StudyCalendarCommandService {
   private async findCalendarRecord(
     psid: string,
     calendarId: number,
-    userId: number,
   ): Promise<UserCalendarRecord> {
     const source = await this.userCalendarScheduleService.findCalendarRecord(
       psid,
       calendarId,
-      userId,
     );
 
     if (!source) {

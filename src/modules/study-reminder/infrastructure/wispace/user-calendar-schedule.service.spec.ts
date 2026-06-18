@@ -1,0 +1,84 @@
+import { ConfigService } from '@nestjs/config';
+import { WispaceApiError } from '../../../student-report/domain/errors/wispace-api.error';
+import { UserCalendarApiService } from './user-calendar-api.service';
+import { UserCalendarScheduleService } from './user-calendar-schedule.service';
+
+describe('UserCalendarScheduleService', () => {
+  const horizonEnd = new Date('2026-12-31T23:59:59.000Z');
+
+  function createService(
+    listCalendars: UserCalendarApiService['listCalendars'],
+  ): UserCalendarScheduleService {
+    const api = {
+      listCalendars: jest.fn(listCalendars),
+    } as unknown as UserCalendarApiService;
+    const config = {
+      get: (key: string) =>
+        key === 'STUDY_REMINDER_TIMEZONE' ? 'Asia/Ho_Chi_Minh' : undefined,
+    } as ConfigService;
+
+    return new UserCalendarScheduleService(api, config);
+  }
+
+  it('loads upcoming sessions from UserCalendar API only', async () => {
+    const service = createService(() => [
+      {
+        id: 42,
+        userId: 143,
+        eventDate: '2026-06-20T10:00:00.000Z',
+        time: '17:00',
+      },
+    ]);
+
+    const sessions = await service.getUpcomingSessions(
+      'psid-1',
+      horizonEnd,
+      143,
+    );
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.sessionKey).toBe('calendar:42');
+  });
+
+  it('returns empty list when API fails for sync user instead of DB fallback', async () => {
+    const service = createService(() => {
+      throw new WispaceApiError('down', 503, 'psid-1', 'UserCalendar');
+    });
+
+    const sessions = await service.getUpcomingSessions(
+      'psid-1',
+      horizonEnd,
+      143,
+    );
+
+    expect(sessions).toEqual([]);
+  });
+
+  it('rethrows API errors when userId is not provided', async () => {
+    const service = createService(() => {
+      throw new WispaceApiError('down', 503, 'psid-1', 'UserCalendar');
+    });
+
+    await expect(
+      service.getUpcomingSessions('psid-1', horizonEnd),
+    ).rejects.toBeInstanceOf(WispaceApiError);
+  });
+
+  it('finds calendar record via API only', async () => {
+    const service = createService(() => [
+      {
+        id: 7,
+        userId: 143,
+        eventDate: '2026-06-20T10:00:00.000Z',
+        time: '17:00',
+      },
+    ]);
+
+    await expect(
+      service.findCalendarRecord('psid-1', 7),
+    ).resolves.toMatchObject({
+      id: 7,
+    });
+    await expect(service.findCalendarRecord('psid-1', 99)).resolves.toBeNull();
+  });
+});

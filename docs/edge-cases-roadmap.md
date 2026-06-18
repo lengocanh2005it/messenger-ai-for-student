@@ -30,7 +30,7 @@ Liên quan: [project-overview.md](./project-overview.md), [study-session-reminde
 | **I1** ✓ | Alert / grep `CHAT_QUOTA_*` + runbook | 0.5 ngày | Trung bình |
 | **DL** ✓ | Dead-letter webhook + auto-retry cron | 1.5 ngày | Multi-pod / production |
 | **I2** | Monitor tổng hợp (Slack/webhook ops) | 1 ngày | Khi có user thật |
-| **I3** | Bỏ fallback DB `UserCalendars` | 1 ngày | Khi API ổn định (sau tách `ai_chat_bot_db` fallback DB thường không khả dụng) |
+| **I3** ✓ | Bỏ fallback DB `UserCalendars` | 1 ngày | API-only qua `x-psid` |
 
 **Thứ tự khuyến nghị:** ~~Q1/S0/I1/S1/L1/R1/L2/R2/R3/L3/R4/R5/S2~~ (✓) → `CHAT_QUEUE_SHARED` khi scale → phần còn lại theo feedback user.
 
@@ -215,7 +215,7 @@ Rate limit V1 + **H1–H7**, agent tools, history RAM/DB, delivery semantics H4.
 | Cron webhook dedupe cleanup multi-pod | N×DELETE | **pg_advisory_lock** ✓ — chỉ 1 pod chạy mỗi 15 phút | Done |
 | Monitor / alert | Log + scripts | **I1** ✓ runbook + `ops:health`; **S1** ✓ failed/stuck jobs; **DL** ✓ dead-letter cron; **I2** Slack alert | **I2** |
 | **Env prod sync thủ công VPS** | Lệch local/prod; rotate secret phải SSH | **Doppler** + `DOPPLER_TOKEN` trên CI — [doppler-secrets.md](./doppler-secrets.md) | Done (code) — cần setup dashboard |
-| Wispace **schema** đổi | Fallback DB `UserCalendars` | API-only khi ổn định — **I3** | **I3** |
+| Wispace **schema** đổi | ~~Fallback DB `UserCalendars`~~ | **I3** ✓ — API-only `UserCalendar` qua `x-psid` | **I3** ✓ |
 
 ### I1 — Ops alert nhẹ (không cần Prometheus) ✓
 

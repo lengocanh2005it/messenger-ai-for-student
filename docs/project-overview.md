@@ -25,7 +25,7 @@ Service NestJS kết nối **WISPACE** (nền tảng học IELTS Writing) với 
 - **Tự động:** sync lịch → bảng `study_reminder_jobs` → dispatch trước giờ học **30 phút** (cấu hình `.env`).
 - **Khi đổi lịch:** Wispace gọi `POST /messenger/study-calendar/sync` với `{ userId }` ngay sau POST/DELETE `UserCalendar`.
 - **Preview:** menu **"Nhắc lịch học sắp tới"**.
-- Nguồn lịch: API `UserCalendar` (`x-psid`); fallback bảng `UserCalendars` nếu API lỗi.
+- Nguồn lịch: API `UserCalendar` (`x-psid`) — API-only (I3 ✓).
 - Chi tiết: [study-session-reminder.md](./study-session-reminder.md).
 
 ### 1.4. Chat tự do + rate limit (FREE_FORM)
@@ -181,9 +181,8 @@ Migration: `1717747200008-CreateMessengerUsersCacheTable`.
 
 | Nguồn | Dùng cho |
 |-------|----------|
-| API `UserCalendar` (`x-psid`) | Lịch học sắp tới (primary) |
+| API `UserCalendar` (`x-psid`) | Lịch học sắp tới (API-only, I3 ✓) |
 | API `User/goals`, `TaskScoreAverage` | Báo cáo, ngày thi |
-| Fallback DB `"UserCalendars"` | Chỉ khi bảng tồn tại trên DB đang kết nối — **sau tách DB** ưu tiên API (I3) |
 
 ---
 
@@ -296,7 +295,7 @@ node scripts/drop-poc-tables-old-db.mjs       # drop POC + migrations trên writ
 - **Scale ≥2 instance** — chat: `CHAT_QUEUE_SHARED=true` (H7); báo cáo 08:00: `CRON_LEADER_ENABLED` + bảng `messenger_scheduled_report_claims` (R4 ✓).
 - **Chỉ Messenger** — user chưa map `psid` không nhận tin.
 - **Tích hợp lịch học** — Wispace gọi `POST /messenger/study-calendar/sync` khi đổi lịch (S0 ✓); cron 30 phút là dự phòng.
-- **API UserCalendar** — cần `WISPACE_API_USER_CALENDAR_URL`; fallback DB khi API lỗi.
+- **API UserCalendar** — cần `WISPACE_API_USER_CALENDAR_URL`; không còn fallback DB.
 - **Rate limit chat** — V1 + H1–H7 ✓; gap còn lại toàn dự án: [edge-cases-roadmap.md](./edge-cases-roadmap.md)
 
 Trade-off chi tiết nhắc lịch học: mục 11 trong [study-session-reminder.md](./study-session-reminder.md).

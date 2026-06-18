@@ -26,8 +26,8 @@ Migration H7 tạo `messenger_chat_queue_buffer` + `messenger_chat_history` — 
 
 ## Wispace hub (không migration trong repo)
 
-- API HTTP primary (`UserCalendar`, goals, scores).
-- Bảng `"Users"`, `UserCalendars` trên `writing_ai_hub_db` — **không** dùng trực tiếp sau tách DB; fallback `UserCalendars` chỉ hoạt động nếu bảng có trên DB đang kết nối.
+- API HTTP duy nhất cho lịch học (`UserCalendar`, goals, scores) — **I3 ✓** không còn fallback DB `UserCalendars` trong app.
+- Bảng `"Users"`, `UserCalendars` trên `writing_ai_hub_db` — Wispace sở hữu; app POC không đọc trực tiếp.
 
 ## Thêm migration
 

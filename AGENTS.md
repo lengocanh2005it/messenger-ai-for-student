@@ -137,6 +137,7 @@ Cùng PR/task với code — cập nhật hàng **agent** (không chỉ `docs/` 
 | Rate limit / quota / idempotency | `docs/chat-rate-limit-quota.md`, `.claude/rules/chat-rate-limit.md`, skill `/verify` nếu thêm bước ops |
 | Study reminder / sync / dispatch | `docs/study-session-reminder.md`, `.claude/rules/study-reminder.md`, skill `/study-reminder-debug` |
 | Entity / migration / tách DB | `.claude/rules/database.md`, skill `/typeorm-migration`, `.env.example` nếu thêm biến |
+| Bỏ fallback DB UserCalendars (I3) | `user-calendar-schedule.service.ts`, `docs/study-session-reminder.md`, `docs/edge-cases-roadmap.md` |
 | System prompt LLM | `src/shared/prompts/*.system.txt`, skill `/edit-llm-prompt` |
 | Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `.github/workflows/sync-env.yml`, `docs/doppler-secrets.md`, `deploy/nginx/` |
 | Env mới | `.env.example` + dòng tương ứng trong `docs/project-overview.md` hoặc `AGENTS.md` |

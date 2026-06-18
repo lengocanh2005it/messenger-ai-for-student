@@ -60,7 +60,7 @@ Có **hai chế độ** sync (cùng logic bên trong):
 
 Với mỗi user được sync:
 
-1. Lấy buổi học sắp tới từ **API `UserCalendar`** (header `x-psid`); fallback bảng `UserCalendars` nếu API lỗi.
+1. Lấy buổi học sắp tới từ **API `UserCalendar`** (header `x-psid`) — không còn fallback DB.
 2. Với mỗi buổi trong horizon (`STUDY_REMINDER_SYNC_HORIZON_HOURS`, mặc định 14 ngày):
    - Tính `remind_at = scheduled_at - STUDY_REMINDER_MINUTES_BEFORE`
    - UPSERT vào `study_reminder_jobs` (`status = pending`)
@@ -269,18 +269,14 @@ Code POC: `UserCalendarApiService` (GET/POST/DELETE) + `UserCalendarScheduleServ
 
 Mọi thay đổi lịch (POST/DELETE) **phải gọi** `POST /messenger/study-calendar/sync` — xem mục [3.6](#36-api-sync-khi-lịch-học-thay-đổi).
 
-### 4.2. `UserCalendars` (PostgreSQL — dự phòng)
-
-Nếu API lỗi và có `user_id` trong mapping → đọc trực tiếp bảng `UserCalendars` (cùng schema logic).
-
-### 4.3. Dữ liệu cho LLM
+### 4.2. Dữ liệu cho LLM
 
 | API | Mục đích |
 |-----|----------|
 | `WISPACE_API_USER_GOALS_URL` | `targetScore`, `examDate` |
 | `WISPACE_API_TASK_SCORE_URL` | Band Task 1/2 |
 
-### 4.4. Liên kết user
+### 4.3. Liên kết user
 
 ```mermaid
 flowchart LR
@@ -385,7 +381,7 @@ src/modules/study-reminder/
     ├── persistence/study-reminder-job.repository.ts
     └── wispace/
         ├── user-calendar-api.service.ts         # GET UserCalendar (x-psid)
-        └── user-calendar-schedule.service.ts    # Chuẩn hóa lịch + fallback DB
+        └── user-calendar-schedule.service.ts    # Chuẩn hóa lịch từ API (I3 API-only)
 
 src/modules/scheduler/presentation/controllers/
   scheduler.controller.ts                # POST study-calendar/sync, sync-study-reminders, …
@@ -473,7 +469,7 @@ Hướng **outbox table (`study_reminder_jobs`) + cron sync/dispatch** phù hợ
 |---------|-----------------|
 | **Ít hạ tầng mới** | Không cần Redis/RabbitMQ; job nằm trong Postgres cùng app |
 | **Retry & trạng thái rõ** | `pending` → `sent` / `failed` / `cancelled` — dễ debug, không mất job khi gửi lỗi |
-| **Tận dụng API Wispace** | `UserCalendar` qua `x-psid`; fallback DB khi API lỗi |
+| **Tận dụng API Wispace** | `UserCalendar` qua `x-psid` — API-only (I3 ✓) |
 | **Sync theo user** | Wispace gọi một API sau đổi lịch — không cần event bus / webhook |
 | **LLM linh hoạt** | Nội dung nhắc cá nhân hóa theo goals/band mà không maintain nhiều template |
 | **Tách sync và gửi** | Đổi lịch chỉ cần sync lại jobs; không gọi Messenger/LLM lúc ghi lịch |
@@ -484,14 +480,13 @@ Hướng **outbox table (`study_reminder_jobs`) + cron sync/dispatch** phù hợ
 |--------|--------|---------------------------|
 | **Lịch và jobs không đồng bộ tức thì** | Snapshot tại lần sync cuối. Nếu Wispace quên gọi sync API → tối đa ~30 phút lệch (cron dự phòng) | Thấp — **S0 ✓** đã wire sync sau đổi lịch |
 | **Phụ thuộc tích hợp bên Wispace** | Wispace gọi `POST /messenger/study-calendar/sync` sau mỗi lần đổi lịch | **Đã xong (S0)** — giữ monitor nếu deploy môi trường mới |
-| **Coupling DB trực tiếp** | Service đọc thẳng bảng `UserCalendars` thay vì contract API ổn định | Trung bình — schema Wispace đổi có thể làm hỏng sync |
+| **Phụ thuộc API UserCalendar** | Sync/dispatch cần Wispace API ổn định; không còn đọc DB `UserCalendars` | Trung bình — monitor 5xx |
 | **Độ chính xác thời gian gửi** | Adaptive poll: gần `remind_at` → tối thiểu 30s; không có job → tối đa ~3.5 phút | Thấp — chấp nhận được với nhắc trước 30 phút |
 | **Horizon giới hạn** | Chỉ sync buổi trong `SYNC_HORIZON_HOURS` (14 ngày). Buổi xa hơn chưa có job cho đến lần sync sau khi vào cửa sổ | Thấp với lịch học theo tuần |
 | **LLM gọi lúc dispatch** | Mỗi job = 1 lần OpenAI + gọi API goals/score → chi phí, độ trễ, lỗi model làm trễ hoặc fail nhắc | Trung bình — có retry và fallback template |
 | **Nội dung không cố định** | Hai lần nhắc cùng buổi (preview vs auto) có thể khác wording do LLM | Thấp |
 | **Chỉ kênh Messenger** | User chưa link `psid` hoặc chặn bot → không nhận nhắc | Cao với user chưa mapping — by design |
 | **Sync full-scan (cron)** | Cron 30 phút vẫn quét **tất cả** mapping — chỉ là dự phòng; luồng chính sync theo `userId` | Thấp khi ít user; tăng khi scale |
-| **API + DB dự phòng** | Nguồn chính API `UserCalendar`; API down thì đọc DB `UserCalendars` | Thấp nếu API ổn định |
 | **Nhiều instance app** | `claimJob` qua DB giảm gửi trùng, nhưng cron chạy trên mọi instance — cần theo dõi khi scale ngang | Thấp ở single instance |
 | **Dispatch polling** | ~~Cố định 1 phút~~ → **S2 ✓ adaptive** — ít query khi không có job due | Thấp ở POC; giảm rủi ro scale — mục [11.6](#116-worker-dispatch-polling--trở-ngại-tải-db--giảm-rủi-ro) |
 
@@ -507,7 +502,7 @@ Hướng **outbox table (`study_reminder_jobs`) + cron sync/dispatch** phù hợ
 ### 11.4. Hướng cải thiện (theo thứ tự ưu tiên)
 
 1. ~~**Wispace wire sync API**~~ ✓ (S0) — `POST /messenger/study-calendar/sync` + header `X-Internal-Api-Key` (mục 3.6).
-2. **Bỏ fallback DB** khi API `UserCalendar` ổn định — single source qua `x-psid`.
+2. ~~**Bỏ fallback DB**~~ ✓ (I3) — single source `UserCalendar` qua `x-psid`.
 3. **Giám sát job `failed`** — alert khi `retry_count` hết hoặc job `processing` kẹt lâu.
 4. **Pre-generate hoặc cache nội dung LLM** lúc sync (tùy chọn) — giảm latency lúc dispatch, nội dung ổn định hơn.
 5. ~~**Adaptive dispatch polling**~~ ✓ (S2) — `StudyReminderWorkerService` + `findNextDueTime` + `STUDY_REMINDER_POLL_*`.
