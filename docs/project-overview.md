@@ -244,6 +244,8 @@ System prompt nằm trong `src/shared/prompts/*.system.txt`, load qua `load-syst
 
 Thiếu `OPENAI_API_KEY` → fallback template cứng trong service (không gọi API).
 
+Mọi `chat.completions.create` đi qua **`LlmExecutionService`** (`src/modules/llm-execution/`) — cap concurrent in-process (`p-limit`, `LLM_MAX_CONCURRENT`), retry 429/5xx (`LLM_OPENAI_RETRY_*`). Tắt gate: `LLM_EXECUTION_ENABLED=false`. Scale ≥2 pod: gate in-memory **không** chia cross-pod — cần Redis gate sau.
+
 ---
 
 ## 8. Cấu hình `.env`
@@ -252,6 +254,7 @@ Xem `.env.example`. Nhóm chính:
 
 - **Meta:** `PAGE_ACCESS_TOKEN`, `VERIFY_TOKEN`, `MESSENGER_APP_SECRET`, `MESSENGER_WEBHOOK_SIGNATURE_VERIFY`, `MESSENGER_PAGE_ID`, `GRAPH_API_VERSION`
 - **OpenAI:** `OPENAI_API_KEY`, `OPENAI_MODEL`
+- **LLM execution gate:** `LLM_EXECUTION_ENABLED`, `LLM_MAX_CONCURRENT`, `LLM_OPENAI_RETRY_MAX_ATTEMPTS`, `LLM_OPENAI_RETRY_BACKOFF_MS`
 - **LLM usage (C2):** `LLM_USAGE_*`, `LLM_USAGE_BULLMQ_*`; USD ước tính: `LLM_COST_USD_PER_1M_INPUT_TOKENS_<MODEL>` / `LLM_COST_USD_PER_1M_OUTPUT_TOKENS_<MODEL>` (ví dụ `gpt-5.4` → `GPT_5_4`: input `2.50`, output `15.00` theo [OpenAI pricing](https://developers.openai.com/api/docs/pricing); ≠ hóa đơn thật)
 - **Wispace API:** `WISPACE_API_USER_CALENDAR_URL`, `WISPACE_API_USER_GOALS_URL`, `WISPACE_API_TASK_SCORE_URL`, `WISPACE_INTERNAL_KEY` — auth: `x-psid` + `X-Internal-Key`
 - **Study reminder:** `STUDY_REMINDER_*` — **bắt buộc**, không hardcode fallback trong code

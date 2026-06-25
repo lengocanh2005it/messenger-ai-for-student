@@ -5,6 +5,7 @@ import { MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY } from './domain/repositories/
 import { MessengerWebhookDeadLetterRepository } from './infrastructure/persistence/messenger-webhook-dead-letter.repository';
 import { CommonModule } from '../../shared/common/common.module';
 import { ChatRateLimitModule } from '../chat-rate-limit/chat-rate-limit.module';
+import { LlmExecutionModule } from '../llm-execution/llm-execution.module';
 import { LlmUsageModule } from '../llm-usage/llm-usage.module';
 import { StudentReportModule } from '../student-report/student-report.module';
 import { StudyReminderModule } from '../study-reminder/study-reminder.module';
@@ -47,6 +48,7 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     CommonModule,
     MessengerOutboundModule,
     ChatRateLimitModule,
+    LlmExecutionModule,
     LlmUsageModule,
     StudentReportModule,
     StudyReminderModule,

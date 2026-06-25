@@ -14,6 +14,7 @@ import {
   StudyReminderLlmInput,
   StudyReminderLlmOutput,
 } from '../../domain/entities/study-schedule.types';
+import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { UserDisplayNameService } from './user-display-name.service';
 import { StudyReminderScheduleService } from './study-reminder-schedule.service';
@@ -32,6 +33,7 @@ export class StudyReminderService {
     private readonly studentCapacityService: StudentCapacityService,
     private readonly userDisplayNameService: UserDisplayNameService,
     private readonly llmUsageRecorder: LlmUsageRecorderService,
+    private readonly llmExecution: LlmExecutionService,
   ) {}
 
   async generateReminderForSession(
@@ -146,20 +148,30 @@ export class StudyReminderService {
     const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
     const client = this.getOpenAiClient(apiKey);
 
-    const response = await client.chat.completions.create({
-      model,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: loadSystemPrompt('studyReminder'),
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(input),
-        },
-      ],
-    });
+    const correlationId =
+      context.jobId !== undefined ? String(context.jobId) : context.psid;
+
+    const response = await this.llmExecution.run(
+      () =>
+        client.chat.completions.create({
+          model,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content: loadSystemPrompt('studyReminder'),
+            },
+            {
+              role: 'user',
+              content: JSON.stringify(input),
+            },
+          ],
+        }),
+      {
+        feature: 'STUDY_REMINDER',
+        correlationId,
+      },
+    );
 
     this.llmUsageRecorder.recordFromCompletion({
       feature: 'STUDY_REMINDER',
@@ -167,8 +179,7 @@ export class StudyReminderService {
       userId: context.userId,
       model,
       response,
-      correlationId:
-        context.jobId !== undefined ? String(context.jobId) : context.psid,
+      correlationId,
     });
 
     const content = response.choices[0]?.message?.content;

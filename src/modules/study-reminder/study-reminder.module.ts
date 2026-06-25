@@ -5,6 +5,7 @@ import { StudyReminderJobEntity } from '../../infrastructure/database/entities/s
 import { UserEntity } from '../../infrastructure/database/entities/user.entity';
 import { MessengerOutboundModule } from '../messenger/messenger-outbound.module';
 import { StudentReportModule } from '../student-report/student-report.module';
+import { LlmExecutionModule } from '../llm-execution/llm-execution.module';
 import { LlmUsageModule } from '../llm-usage/llm-usage.module';
 import { StudyCalendarCommandService } from './application/services/study-calendar-command.service';
 import { StudyReminderCleanupService } from './application/services/study-reminder-cleanup.service';
@@ -29,6 +30,7 @@ import { StudyReminderJobRepository } from './infrastructure/persistence/study-r
     TypeOrmModule.forFeature([StudyReminderJobEntity, UserEntity]),
     MessengerOutboundModule,
     StudentReportModule,
+    LlmExecutionModule,
     LlmUsageModule,
   ],
   providers: [

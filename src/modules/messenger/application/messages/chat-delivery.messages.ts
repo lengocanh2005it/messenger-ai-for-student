@@ -1,3 +1,7 @@
+import {
+  isOpenAiRateLimitError,
+  isOpenAiServerError,
+} from '../../../../shared/utils/openai-error.utils';
 import { MessengerApiError } from '../services/messenger-outbound.service';
 
 /** Meta subcode for mark_seen / typing_on / react failures — not the 24h window. */
@@ -70,30 +74,6 @@ export function isMessenger24hWindowError(error: unknown): boolean {
   return MESSAGING_WINDOW_TEXT_MARKERS.some((marker) =>
     haystack.includes(marker.toLowerCase()),
   );
-}
-
-function isOpenAiRateLimitError(error: unknown): boolean {
-  if (error instanceof MessengerApiError) return false;
-  if (typeof error !== 'object' || error === null) return false;
-  const e = error as Record<string, unknown>;
-  if (e['name'] === 'RateLimitError') return true;
-  if (
-    e['status'] === 429 &&
-    typeof e['message'] === 'string' &&
-    /openai|rate.?limit/i.test(e['message'])
-  )
-    return true;
-  return false;
-}
-
-function isOpenAiServerError(error: unknown): boolean {
-  if (error instanceof MessengerApiError) return false;
-  if (typeof error !== 'object' || error === null) return false;
-  const e = error as Record<string, unknown>;
-  if (e['name'] === 'InternalServerError' || e['name'] === 'APIConnectionError')
-    return true;
-  const status = e['status'];
-  return typeof status === 'number' && status >= 500 && status < 600;
 }
 
 export function buildChatDeliveryErrorMessage(error: unknown): string {

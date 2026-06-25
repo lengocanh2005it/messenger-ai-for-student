@@ -97,7 +97,7 @@ Lợi ích **rõ nhất** khi **nhiều PSID chat cùng lúc** và **CPU 1 insta
 
 | Vấn đề | Ghi chú |
 |--------|---------|
-| OpenAI chậm / 429 | Cần nâng tier API hoặc queue LLM + cap concurrent (chưa có trong code). |
+| OpenAI chậm / 429 | Nâng tier API; **`LlmExecutionService`** (`LLM_MAX_CONCURRENT`, retry) ✓ — multi-pod cần Redis gate sau |
 | >50 nhắc lịch due cùng phút | Vẫn tuần tự LLM, `LIMIT 50`/vòng dispatch. |
 | Sync lịch cron 30 phút | Tải tăng theo số user; advisory lock — không scale bằng thêm pod chat. |
 | Meta Send API | Gần như không phải nút thắt ở quy mô học viên IELTS. |
@@ -331,7 +331,7 @@ Nếu chat lạ sau rollback: kiểm tra key Redis prefix `chat:*` (chỉ flush 
 
 | Vấn đề | Giai đoạn B | Hướng sau |
 |--------|-------------|-----------|
-| OpenAI 429 khi peak | Có thể vẫn xảy ra | Nâng tier API; queue LLM + cap concurrent (code mới) |
+| OpenAI 429 khi peak | Có thể vẫn xảy ra | Nâng tier API; tăng `LLM_MAX_CONCURRENT` hoặc Redis gate khi 2 pod |
 | >50 nhắc due cùng phút | Nhắc muộn vài phút | Delayed queue / worker song song (roadmap) |
 | Sync 30 phút full-scan | Tải tăng theo số user | Wispace wire sync API (đã có) |
 | VPS 2 core đầy | Không nên thêm pod 3 | Nâng 4 vCPU hoặc VPS riêng messenger |

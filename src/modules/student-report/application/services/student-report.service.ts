@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
+import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { todayUsageDate } from '../../../chat-rate-limit/application/utils/chat-usage-date.utils';
 import { StudentReportNoScoreDataError } from '../../domain/errors/student-report-no-score-data.error';
@@ -32,6 +33,7 @@ export class StudentReportService {
     private readonly configService: ConfigService,
     private readonly studentCapacityService: StudentCapacityService,
     private readonly llmUsageRecorder: LlmUsageRecorderService,
+    private readonly llmExecution: LlmExecutionService,
   ) {}
 
   async generateReport(psid: string): Promise<string> {
@@ -79,32 +81,41 @@ export class StudentReportService {
     const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
     const client = this.getOpenAiClient(apiKey);
 
-    const response = await client.chat.completions.create({
-      model,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: loadSystemPrompt('studentReport'),
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(input),
-        },
-      ],
-    });
-
     const timezone =
       this.configService.get<string>('LLM_USAGE_TIMEZONE')?.trim() ??
       this.configService.get<string>('CHAT_USAGE_TIMEZONE')?.trim() ??
       'Asia/Ho_Chi_Minh';
     const usageDate = todayUsageDate(timezone);
+    const correlationId = `${psid}:${usageDate}`;
+
+    const response = await this.llmExecution.run(
+      () =>
+        client.chat.completions.create({
+          model,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content: loadSystemPrompt('studentReport'),
+            },
+            {
+              role: 'user',
+              content: JSON.stringify(input),
+            },
+          ],
+        }),
+      {
+        feature: 'STUDENT_REPORT',
+        correlationId,
+      },
+    );
+
     this.llmUsageRecorder.recordFromCompletion({
       feature: 'STUDENT_REPORT',
       psid,
       model,
       response,
-      correlationId: `${psid}:${usageDate}`,
+      correlationId,
     });
 
     const content = response.choices[0]?.message?.content;

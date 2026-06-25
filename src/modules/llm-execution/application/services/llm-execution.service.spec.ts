@@ -1,0 +1,114 @@
+import { LlmExecutionConfigService } from './llm-execution-config.service';
+import { LlmExecutionService } from './llm-execution.service';
+
+function createConfig(overrides: {
+  enabled?: boolean;
+  maxConcurrent?: number;
+  retryMaxAttempts?: number;
+  retryBackoffMs?: number;
+}): LlmExecutionConfigService {
+  const values: Record<string, string> = {};
+  if (overrides.enabled !== undefined) {
+    values.LLM_EXECUTION_ENABLED = overrides.enabled ? 'true' : 'false';
+  }
+  if (overrides.maxConcurrent !== undefined) {
+    values.LLM_MAX_CONCURRENT = String(overrides.maxConcurrent);
+  }
+  if (overrides.retryMaxAttempts !== undefined) {
+    values.LLM_OPENAI_RETRY_MAX_ATTEMPTS = String(overrides.retryMaxAttempts);
+  }
+  if (overrides.retryBackoffMs !== undefined) {
+    values.LLM_OPENAI_RETRY_BACKOFF_MS = String(overrides.retryBackoffMs);
+  }
+
+  return new LlmExecutionConfigService({
+    get: (key: string) => values[key],
+  } as never);
+}
+
+describe('LlmExecutionService', () => {
+  it('bypasses the limiter when execution gate is disabled', async () => {
+    const config = createConfig({ enabled: false, maxConcurrent: 1 });
+    const service = new LlmExecutionService(config);
+    let concurrent = 0;
+    let maxConcurrent = 0;
+
+    const task = async () => {
+      concurrent += 1;
+      maxConcurrent = Math.max(maxConcurrent, concurrent);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      concurrent -= 1;
+      return 'ok';
+    };
+
+    const results = await Promise.all([service.run(task), service.run(task)]);
+
+    expect(results).toEqual(['ok', 'ok']);
+    expect(maxConcurrent).toBe(2);
+  });
+
+  it('caps concurrent runs when enabled', async () => {
+    const config = createConfig({ enabled: true, maxConcurrent: 1 });
+    const service = new LlmExecutionService(config);
+    let concurrent = 0;
+    let maxConcurrent = 0;
+
+    const task = async () => {
+      concurrent += 1;
+      maxConcurrent = Math.max(maxConcurrent, concurrent);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      concurrent -= 1;
+      return 'ok';
+    };
+
+    const results = await Promise.all([service.run(task), service.run(task)]);
+
+    expect(results).toEqual(['ok', 'ok']);
+    expect(maxConcurrent).toBe(1);
+  });
+
+  it('retries OpenAI 429 before failing', async () => {
+    const config = createConfig({
+      enabled: true,
+      maxConcurrent: 3,
+      retryMaxAttempts: 3,
+      retryBackoffMs: 1,
+    });
+    const service = new LlmExecutionService(config);
+    let attempts = 0;
+
+    const result = await service.run(() => {
+      attempts += 1;
+      if (attempts < 3) {
+        throw Object.assign(new Error('OpenAI rate limit'), {
+          name: 'RateLimitError',
+          status: 429,
+        });
+      }
+      return Promise.resolve('success');
+    });
+
+    expect(result).toBe('success');
+    expect(attempts).toBe(3);
+  });
+
+  it('does not retry non-retryable errors', async () => {
+    const config = createConfig({
+      enabled: true,
+      maxConcurrent: 3,
+      retryMaxAttempts: 3,
+      retryBackoffMs: 1,
+    });
+    const service = new LlmExecutionService(config);
+    let attempts = 0;
+
+    await expect(
+      service.run(() => {
+        attempts += 1;
+        return Promise.reject(new Error('validation failed'));
+      }),
+    ).rejects.toThrow('validation failed');
+
+    expect(attempts).toBe(1);
+  });
+});

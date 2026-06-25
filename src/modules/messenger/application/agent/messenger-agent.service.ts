@@ -17,6 +17,7 @@ import type { ChatHistoryMessage } from '../services/messenger-chat-history.serv
 import type { MessengerRichFollowUp } from '../../domain/entities/messenger-rich-message.types';
 import { isObviouslyOffTopic } from '../../../../shared/utils/messenger-scope.utils';
 import { buildWispaceScopeRedirectMessage } from '../messages/wispace-scope.messages';
+import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { MESSENGER_AGENT_TOOLS } from './messenger-agent.tools';
 
@@ -46,6 +47,7 @@ export class MessengerAgentService {
     private readonly toolsService: MessengerAgentToolsService,
     private readonly userDisplayNameService: UserDisplayNameService,
     private readonly llmUsageRecorder: LlmUsageRecorderService,
+    private readonly llmExecution: LlmExecutionService,
   ) {}
 
   async reply(input: MessengerAgentInput): Promise<MessengerAgentReply> {
@@ -107,12 +109,19 @@ export class MessengerAgentService {
       round < MessengerAgentService.MAX_TOOL_ROUNDS;
       round++
     ) {
-      const response = await client.chat.completions.create({
-        model,
-        messages,
-        tools: MESSENGER_AGENT_TOOLS,
-        tool_choice: 'auto',
-      });
+      const response = await this.llmExecution.run(
+        () =>
+          client.chat.completions.create({
+            model,
+            messages,
+            tools: MESSENGER_AGENT_TOOLS,
+            tool_choice: 'auto',
+          }),
+        {
+          feature: 'FREE_FORM_CHAT',
+          correlationId: input.correlationId,
+        },
+      );
 
       this.llmUsageRecorder.recordFromCompletion({
         feature: 'FREE_FORM_CHAT',
