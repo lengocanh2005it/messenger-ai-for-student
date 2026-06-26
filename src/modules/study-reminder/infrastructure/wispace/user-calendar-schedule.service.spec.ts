@@ -6,6 +6,15 @@ import { UserCalendarScheduleService } from './user-calendar-schedule.service';
 describe('UserCalendarScheduleService', () => {
   const horizonEnd = new Date('2026-12-31T23:59:59.000Z');
 
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   function createService(
     listCalendars: UserCalendarApiService['listCalendars'],
   ): UserCalendarScheduleService {
