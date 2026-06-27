@@ -1,3 +1,10 @@
+export function buildPromptInjectionBlockedMessage(): string {
+  return (
+    'Mình không thể xử lý tin nhắn này.\n\n' +
+    'Bạn có thể hỏi về tiến độ học, lịch học IELTS, hoặc đăng ký báo cáo nhé.'
+  );
+}
+
 export function buildWispaceScopeRedirectMessage(): string {
   return (
     'Mình chỉ hỗ trợ các câu hỏi về WISPACE và IELTS Writing thôi nhé.\n\n' +

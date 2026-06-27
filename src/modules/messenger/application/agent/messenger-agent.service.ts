@@ -16,7 +16,11 @@ import {
 import type { ChatHistoryMessage } from '../services/messenger-chat-history.service';
 import type { MessengerRichFollowUp } from '../../domain/entities/messenger-rich-message.types';
 import { isObviouslyOffTopic } from '../../../../shared/utils/messenger-scope.utils';
-import { buildWispaceScopeRedirectMessage } from '../messages/wispace-scope.messages';
+import { detectPromptInjection } from '../../../../shared/utils/prompt-injection.utils';
+import {
+  buildPromptInjectionBlockedMessage,
+  buildWispaceScopeRedirectMessage,
+} from '../messages/wispace-scope.messages';
 import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { MESSENGER_AGENT_TOOLS } from './messenger-agent.tools';
@@ -56,6 +60,17 @@ export class MessengerAgentService {
       this.logger.warn('OPENAI_API_KEY missing, using fallback chat reply');
       return {
         text: this.buildFallbackReply(input.userText),
+        richFollowUps: [],
+      };
+    }
+
+    const injectionCheck = detectPromptInjection(input.userText);
+    if (injectionCheck.isInjection) {
+      this.logger.warn(
+        `Prompt injection blocked psid=${input.psid} reason=${injectionCheck.reason}`,
+      );
+      return {
+        text: buildPromptInjectionBlockedMessage(),
         richFollowUps: [],
       };
     }
@@ -104,11 +119,7 @@ export class MessengerAgentService {
       },
     ];
 
-    for (
-      let round = 0;
-      round < this.getMaxToolRounds();
-      round++
-    ) {
+    for (let round = 0; round < this.getMaxToolRounds(); round++) {
       const response = await this.llmExecution.run(
         () =>
           client.chat.completions.create({
