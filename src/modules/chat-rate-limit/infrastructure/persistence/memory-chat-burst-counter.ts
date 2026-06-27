@@ -11,6 +11,22 @@ export class MemoryChatBurstCounter implements ChatBurstCounterPort {
     return Promise.resolve(this.counts.get(this.bucketKey(psid)) ?? 0);
   }
 
+  // JS is single-threaded so this is inherently atomic.
+  tryReserveBurst(
+    psid: string,
+    limit: number,
+  ): Promise<{ allowed: boolean; count: number }> {
+    this.evictStaleBuckets();
+    const key = this.bucketKey(psid);
+    const current = this.counts.get(key) ?? 0;
+    if (current >= limit) {
+      return Promise.resolve({ allowed: false, count: current });
+    }
+    const next = current + 1;
+    this.counts.set(key, next);
+    return Promise.resolve({ allowed: true, count: next });
+  }
+
   recordReservation(psid: string): Promise<void> {
     const key = this.bucketKey(psid);
     this.counts.set(key, (this.counts.get(key) ?? 0) + 1);

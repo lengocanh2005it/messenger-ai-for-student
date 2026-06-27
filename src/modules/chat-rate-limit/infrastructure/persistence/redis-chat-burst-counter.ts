@@ -44,6 +44,48 @@ export class RedisChatBurstCounter implements ChatBurstCounterPort {
     }
   }
 
+  async tryReserveBurst(
+    psid: string,
+    limit: number,
+  ): Promise<{ allowed: boolean; count: number }> {
+    const client = this.redisClient.getNativeClient();
+    if (!client) {
+      return { allowed: true, count: 0 };
+    }
+
+    const key = this.key(psid);
+    // Atomically INCR, set TTL on first write, DECR+deny if over limit.
+    const luaScript = `
+      local count = redis.call('INCR', KEYS[1])
+      if count == 1 then
+        redis.call('EXPIRE', KEYS[1], ARGV[1])
+      end
+      if count > tonumber(ARGV[2]) then
+        redis.call('DECR', KEYS[1])
+        return {0, count - 1}
+      end
+      return {1, count}
+    `;
+
+    try {
+      const result = (await client.eval(
+        luaScript,
+        1,
+        key,
+        String(CHAT_BURST_KEY_TTL_SECONDS),
+        String(limit),
+      )) as number[];
+      return { allowed: result[0] === 1, count: result[1] ?? 0 };
+    } catch (error) {
+      this.logger.warn(
+        `Redis burst tryReserve failed psid=${psid}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return { allowed: true, count: 0 };
+    }
+  }
+
   async recordReservation(psid: string): Promise<void> {
     const client = this.redisClient.getNativeClient();
     if (!client) {

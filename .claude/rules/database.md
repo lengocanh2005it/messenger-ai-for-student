@@ -8,7 +8,7 @@ paths: src/infrastructure/database/**
 ## Bảng POC (migration trong repo)
 
 - `user_messenger_mappings` — `user_id` ↔ `psid`
-- `messenger_message_logs` — audit tin gửi/nhận; cron `messenger-message-log-cleanup` xóa row cũ hơn `MESSENGER_MESSAGE_LOG_RETENTION_DAYS` (default 90) vào 03:00 ICT ngày 1 hàng tháng
+- `messenger_message_logs` — audit tin gửi/nhận; cron `messenger-message-log-cleanup` xóa row cũ hơn `MESSENGER_MESSAGE_LOG_RETENTION_DAYS` (default 90) vào 03:00 ICT mỗi thứ Hai hàng tuần
 - `messenger_chat_daily_usage` — quota chat FREE_FORM theo ngày
 - `messenger_chat_idempotency` — idempotency `message.mid` (reserve/refund)
 - `study_reminder_jobs` — outbox nhắc lịch

@@ -40,7 +40,7 @@ export interface MessengerAgentInput {
 export class MessengerAgentService {
   private readonly logger = new Logger(MessengerAgentService.name);
   private openai: OpenAI | null = null;
-  private static readonly MAX_TOOL_ROUNDS = 6;
+  private static readonly DEFAULT_MAX_TOOL_ROUNDS = 6;
 
   constructor(
     private readonly configService: ConfigService,
@@ -106,7 +106,7 @@ export class MessengerAgentService {
 
     for (
       let round = 0;
-      round < MessengerAgentService.MAX_TOOL_ROUNDS;
+      round < this.getMaxToolRounds();
       round++
     ) {
       const response = await this.llmExecution.run(
@@ -195,6 +195,14 @@ export class MessengerAgentService {
       '',
       'Bạn có thể hỏi tự do về tiến độ, lịch học — WISPACE cũng gửi báo cáo và nhắc lịch tự động. Menu: «Đăng ký báo cáo».',
     ].join('\n');
+  }
+
+  private getMaxToolRounds(): number {
+    const raw = this.configService.get<string>('OPENAI_MAX_TOOL_ROUNDS');
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0
+      ? Math.floor(value)
+      : MessengerAgentService.DEFAULT_MAX_TOOL_ROUNDS;
   }
 
   private getOpenAiClient(apiKey: string): OpenAI {

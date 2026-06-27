@@ -83,6 +83,14 @@ export class MessengerChatSharedConfigService {
     return this.readPositiveInt('CHAT_HISTORY_MAX_MESSAGES', 12);
   }
 
+  getQueueStaleTtlMs(): number {
+    return this.readPositiveInt('CHAT_QUEUE_STALE_TTL_MS', 60 * 60 * 1000);
+  }
+
+  getQueueCleanupIntervalMs(): number {
+    return this.readPositiveInt('CHAT_QUEUE_CLEANUP_INTERVAL_MS', 15 * 60 * 1000);
+  }
+
   private readBoolean(key: string, fallback: boolean): boolean {
     const raw = this.configService.get<string>(key)?.trim().toLowerCase();
     if (!raw) {

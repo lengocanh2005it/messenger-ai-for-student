@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { WispaceApiError } from '../../../student-report/domain/errors/wispace-api.error';
+import { WispaceApiError } from '../../../../shared/errors/wispace-api.error';
 import { UserCalendarApiService } from './user-calendar-api.service';
 import { UserCalendarScheduleService } from './user-calendar-schedule.service';
 
@@ -30,14 +30,16 @@ describe('UserCalendarScheduleService', () => {
   }
 
   it('loads upcoming sessions from UserCalendar API only', async () => {
-    const service = createService(() => [
-      {
-        id: 42,
-        userId: 143,
-        eventDate: '2026-06-20T10:00:00.000Z',
-        time: '17:00',
-      },
-    ]);
+    const service = createService(() =>
+      Promise.resolve([
+        {
+          id: 42,
+          userId: 143,
+          eventDate: '2026-06-20T10:00:00.000Z',
+          time: '17:00',
+        },
+      ]),
+    );
 
     const sessions = await service.getUpcomingSessions(
       'psid-1',
@@ -74,14 +76,16 @@ describe('UserCalendarScheduleService', () => {
   });
 
   it('finds calendar record via API only', async () => {
-    const service = createService(() => [
-      {
-        id: 7,
-        userId: 143,
-        eventDate: '2026-06-20T10:00:00.000Z',
-        time: '17:00',
-      },
-    ]);
+    const service = createService(() =>
+      Promise.resolve([
+        {
+          id: 7,
+          userId: 143,
+          eventDate: '2026-06-20T10:00:00.000Z',
+          time: '17:00',
+        },
+      ]),
+    );
 
     await expect(
       service.findCalendarRecord('psid-1', 7),

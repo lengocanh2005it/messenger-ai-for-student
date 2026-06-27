@@ -2,11 +2,15 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { MESSAGE_SENDER } from '../../../messenger/application/ports/message-sender.port';
 import type { MessageSenderPort } from '../../../messenger/application/ports/message-sender.port';
 import { shouldSkipProactiveRetries } from '../../../messenger/application/utils/proactive-send.utils';
+import { WispaceApiError } from '../../../../shared/errors/wispace-api.error';
 import {
   buildStudyReminderMessageType,
   jobToSession,
 } from '../utils/study-reminder.utils';
-import { StudyReminderJobRepository } from '../../infrastructure/persistence/study-reminder-job.repository';
+import {
+  STUDY_REMINDER_JOB_REPOSITORY,
+  type StudyReminderJobRepositoryPort,
+} from '../../domain/repositories/study-reminder-job.repository.port';
 import { StudyReminderScheduleService } from './study-reminder-schedule.service';
 import { StudyReminderService } from './study-reminder.service';
 
@@ -15,7 +19,8 @@ export class StudyReminderDispatchService {
   private readonly logger = new Logger(StudyReminderDispatchService.name);
 
   constructor(
-    private readonly studyReminderJobRepository: StudyReminderJobRepository,
+    @Inject(STUDY_REMINDER_JOB_REPOSITORY)
+    private readonly studyReminderJobRepository: StudyReminderJobRepositoryPort,
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
     private readonly studyReminderService: StudyReminderService,
     @Inject(MESSAGE_SENDER)
@@ -36,13 +41,32 @@ export class StudyReminderDispatchService {
     const now = new Date();
     const resetStuck =
       await this.studyReminderJobRepository.resetStuckProcessingJobs(
-        new Date(now.getTime() - 10 * 60 * 1000),
+        new Date(now.getTime() - settings.stuckProcessingMs),
       );
 
     const dueJobs = await this.studyReminderJobRepository.findDueJobs(
       now,
       settings.minLeadMinutes,
     );
+
+    // Pre-fetch display names in a single batch query to avoid N lazy DB reads
+    // inside generateReminderForSession for each job.
+    const uniqueUserIds = [
+      ...new Set(
+        dueJobs.map((j) => j.userId).filter((id): id is number => !!id),
+      ),
+    ];
+    if (uniqueUserIds.length > 0) {
+      await this.studyReminderService
+        .preloadDisplayNames(uniqueUserIds)
+        .catch((err: unknown) => {
+          this.logger.warn(
+            `Display name preload failed, continuing with lazy fallback: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        });
+    }
 
     let claimed = 0;
     let sent = 0;
@@ -91,7 +115,12 @@ export class StudyReminderDispatchService {
         const message = error instanceof Error ? error.message : String(error);
         const nextRetryCount = job.retryCount + 1;
         const is24hWindow = shouldSkipProactiveRetries(error);
-        const terminal = is24hWindow || nextRetryCount >= job.maxRetries;
+        const isNonRetryableWispace =
+          error instanceof WispaceApiError && !error.isRetryable();
+        const terminal =
+          is24hWindow ||
+          isNonRetryableWispace ||
+          nextRetryCount >= job.maxRetries;
         const errorMessage = is24hWindow
           ? 'Messenger 24h messaging window closed'
           : message;
@@ -99,6 +128,12 @@ export class StudyReminderDispatchService {
         if (is24hWindow) {
           this.logger.warn(
             `MESSENGER_24H_WINDOW psid=${job.psid} jobId=${job.id} study_reminder`,
+          );
+        }
+
+        if (isNonRetryableWispace) {
+          this.logger.warn(
+            `WISPACE_NON_RETRYABLE psid=${job.psid} jobId=${job.id} status=${error.statusCode}; marking terminal`,
           );
         }
 

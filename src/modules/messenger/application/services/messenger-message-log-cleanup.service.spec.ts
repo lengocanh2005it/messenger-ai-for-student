@@ -2,8 +2,7 @@ import { MessengerMessageLogCleanupService } from './messenger-message-log-clean
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
 
 describe('MessengerMessageLogCleanupService', () => {
-  const deleteMessageLogsOlderThan =
-    jest.fn<(cutoff: Date) => Promise<number>>();
+  const deleteMessageLogsOlderThan = jest.fn<Promise<number>, [Date]>();
 
   const messengerRepository = {
     deleteMessageLogsOlderThan,

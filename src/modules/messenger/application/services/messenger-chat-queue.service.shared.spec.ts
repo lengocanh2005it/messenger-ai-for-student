@@ -23,6 +23,8 @@ describe('MessengerChatQueueService distributed mode (H7/R4)', () => {
     const sharedConfig = {
       isDistributedQueueEnabled: () => true,
       getProcessingStuckMs: () => 300_000,
+      getQueueStaleTtlMs: () => 3_600_000,
+      getQueueCleanupIntervalMs: () => 900_000,
     } as MessengerChatSharedConfigService;
 
     const sendSenderActionOptional = jest.fn(() => Promise.resolve());

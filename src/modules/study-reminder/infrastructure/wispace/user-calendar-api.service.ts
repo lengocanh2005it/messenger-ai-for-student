@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UserGoalsApiService } from '../../../student-report/infrastructure/wispace/user-goals-api.service';
-import { WispaceApiError } from '../../../student-report/domain/errors/wispace-api.error';
+import { WispaceApiError } from '../../../../shared/errors/wispace-api.error';
 import {
   CreateUserCalendarInput,
   UserCalendarRecord,

@@ -66,4 +66,21 @@ export class LlmExecutionConfigService {
 
     return Math.floor(value);
   }
+
+  getRequestTimeoutMs(): number {
+    const raw = this.configService
+      .get<string>('LLM_REQUEST_TIMEOUT_MS')
+      ?.trim();
+
+    if (!raw) {
+      return 30_000;
+    }
+
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      return 30_000;
+    }
+
+    return Math.floor(value);
+  }
 }

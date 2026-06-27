@@ -15,7 +15,7 @@ describe('InternalApiKeyGuard', () => {
   it('allows request with matching x-internal-api-key header', () => {
     const guard = new InternalApiKeyGuard({
       get: () => 'secret-key',
-    } as ConfigService);
+    } as unknown as ConfigService);
 
     expect(
       guard.canActivate(createContext({ 'x-internal-api-key': 'secret-key' })),
@@ -25,7 +25,7 @@ describe('InternalApiKeyGuard', () => {
   it('allows request with matching bearer token', () => {
     const guard = new InternalApiKeyGuard({
       get: () => 'secret-key',
-    } as ConfigService);
+    } as unknown as ConfigService);
 
     expect(
       guard.canActivate(createContext({ authorization: 'Bearer secret-key' })),
@@ -35,7 +35,7 @@ describe('InternalApiKeyGuard', () => {
   it('rejects request with wrong key', () => {
     const guard = new InternalApiKeyGuard({
       get: () => 'secret-key',
-    } as ConfigService);
+    } as unknown as ConfigService);
 
     expect(() =>
       guard.canActivate(createContext({ 'x-internal-api-key': 'wrong' })),

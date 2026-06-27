@@ -18,6 +18,7 @@ export class StudyReminderScheduleService {
     jobRetentionDays: number;
     eveningRolloverHour: number;
     timezone: string;
+    stuckProcessingMs: number;
   } {
     return {
       minutesBefore: this.getMinutesBefore(),
@@ -28,6 +29,7 @@ export class StudyReminderScheduleService {
       jobRetentionDays: this.getJobRetentionDays(),
       eveningRolloverHour: this.getEveningRolloverHour(),
       timezone: this.getTimezone(),
+      stuckProcessingMs: this.getStuckProcessingMs(),
     };
   }
 
@@ -141,6 +143,25 @@ export class StudyReminderScheduleService {
     }
 
     return timezone;
+  }
+
+  private getStuckProcessingMs(): number {
+    const raw = this.configService
+      .get<string>('STUDY_REMINDER_STUCK_PROCESSING_MS')
+      ?.trim();
+
+    if (!raw) {
+      return 10 * 60 * 1000;
+    }
+
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new InternalServerErrorException(
+        'STUDY_REMINDER_STUCK_PROCESSING_MS must be a positive number in .env',
+      );
+    }
+
+    return Math.floor(value);
   }
 
   private readRequiredPositiveNumber(key: string): number {

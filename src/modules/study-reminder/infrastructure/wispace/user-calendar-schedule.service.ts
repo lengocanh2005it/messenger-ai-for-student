@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { resolveScheduledAtFromEventDate } from '../../application/utils/study-calendar.utils';
 import { UserCalendarApiService } from './user-calendar-api.service';
-import { WispaceApiError } from '../../../student-report/domain/errors/wispace-api.error';
+import { WispaceApiError } from '../../../../shared/errors/wispace-api.error';
 import { UserCalendarRecord } from '../../domain/entities/user-calendar.types';
 import {
   CalendarSessionTimeRange,

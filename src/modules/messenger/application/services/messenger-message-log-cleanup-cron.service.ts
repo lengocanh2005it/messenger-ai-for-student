@@ -15,12 +15,12 @@ export class MessengerMessageLogCleanupCronService {
     private readonly pgLock: PgAdvisoryLockService,
   ) {}
 
-  /** Purge old audit rows — 03:00 ICT on the 1st of each month. */
-  @Cron('0 0 3 1 * *', {
+  /** Purge old audit rows — 03:00 ICT every Monday. */
+  @Cron('0 0 3 * * 1', {
     name: 'messenger-message-log-cleanup',
     timeZone: 'Asia/Ho_Chi_Minh',
   })
-  async handleMonthlyCleanup(): Promise<void> {
+  async handleWeeklyCleanup(): Promise<void> {
     if (!this.cleanupService.isEnabled()) {
       return;
     }

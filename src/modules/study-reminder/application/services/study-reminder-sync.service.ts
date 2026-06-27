@@ -2,7 +2,10 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { UserMessengerMapping } from '../../../messenger/domain/entities/messenger.types';
 import { MESSENGER_MAPPING_READER } from '../ports/messenger-mapping.port';
 import type { MessengerMappingReaderPort } from '../ports/messenger-mapping.port';
-import { StudyReminderJobRepository } from '../../infrastructure/persistence/study-reminder-job.repository';
+import {
+  STUDY_REMINDER_JOB_REPOSITORY,
+  type StudyReminderJobRepositoryPort,
+} from '../../domain/repositories/study-reminder-job.repository.port';
 import { StudyReminderScheduleService } from './study-reminder-schedule.service';
 import { StudySessionSourceService } from './study-session-source.service';
 
@@ -25,7 +28,8 @@ export class StudyReminderSyncService {
     @Inject(MESSENGER_MAPPING_READER)
     private readonly messengerMappingReader: MessengerMappingReaderPort,
     private readonly studySessionSourceService: StudySessionSourceService,
-    private readonly studyReminderJobRepository: StudyReminderJobRepository,
+    @Inject(STUDY_REMINDER_JOB_REPOSITORY)
+    private readonly studyReminderJobRepository: StudyReminderJobRepositoryPort,
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
   ) {}
 

@@ -421,7 +421,7 @@ describe('MessengerChatQueueService', () => {
   it('does not refund when quota hint fails after main reply (H4)', async () => {
     const { service, sendTextViaPsid, refundFreeFormSlot, markCompleted } =
       createService();
-    sendTextViaPsid.mockImplementation((params: { messageType: string }) => {
+    (sendTextViaPsid as jest.Mock).mockImplementation((params: { messageType: string }) => {
       if (params.messageType === 'CHAT_QUOTA_REMAINING_HINT') {
         return Promise.reject(new Error('hint send failed'));
       }
@@ -484,10 +484,7 @@ describe('MessengerChatQueueService', () => {
     await jest.runOnlyPendingTimersAsync();
 
     expect(sendTextViaPsid).toHaveBeenCalled();
-    const sendArgs = sendTextViaPsid.mock.calls[0]?.[0] as {
-      messageType: string;
-      text: string;
-    };
+    const sendArgs = (sendTextViaPsid.mock.calls[0] as unknown as [{ messageType: string; text: string }])[0];
     expect(sendArgs.messageType).toBe('FREE_FORM_CHAT_ERROR');
     expect(sendArgs.text).toContain('24 giờ');
   });
@@ -508,7 +505,7 @@ describe('MessengerChatQueueService', () => {
 
     await jest.runOnlyPendingTimersAsync();
 
-    const userText = reply.mock.calls[0]?.[0]?.userText as string;
+    const userText = (reply.mock.calls[0] as unknown as [{ userText: string }])[0].userText;
     expect(userText.length).toBeLessThanOrEqual(100);
     expect(userText).toContain('…');
   });

@@ -6,7 +6,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { UserEntity } from '../../../../infrastructure/database/entities/user.entity';
 import { FALLBACK_DISPLAY_NAME } from '../../../../shared/config/poc.constants';
 import { MESSENGER_MAPPING_READER } from '../ports/messenger-mapping.port';
@@ -37,6 +37,42 @@ export class UserDisplayNameService implements OnModuleInit {
     }
 
     this.logger.log('User display name cache active=postgres (no redis cache)');
+  }
+
+  async preloadDisplayNames(userIds: number[]): Promise<void> {
+    if (!userIds.length) return;
+
+    const toFetch = this.displayNameCache?.isAvailable()
+      ? await this.filterUncachedIds(userIds)
+      : userIds;
+
+    if (!toFetch.length) return;
+
+    const users = await this.userRepo.find({
+      where: { id: In(toFetch) },
+      select: { id: true, displayName: true, username: true },
+    });
+
+    if (this.displayNameCache?.isAvailable()) {
+      await Promise.all(
+        users.map((u) =>
+          this.displayNameCache!.set(u.id, {
+            displayName: u.displayName ?? null,
+            username: u.username ?? null,
+          }),
+        ),
+      );
+    }
+  }
+
+  private async filterUncachedIds(userIds: number[]): Promise<number[]> {
+    const results = await Promise.all(
+      userIds.map(async (userId) => ({
+        userId,
+        cached: await this.displayNameCache!.get(userId),
+      })),
+    );
+    return results.filter((r) => !r.cached).map((r) => r.userId);
   }
 
   async resolveDisplayName(params: {

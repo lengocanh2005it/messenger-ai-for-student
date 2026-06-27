@@ -95,8 +95,8 @@ export class MessengerOutboundService implements MessageSenderPort {
   }): Promise<number> {
     const bubbles = splitMessengerBubbles(
       params.text,
-      params.maxBubbles ?? 4,
-      params.maxCharsPerBubble ?? 640,
+      params.maxBubbles ?? this.getMaxBubbles(),
+      params.maxCharsPerBubble ?? this.getBubbleMaxChars(),
     );
 
     if (!bubbles.length) {
@@ -320,6 +320,18 @@ export class MessengerOutboundService implements MessageSenderPort {
       status: 'FAILED',
       errorMessage,
     });
+  }
+
+  private getMaxBubbles(): number {
+    const raw = this.configService.get<string>('CHAT_MAX_BUBBLES');
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 4;
+  }
+
+  private getBubbleMaxChars(): number {
+    const raw = this.configService.get<string>('CHAT_BUBBLE_MAX_CHARS');
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 640;
   }
 
   private toMessengerApiError(psid: string, error: unknown): MessengerApiError {

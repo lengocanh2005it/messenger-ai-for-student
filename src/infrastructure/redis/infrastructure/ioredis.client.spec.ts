@@ -23,6 +23,8 @@ describe('IoredisRedisClient (enabled)', () => {
     ping: jest.Mock;
     quit: jest.Mock;
     disconnect: jest.Mock;
+    connect: jest.Mock;
+    status: string;
   };
 
   beforeEach(() => {

@@ -23,7 +23,6 @@ import { StudySessionSourceService } from './study-session-source.service';
 @Injectable()
 export class StudyReminderService {
   private readonly logger = new Logger(StudyReminderService.name);
-  private openai: OpenAI | null = null;
 
   constructor(
     private readonly configService: ConfigService,
@@ -70,6 +69,10 @@ export class StudyReminderService {
       text: this.formatReminder(output),
       output,
     };
+  }
+
+  async preloadDisplayNames(userIds: number[]): Promise<void> {
+    await this.userDisplayNameService.preloadDisplayNames(userIds);
   }
 
   async getNextUpcomingSession(
@@ -146,7 +149,7 @@ export class StudyReminderService {
     }
 
     const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
-    const client = this.getOpenAiClient(apiKey);
+    const client = new OpenAI({ apiKey });
 
     const correlationId =
       context.jobId !== undefined ? String(context.jobId) : context.psid;
@@ -237,13 +240,5 @@ export class StudyReminderService {
       '',
       output.signoff,
     ].join('\n');
-  }
-
-  private getOpenAiClient(apiKey: string): OpenAI {
-    if (!this.openai) {
-      this.openai = new OpenAI({ apiKey });
-    }
-
-    return this.openai;
   }
 }

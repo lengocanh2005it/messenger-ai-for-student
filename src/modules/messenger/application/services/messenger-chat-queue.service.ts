@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  Optional,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MessengerLinkContext } from '../../../../shared/config/poc.constants';
 import {
@@ -43,6 +49,7 @@ interface PsidChatQueueState {
   processing: boolean;
   pendingWhileProcessing: string[];
   lastPendingIdempotencyKey?: string;
+  lastActivityAt: number;
 }
 
 interface ChatBatchInput {
@@ -54,13 +61,18 @@ interface ChatBatchInput {
 }
 
 @Injectable()
-export class MessengerChatQueueService {
+export class MessengerChatQueueService implements OnModuleDestroy {
   private readonly logger = new Logger(MessengerChatQueueService.name);
   private readonly queues = new Map<string, PsidChatQueueState>();
   private readonly sharedFlushTimers = new Map<
     string,
     ReturnType<typeof setTimeout>
   >();
+  private readonly staleQueueCleanupTimer: ReturnType<typeof setInterval>;
+  private readonly queueStaleTtlMs: number;
+
+  private static readonly DEFAULT_QUEUE_STALE_TTL_MS = 60 * 60 * 1000; // 1 hour
+  private static readonly DEFAULT_QUEUE_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 min
 
   constructor(
     private readonly configService: ConfigService,
@@ -75,7 +87,37 @@ export class MessengerChatQueueService {
     @Optional()
     @Inject(CHAT_QUEUE_STORE)
     private readonly chatQueueStore?: ChatQueueStorePort,
-  ) {}
+  ) {
+    this.queueStaleTtlMs =
+      sharedConfig?.getQueueStaleTtlMs() ??
+      MessengerChatQueueService.DEFAULT_QUEUE_STALE_TTL_MS;
+    const cleanupIntervalMs =
+      sharedConfig?.getQueueCleanupIntervalMs() ??
+      MessengerChatQueueService.DEFAULT_QUEUE_CLEANUP_INTERVAL_MS;
+    this.staleQueueCleanupTimer = setInterval(
+      () => this.evictStaleMemoryQueues(),
+      cleanupIntervalMs,
+    );
+  }
+
+  onModuleDestroy(): void {
+    clearInterval(this.staleQueueCleanupTimer);
+  }
+
+  private evictStaleMemoryQueues(): void {
+    const cutoff = Date.now() - this.queueStaleTtlMs;
+    for (const [psid, state] of this.queues) {
+      if (
+        !state.processing &&
+        state.texts.length === 0 &&
+        state.pendingWhileProcessing.length === 0 &&
+        !state.debounceTimer &&
+        state.lastActivityAt < cutoff
+      ) {
+        this.queues.delete(psid);
+      }
+    }
+  }
 
   enqueue(input: EnqueueChatMessageInput): void {
     const text = input.userText.trim();
@@ -96,10 +138,12 @@ export class MessengerChatQueueService {
         texts: [],
         processing: false,
         pendingWhileProcessing: [],
+        lastActivityAt: Date.now(),
       };
       this.queues.set(input.psid, state);
     }
 
+    state.lastActivityAt = Date.now();
     state.userId = input.userId ?? state.userId;
     state.linkContext = input.linkContext ?? state.linkContext;
 

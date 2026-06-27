@@ -35,7 +35,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Cap concurrent OpenAI (1 instance): `LLM_EXECUTION_ENABLED=true`, `LLM_MAX_CONCURRENT` (mặc định `3`) — `LlmExecutionModule`; tắt nhanh: `LLM_EXECUTION_ENABLED=false`.
 - Ops health I1+S1: `npm run ops:health` (cron 09:00 ICT trong app khi `OPS_HEALTH_ALERT_ENABLED=true`).
 - Doppler webhook prod: sửa secret `prd` → `POST /messenger/ops/doppler-sync` tự sync `.env` + restart container ([doppler-secrets.md](docs/doppler-secrets.md) §4).
-- Audit log cleanup: cron `messenger-message-log-cleanup` — 03:00 ICT ngày 1 hàng tháng; `MESSENGER_MESSAGE_LOG_RETENTION_DAYS=90` (tắt: `MESSENGER_MESSAGE_LOG_CLEANUP_ENABLED=false`).
+- Audit log cleanup: cron `messenger-message-log-cleanup` — 03:00 ICT mỗi thứ Hai hàng tuần; `MESSENGER_MESSAGE_LOG_RETENTION_DAYS=90` (tắt: `MESSENGER_MESSAGE_LOG_CLEANUP_ENABLED=false`).
 - Redis R0: `REDIS_ENABLED=true` + `REDIS_*` → startup log PING; `GET /health/redis` (503 khi bật mà không kết nối được).
 - Redis R5: `USER_DISPLAY_NAME_CACHE_*` — cache `cache:user:display:{userId}` trước bảng `users` / view `"Users"`.
 - Chat history R1: `CHAT_HISTORY_STORE=redis` (cần `REDIS_ENABLED=true`) \| `memory` (postgres table removed).

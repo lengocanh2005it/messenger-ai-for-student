@@ -27,7 +27,6 @@ import {
 @Injectable()
 export class StudentReportService {
   private readonly logger = new Logger(StudentReportService.name);
-  private openai: OpenAI | null = null;
 
   constructor(
     private readonly configService: ConfigService,
@@ -79,7 +78,7 @@ export class StudentReportService {
     }
 
     const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
-    const client = this.getOpenAiClient(apiKey);
+    const client = new OpenAI({ apiKey });
 
     const timezone =
       this.configService.get<string>('LLM_USAGE_TIMEZONE')?.trim() ??
@@ -153,13 +152,5 @@ export class StudentReportService {
       report['tình trạng task 2'],
       report['tình trạng task 1'],
     ].join('\n');
-  }
-
-  private getOpenAiClient(apiKey: string): OpenAI {
-    if (!this.openai) {
-      this.openai = new OpenAI({ apiKey });
-    }
-
-    return this.openai;
   }
 }

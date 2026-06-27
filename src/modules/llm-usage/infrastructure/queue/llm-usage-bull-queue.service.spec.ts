@@ -9,6 +9,8 @@ describe('LlmUsageBullQueueService', () => {
     const repository: LlmUsageRepositoryPort = {
       insertUsage,
       deleteOlderThan: jest.fn(),
+      aggregateUsage: jest.fn(),
+      aggregateFleetByDate: jest.fn(),
     };
     const redisConfig = { isEnabled: () => false } as RedisConfigService;
     const llmConfig = {

@@ -106,8 +106,8 @@ export class MessengerService {
     const failures: Array<{ psid?: string; error: string }> = [];
     let processed = 0;
 
-    for (const entry of payload.entry ?? []) {
-      for (const event of entry.messaging ?? []) {
+    for (const entry of Array.isArray(payload.entry) ? payload.entry : []) {
+      for (const event of Array.isArray(entry.messaging) ? entry.messaging : []) {
         this.logIncomingWebhookEvent(event);
         try {
           const handled = await this.handleEvent(event);

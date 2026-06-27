@@ -94,6 +94,13 @@ describe('ChatRateLimitService', () => {
 
     const burstCounter: ChatBurstCounterPort = {
       getBurstCount: jest.fn(() => Promise.resolve(options.burstCount ?? 0)),
+      tryReserveBurst: jest.fn((_psid: string, limit: number) => {
+        const current = options.burstCount ?? 0;
+        if (current >= limit) {
+          return Promise.resolve({ allowed: false, count: current });
+        }
+        return Promise.resolve({ allowed: true, count: current + 1 });
+      }),
       recordReservation: jest.fn(() => Promise.resolve()),
       releaseReservation: jest.fn(() => Promise.resolve()),
     };
@@ -176,7 +183,8 @@ describe('ChatRateLimitService', () => {
   });
 
   it('denies reserve without incrementing when daily limit is reached', async () => {
-    const { service, getCount, getReserveCallCount } = createService(true, 15);
+    const { service, getCount, getReserveCallCount, burstCounter } =
+      createService(true, 15);
 
     const result = await service.reserveFreeFormSlot('psid-1', {
       idempotencyKey: 'mid-1',
@@ -190,7 +198,10 @@ describe('ChatRateLimitService', () => {
       reason: 'DAILY_LIMIT',
     });
     expect(result.usageDate).toMatch(usageDatePattern);
-    expect(getReserveCallCount()).toBe(0);
+    // Daily limit is now enforced inside the DB transaction (H3), so one reserve
+    // attempt is made. Burst increment is rolled back via releaseReservation.
+    expect(getReserveCallCount()).toBe(1);
+    expect(burstCounter.releaseReservation).toHaveBeenCalledWith('psid-1');
     expect(getCount()).toBe(15);
   });
 
@@ -209,7 +220,7 @@ describe('ChatRateLimitService', () => {
       idempotencyKey: 'mid-burst',
     });
 
-    expect(burstCounter.getBurstCount).toHaveBeenCalledWith('psid-1');
+    expect(burstCounter.tryReserveBurst).toHaveBeenCalledWith('psid-1', 3);
     expect(quotaEventRecorder.recordDeniedBestEffort).toHaveBeenCalledWith(
       expect.objectContaining({
         psid: 'psid-1',
@@ -237,7 +248,10 @@ describe('ChatRateLimitService', () => {
       idempotencyKey: 'mid-ok',
     });
 
-    expect(burstCounter.recordReservation).toHaveBeenCalledWith('psid-1');
+    // Burst is now incremented atomically inside tryReserveBurst, not via a separate
+    // recordReservation call after the DB transaction.
+    expect(burstCounter.tryReserveBurst).toHaveBeenCalledWith('psid-1', 3);
+    expect(burstCounter.recordReservation).not.toHaveBeenCalled();
   });
 
   it('bypasses reserve for whitelisted psid', async () => {
@@ -280,9 +294,7 @@ describe('ChatRateLimitService', () => {
     expect(first.used).toBe(1);
     expect(second).toMatchObject({
       allowed: false,
-      used: 1,
       limit: 15,
-      remaining: 14,
       reason: 'IDEMPOTENCY_CONFLICT',
     });
     expect(second.usageDate).toMatch(usageDatePattern);
@@ -383,7 +395,7 @@ describe('ChatRateLimitService', () => {
 
     expect(result).toMatchObject({
       allowed: false,
-      used: 14,
+      used: 15,
       limit: 15,
       reason: 'DAILY_LIMIT',
       quotaReserved: false,

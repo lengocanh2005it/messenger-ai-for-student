@@ -1,20 +1,8 @@
-export class WispaceApiError extends Error {
-  constructor(
-    message: string,
-    readonly statusCode: number,
-    readonly psid: string,
-    readonly endpoint: string,
-  ) {
-    super(message);
-    this.name = 'WispaceApiError';
-  }
+export { WispaceApiError } from '../../../../shared/errors/wispace-api.error';
 
-  isRetryable(): boolean {
-    return this.statusCode >= 500 && this.statusCode <= 599;
-  }
-}
+import { WispaceApiError } from '../../../../shared/errors/wispace-api.error';
 
-/** R3: Wispace 5xx — cron defer; menu có thể gửi tin “thử lại sau”. */
+/** R3: Wispace 5xx — cron defer; menu có thể gửi tin "thử lại sau". */
 export class StudentReportRetryableError extends Error {
   constructor(
     readonly psid: string,

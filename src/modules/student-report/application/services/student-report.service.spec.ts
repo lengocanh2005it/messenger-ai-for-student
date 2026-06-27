@@ -21,8 +21,10 @@ describe('StudentReportService', () => {
     } as unknown as StudentCapacityService;
 
     const service = new StudentReportService(
-      { get: () => undefined } as ConfigService,
+      { get: () => undefined } as unknown as ConfigService,
       studentCapacityService,
+      { recordFromCompletion: jest.fn() } as never,
+      { run: jest.fn((fn: () => unknown) => fn()) } as never,
     );
 
     await expect(service.generateReport('psid-1')).resolves.toBe(
@@ -38,8 +40,10 @@ describe('StudentReportService', () => {
     } as unknown as StudentCapacityService;
 
     const service = new StudentReportService(
-      { get: () => undefined } as ConfigService,
+      { get: () => undefined } as unknown as ConfigService,
       studentCapacityService,
+      { recordFromCompletion: jest.fn() } as never,
+      { run: jest.fn((fn: () => unknown) => fn()) } as never,
     );
 
     await expect(service.generateReport('psid-1')).rejects.toBeInstanceOf(
@@ -62,8 +66,10 @@ describe('StudentReportService', () => {
     } as unknown as StudentCapacityService;
 
     const service = new StudentReportService(
-      { get: () => undefined } as ConfigService,
+      { get: () => undefined } as unknown as ConfigService,
       studentCapacityService,
+      { recordFromCompletion: jest.fn() } as never,
+      { run: jest.fn((fn: () => unknown) => fn()) } as never,
     );
 
     await expect(service.generateReport('psid-1')).rejects.toBeInstanceOf(
@@ -81,8 +87,10 @@ describe('StudentReportService', () => {
     } as unknown as StudentCapacityService;
 
     const service = new StudentReportService(
-      { get: () => undefined } as ConfigService,
+      { get: () => undefined } as unknown as ConfigService,
       studentCapacityService,
+      { recordFromCompletion: jest.fn() } as never,
+      { run: jest.fn((fn: () => unknown) => fn()) } as never,
     );
 
     await expect(service.generateReport('psid-1')).resolves.toBe(

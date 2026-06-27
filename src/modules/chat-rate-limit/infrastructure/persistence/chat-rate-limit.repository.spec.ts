@@ -312,7 +312,7 @@ describe('ChatRateLimitRepository', () => {
     quotaEventRecorder = {
       recordReservedInTransaction: jest.fn(() => Promise.resolve()),
       recordReleasedInTransaction: jest.fn(() => Promise.resolve()),
-    };
+    } as unknown as typeof quotaEventRecorder;
 
     repository = new ChatRateLimitRepository(
       dailyUsageRepo,

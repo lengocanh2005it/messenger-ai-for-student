@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MessengerChatDailyUsageEntity } from '../../../../infrastructure/database/entities/messenger-chat-daily-usage.entity';
@@ -24,6 +24,8 @@ class DailyLimitExceededError extends Error {
 
 @Injectable()
 export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
+  private readonly logger = new Logger(ChatRateLimitRepository.name);
+
   constructor(
     @InjectRepository(MessengerChatDailyUsageEntity)
     private readonly dailyUsageRepo: Repository<MessengerChatDailyUsageEntity>,
@@ -167,9 +169,16 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
       });
     } catch (error) {
       if (error instanceof DailyLimitExceededError) {
+        this.logger.debug(
+          `CHAT_QUOTA_DB_LIMIT psid=${input.psid} date=${input.usageDate} limit=${input.dailyLimit}`,
+        );
         return { status: 'daily_limit_exceeded' };
       }
 
+      this.logger.error(
+        `reserveFreeFormSlotInTransaction failed psid=${input.psid} mid=${input.idempotencyKey}`,
+        error,
+      );
       throw error;
     }
   }
@@ -221,6 +230,9 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
         usedAfter,
       });
 
+      this.logger.debug(
+        `CHAT_QUOTA_REFUND_DB psid=${params.psid} mid=${params.idempotencyKey} reason=${releaseReason} usedAfter=${usedAfter}`,
+      );
       return true;
     });
   }

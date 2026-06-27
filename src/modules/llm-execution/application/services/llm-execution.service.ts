@@ -19,6 +19,16 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`LLM request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([fn(), timeoutPromise]);
+}
+
 @Injectable()
 export class LlmExecutionService {
   private readonly logger = new Logger(LlmExecutionService.name);
@@ -56,9 +66,11 @@ export class LlmExecutionService {
     const baseBackoffMs = this.config.getRetryBackoffMs();
     let lastError: unknown;
 
+    const timeoutMs = this.config.getRequestTimeoutMs();
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        return await fn();
+        return await withTimeout(fn, timeoutMs);
       } catch (error) {
         lastError = error;
 

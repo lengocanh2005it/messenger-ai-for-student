@@ -18,6 +18,13 @@ export class ChatBurstCounterResolver implements ChatBurstCounterPort {
     return this.resolveCounter().getBurstCount(psid);
   }
 
+  tryReserveBurst(
+    psid: string,
+    limit: number,
+  ): Promise<{ allowed: boolean; count: number }> {
+    return this.resolveCounter().tryReserveBurst(psid, limit);
+  }
+
   recordReservation(psid: string): Promise<void> {
     return this.resolveCounter().recordReservation(psid);
   }

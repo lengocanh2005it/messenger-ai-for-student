@@ -84,13 +84,18 @@ export class ChatRateLimitService {
       return this.buildBypassResult(used, freeFormDailyLimit, usageDate);
     }
 
-    const burstCount = await this.burstCounter.getBurstCount(psid);
-    if (burstCount >= burstPerMinute) {
+    // Atomically check+increment burst counter. For Redis this uses a Lua script
+    // to avoid the race where two concurrent requests both pass the read check.
+    const burstResult = await this.burstCounter.tryReserveBurst(
+      psid,
+      burstPerMinute,
+    );
+    if (!burstResult.allowed) {
       this.logQuotaDeny(
         'BURST_LIMIT',
         psid,
         params.idempotencyKey,
-        burstCount,
+        burstResult.count,
         burstPerMinute,
       );
       this.quotaEventRecorder.recordDeniedBestEffort({
@@ -99,11 +104,11 @@ export class ChatRateLimitService {
         usageDate,
         reason: 'BURST_LIMIT',
         limit: burstPerMinute,
-        used: burstCount,
+        used: burstResult.count,
       });
       return {
         allowed: false,
-        used: burstCount,
+        used: burstResult.count,
         limit: burstPerMinute,
         remaining: 0,
         reason: 'BURST_LIMIT',
@@ -112,38 +117,7 @@ export class ChatRateLimitService {
       };
     }
 
-    const usedBefore = await this.repository.getDailyUsageCount(
-      psid,
-      usageDate,
-    );
-    if (usedBefore >= freeFormDailyLimit) {
-      this.logQuotaDeny(
-        'DAILY_LIMIT',
-        psid,
-        params.idempotencyKey,
-        usedBefore,
-        freeFormDailyLimit,
-      );
-      this.quotaEventRecorder.recordDeniedBestEffort({
-        psid,
-        userId: params.userId,
-        usageDate,
-        reason: 'DAILY_LIMIT',
-        limit: freeFormDailyLimit,
-        used: usedBefore,
-      });
-      return {
-        allowed: false,
-        used: usedBefore,
-        limit: freeFormDailyLimit,
-        remaining: 0,
-        reason: 'DAILY_LIMIT',
-        usageDate,
-        quotaReserved: false,
-      };
-    }
-
-    return this.reserveAndRecordBurst(psid, {
+    return this.reserveAndRollbackBurstOnFailure(psid, {
       userId: params.userId,
       usageDate,
       idempotencyKey: params.idempotencyKey,
@@ -152,7 +126,9 @@ export class ChatRateLimitService {
     });
   }
 
-  private async reserveAndRecordBurst(
+  // Burst counter was already incremented by tryReserveBurst. Roll it back if the
+  // DB reserve fails (daily limit, idempotency conflict) so the count stays accurate.
+  private async reserveAndRollbackBurstOnFailure(
     psid: string,
     params: {
       userId?: number;
@@ -170,10 +146,9 @@ export class ChatRateLimitService {
     });
 
     if (outcome.status === 'daily_limit_exceeded') {
-      const used = await this.repository.getDailyUsageCount(
-        psid,
-        params.usageDate,
-      );
+      await this.burstCounter.releaseReservation(psid);
+      // Count is known to be >= dailyLimit — no need for a second DB read.
+      const used = params.dailyLimit;
       this.logQuotaDeny(
         'DAILY_LIMIT',
         psid,
@@ -201,23 +176,21 @@ export class ChatRateLimitService {
     }
 
     if (outcome.status === 'idempotency_conflict') {
-      const used = await this.repository.getDailyUsageCount(
-        psid,
-        params.usageDate,
-      );
+      await this.burstCounter.releaseReservation(psid);
+      // Caller (processChatBatch) only checks quota.reason for IDEMPOTENCY_CONFLICT
+      // and does not render used/remaining to the user — skip the extra DB read.
       return {
         allowed: false,
-        used,
+        used: 0,
         limit: params.freeFormDailyLimit,
-        remaining: Math.max(params.freeFormDailyLimit - used, 0),
+        remaining: params.freeFormDailyLimit,
         reason: 'IDEMPOTENCY_CONFLICT',
         usageDate: params.usageDate,
         quotaReserved: false,
       };
     }
 
-    await this.burstCounter.recordReservation(psid);
-
+    // Burst already incremented — no separate recordReservation needed.
     return {
       allowed: true,
       used: outcome.freeFormCount,

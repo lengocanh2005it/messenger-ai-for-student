@@ -25,6 +25,17 @@ export class PostgresChatBurstCounter implements ChatBurstCounterPort {
     );
   }
 
+  // Postgres burst is derived from the chat_rate_limit_usage table (already written
+  // atomically by reserveFreeFormSlotInTransaction). No separate increment needed —
+  // just check the current count against the limit.
+  async tryReserveBurst(
+    psid: string,
+    limit: number,
+  ): Promise<{ allowed: boolean; count: number }> {
+    const count = await this.getBurstCount(psid);
+    return { allowed: count < limit, count };
+  }
+
   recordReservation(_psid: string): Promise<void> {
     void _psid;
     return Promise.resolve();

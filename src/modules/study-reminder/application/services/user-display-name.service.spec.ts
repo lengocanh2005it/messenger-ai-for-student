@@ -9,6 +9,8 @@ describe('UserDisplayNameService', () => {
 
   const mappingReader: MessengerMappingReaderPort = {
     findActiveMappingByPsid: jest.fn(),
+    findActiveMappingByUserId: jest.fn(),
+    findActiveMappingsWithPsid: jest.fn(),
   };
 
   const cacheGet = jest.fn();
