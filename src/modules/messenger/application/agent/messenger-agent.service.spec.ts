@@ -5,6 +5,7 @@ import { MessengerAgentToolsService } from './messenger-agent-tools.service';
 import { UserDisplayNameService } from '../../../study-reminder/application/services/user-display-name.service';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
+import { LlmSafetyEventService } from '../../../llm-safety/application/services/llm-safety-event.service';
 
 // Stub loadSystemPrompt so tests don't hit the filesystem
 jest.mock('../../../../shared/prompts/load-system-prompt', () => ({
@@ -88,12 +89,18 @@ function buildService(
     run: overrides.llmRun ?? jest.fn(),
   } as unknown as LlmExecutionService;
 
+  const llmSafetyEventService = {
+    isEnabled: jest.fn().mockReturnValue(true),
+    recordGroundingWarning: jest.fn(),
+  } as unknown as LlmSafetyEventService;
+
   const service = new MessengerAgentService(
     configService,
     toolsService,
     userDisplayNameService,
     llmUsageRecorder,
     llmExecution,
+    llmSafetyEventService,
   );
 
   return {

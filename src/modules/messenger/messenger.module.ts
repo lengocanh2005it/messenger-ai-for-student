@@ -7,6 +7,7 @@ import { CommonModule } from '../../shared/common/common.module';
 import { ChatRateLimitModule } from '../chat-rate-limit/chat-rate-limit.module';
 import { LlmExecutionModule } from '../llm-execution/llm-execution.module';
 import { LlmUsageModule } from '../llm-usage/llm-usage.module';
+import { LlmSafetyModule } from '../llm-safety/llm-safety.module';
 import { StudentReportModule } from '../student-report/student-report.module';
 import { StudyReminderModule } from '../study-reminder/study-reminder.module';
 import { MessengerAgentToolsService } from './application/agent/messenger-agent-tools.service';
@@ -50,6 +51,7 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     ChatRateLimitModule,
     LlmExecutionModule,
     LlmUsageModule,
+    LlmSafetyModule,
     StudentReportModule,
     StudyReminderModule,
     TypeOrmModule.forFeature([MessengerWebhookDeadLetterEntity]),

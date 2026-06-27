@@ -4,6 +4,7 @@ import { ChatQuotaOpsService } from '../../../chat-rate-limit/application/servic
 import { StudyReminderOpsService } from '../../../study-reminder/application/services/study-reminder-ops.service';
 import { MESSENGER_REPOSITORY } from '../../../messenger/domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../../messenger/domain/repositories/messenger.repository.port';
+import { LlmSafetyEventService } from '../../../llm-safety/application/services/llm-safety-event.service';
 import type {
   OpsHealthAlert,
   OpsHealthSnapshot,
@@ -19,6 +20,7 @@ export class OpsHealthService {
     private readonly studyReminderOpsService: StudyReminderOpsService,
     @Inject(MESSENGER_REPOSITORY)
     private readonly messengerRepository: MessengerRepositoryPort,
+    private readonly llmSafetyEventService: LlmSafetyEventService,
   ) {}
 
   isAlertCronEnabled(): boolean {
@@ -54,6 +56,7 @@ export class OpsHealthService {
       studyReminder,
       denyLogs24h,
       metaTokenExpiredEvents24h,
+      llmSafetyWarnings24h,
     ] = await Promise.all([
       this.chatQuotaOpsService.getSummary(),
       this.studyReminderOpsService.getSummary({
@@ -68,6 +71,7 @@ export class OpsHealthService {
         'META_TOKEN_EXPIRED',
         denySince,
       ),
+      this.llmSafetyEventService.countWarnings24h(),
     ]);
 
     const chatQuota = {
@@ -75,10 +79,17 @@ export class OpsHealthService {
       denyLogs24h,
     };
 
+    const llmSafetyThreshold =
+      this.llmSafetyEventService.readWarningDailyThreshold();
+    const llmSafetyThresholdBreached =
+      llmSafetyWarnings24h >= llmSafetyThreshold;
+
     const alerts = this.buildAlerts({
       chatQuota,
       studyReminder,
       metaTokenExpiredEvents24h,
+      llmSafetyWarnings24h,
+      llmSafetyThresholdBreached,
     });
 
     return {
@@ -86,6 +97,8 @@ export class OpsHealthService {
       chatQuota,
       studyReminder,
       metaTokenExpiredEvents24h,
+      llmSafetyWarnings24h,
+      llmSafetyThresholdBreached,
       alerts,
     };
   }
@@ -101,11 +114,11 @@ export class OpsHealthService {
       }
 
       this.logger.warn(
-        `OPS_HEALTH_SUMMARY alerts=${snapshot.alerts.length} studyTerminalFailed24h=${snapshot.studyReminder.terminalFailedSince} studyStuckProcessing=${snapshot.studyReminder.stuckProcessing} chatStuckReserved=${snapshot.chatQuota.stuckReserved} chatDenyLogs24h=${snapshot.chatQuota.denyLogs24h} metaTokenExpired24h=${snapshot.metaTokenExpiredEvents24h}`,
+        `OPS_HEALTH_SUMMARY alerts=${snapshot.alerts.length} studyTerminalFailed24h=${snapshot.studyReminder.terminalFailedSince} studyStuckProcessing=${snapshot.studyReminder.stuckProcessing} chatStuckReserved=${snapshot.chatQuota.stuckReserved} chatDenyLogs24h=${snapshot.chatQuota.denyLogs24h} metaTokenExpired24h=${snapshot.metaTokenExpiredEvents24h} llmSafetyWarnings24h=${snapshot.llmSafetyWarnings24h}`,
       );
     } else {
       this.logger.log(
-        `OPS_HEALTH_OK studyTerminalFailed24h=${snapshot.studyReminder.terminalFailedSince} studyStuckProcessing=${snapshot.studyReminder.stuckProcessing} chatStuckReserved=${snapshot.chatQuota.stuckReserved} chatDenyLogs24h=${snapshot.chatQuota.denyLogs24h} metaTokenExpired24h=${snapshot.metaTokenExpiredEvents24h}`,
+        `OPS_HEALTH_OK studyTerminalFailed24h=${snapshot.studyReminder.terminalFailedSince} studyStuckProcessing=${snapshot.studyReminder.stuckProcessing} chatStuckReserved=${snapshot.chatQuota.stuckReserved} chatDenyLogs24h=${snapshot.chatQuota.denyLogs24h} metaTokenExpired24h=${snapshot.metaTokenExpiredEvents24h} llmSafetyWarnings24h=${snapshot.llmSafetyWarnings24h}`,
       );
     }
 
@@ -116,6 +129,8 @@ export class OpsHealthService {
     chatQuota: OpsHealthSnapshot['chatQuota'];
     studyReminder: OpsHealthSnapshot['studyReminder'];
     metaTokenExpiredEvents24h: number;
+    llmSafetyWarnings24h: number;
+    llmSafetyThresholdBreached: boolean;
   }): OpsHealthAlert[] {
     const alerts: OpsHealthAlert[] = [];
     const minFailedJobs = this.readPositiveNumber(
@@ -160,6 +175,14 @@ export class OpsHealthService {
         code: 'META_TOKEN_EXPIRED',
         severity: 'warn',
         message: `PAGE_ACCESS_TOKEN may be expired — ${input.metaTokenExpiredEvents24h} send failure(s) in last ${this.readPositiveNumber('OPS_ALERT_DENY_LOOKBACK_HOURS', 24)}h; check ops runbook`,
+      });
+    }
+
+    if (input.llmSafetyThresholdBreached) {
+      alerts.push({
+        code: 'LLM_SAFETY_WARNING_THRESHOLD',
+        severity: 'warn',
+        message: `LLM grounding warnings exceeded threshold — ${input.llmSafetyWarnings24h} event(s) in last 24h (threshold: ${this.llmSafetyEventService.readWarningDailyThreshold()})`,
       });
     }
 

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ReportSendJobEntity } from '../../infrastructure/database/entities/report-send-job.entity';
 import { CommonModule } from '../../shared/common/common.module';
 import { ChatRateLimitModule } from '../chat-rate-limit/chat-rate-limit.module';
+import { LlmSafetyModule } from '../llm-safety/llm-safety.module';
 import { DatabaseModule } from '../../infrastructure/database/database.module';
 import { MessengerModule } from '../messenger/messenger.module';
 import { MessengerOutboundModule } from '../messenger/messenger-outbound.module';
@@ -27,6 +28,7 @@ import { SchedulerController } from './presentation/controllers/scheduler.contro
     DatabaseModule,
     TypeOrmModule.forFeature([ReportSendJobEntity]),
     ChatRateLimitModule,
+    LlmSafetyModule,
     MessengerOutboundModule,
     MessengerModule,
     StudentReportModule,

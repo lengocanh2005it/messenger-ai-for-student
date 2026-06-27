@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ChatQuotaOpsService } from '../../../chat-rate-limit/application/services/chat-quota-ops.service';
 import { StudyReminderOpsService } from '../../../study-reminder/application/services/study-reminder-ops.service';
 import { MESSENGER_REPOSITORY } from '../../../messenger/domain/repositories/messenger.repository.port';
+import { LlmSafetyEventService } from '../../../llm-safety/application/services/llm-safety-event.service';
 import { OpsHealthService } from './ops-health.service';
 
 describe('OpsHealthService', () => {
@@ -18,6 +19,12 @@ describe('OpsHealthService', () => {
 
   const messengerRepository = {
     countMessageLogsByTypeSince: jest.fn(),
+  };
+
+  const llmSafetyEventService = {
+    countWarnings24h: jest.fn().mockResolvedValue(0),
+    readWarningDailyThreshold: jest.fn().mockReturnValue(5),
+    isEnabled: jest.fn().mockReturnValue(true),
   };
 
   beforeEach(async () => {
@@ -53,6 +60,10 @@ describe('OpsHealthService', () => {
         {
           provide: MESSENGER_REPOSITORY,
           useValue: messengerRepository,
+        },
+        {
+          provide: LlmSafetyEventService,
+          useValue: llmSafetyEventService,
         },
       ],
     }).compile();

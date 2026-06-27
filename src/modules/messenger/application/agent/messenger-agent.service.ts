@@ -21,6 +21,7 @@ import {
   sanitizeToolResultContent,
 } from '../../../../shared/utils/prompt-injection.utils';
 import { checkLlmGrounding } from '../../../../shared/utils/llm-grounding.utils';
+import { LlmSafetyEventService } from '../../../llm-safety/application/services/llm-safety-event.service';
 import {
   buildPromptInjectionBlockedMessage,
   buildWispaceScopeRedirectMessage,
@@ -57,6 +58,7 @@ export class MessengerAgentService {
     private readonly userDisplayNameService: UserDisplayNameService,
     private readonly llmUsageRecorder: LlmUsageRecorderService,
     private readonly llmExecution: LlmExecutionService,
+    private readonly llmSafetyEventService: LlmSafetyEventService,
   ) {}
 
   async reply(input: MessengerAgentInput): Promise<MessengerAgentReply> {
@@ -171,6 +173,15 @@ export class MessengerAgentService {
           this.logger.warn(
             `LLM_GROUNDING_WARNING feature=FREE_FORM_CHAT psid=${input.psid} reason=${groundingCheck.reason} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
           );
+          this.llmSafetyEventService.recordGroundingWarning({
+            psid: input.psid,
+            userId: input.userId,
+            correlationId: input.correlationId,
+            reason: groundingCheck.reason ?? 'unknown',
+            userTextPreview: input.userText,
+            assistantTextPreview: text,
+            toolNamesUsed: [...toolsCalledThisTurn],
+          });
         }
 
         return {

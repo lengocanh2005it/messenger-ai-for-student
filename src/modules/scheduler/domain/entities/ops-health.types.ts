@@ -14,5 +14,7 @@ export interface OpsHealthSnapshot {
   chatQuota: ChatQuotaOpsSummary;
   studyReminder: StudyReminderOpsSummary;
   metaTokenExpiredEvents24h: number;
+  llmSafetyWarnings24h: number;
+  llmSafetyThresholdBreached: boolean;
   alerts: OpsHealthAlert[];
 }
