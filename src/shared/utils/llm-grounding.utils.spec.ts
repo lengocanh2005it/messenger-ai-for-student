@@ -3,16 +3,39 @@ import { checkLlmGrounding } from './llm-grounding.utils';
 describe('checkLlmGrounding', () => {
   describe('clean responses — should NOT be flagged', () => {
     const cases = [
-      ['general IELTS advice', 'Để đạt band 7, bạn cần luyện coherence và Task Achievement.', new Set<string>()],
+      [
+        'general IELTS advice',
+        'Để đạt band 7, bạn cần luyện coherence và Task Achievement.',
+        new Set<string>(),
+      ],
       ['greeting', 'Xin chào! Mình có thể giúp gì cho bạn?', new Set<string>()],
-      ['off-topic redirect', 'Mình chỉ hỗ trợ về WISPACE và IELTS Writing thôi bạn nhé.', new Set<string>()],
-      ['score after tool', 'Band của bạn hiện tại là 6.5 theo mục tiêu bạn đã đặt.', new Set(['get_user_goals'])],
-      ['schedule after tool', 'Buổi học của bạn lúc 19:00 ngày 28/06.', new Set(['list_study_calendar_entries'])],
-      ['reminder tool covered', 'Lúc 08:30 ngày 29/6 bạn có buổi học nhé.', new Set(['get_upcoming_study_sessions'])],
+      [
+        'off-topic redirect',
+        'Mình chỉ hỗ trợ về WISPACE và IELTS Writing thôi bạn nhé.',
+        new Set<string>(),
+      ],
+      [
+        'score after tool',
+        'Band của bạn hiện tại là 6.5 theo mục tiêu bạn đã đặt.',
+        new Set(['get_user_goals']),
+      ],
+      [
+        'schedule after tool',
+        'Buổi học của bạn lúc 19:00 ngày 28/06.',
+        new Set(['list_study_calendar_entries']),
+      ],
+      [
+        'reminder tool covered',
+        'Lúc 08:30 ngày 29/6 bạn có buổi học nhé.',
+        new Set(['get_upcoming_study_sessions']),
+      ],
     ] as const;
 
     it.each(cases)('%s', (_label, text, tools) => {
-      const result = checkLlmGrounding(text, tools as unknown as ReadonlySet<string>);
+      const result = checkLlmGrounding(
+        text,
+        tools as unknown as ReadonlySet<string>,
+      );
       expect(result.suspicious).toBe(false);
     });
   });

@@ -12,10 +12,7 @@ const PERSONAL_SCORE_RE =
 const PERSONAL_SCHEDULE_RE =
   /\b\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?\b|\blúc\s+\d{1,2}:\d{2}\b/i;
 
-const SCORE_TOOLS = new Set([
-  'get_user_goals',
-  'get_learning_progress_report',
-]);
+const SCORE_TOOLS = new Set(['get_user_goals', 'get_learning_progress_report']);
 
 const SCHEDULE_TOOLS = new Set([
   'list_study_calendar_entries',

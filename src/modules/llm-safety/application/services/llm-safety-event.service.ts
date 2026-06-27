@@ -1,8 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  LLM_SAFETY_EVENT_REPOSITORY,
-} from '../../domain/repositories/llm-safety-event.repository.port';
+import { LLM_SAFETY_EVENT_REPOSITORY } from '../../domain/repositories/llm-safety-event.repository.port';
 import type { LlmSafetyEventRepositoryPort } from '../../domain/repositories/llm-safety-event.repository.port';
 
 export interface RecordGroundingWarningInput {
@@ -44,7 +42,10 @@ export class LlmSafetyEventService {
       payload['userTextPreview'] = input.userTextPreview.slice(0, 200);
     }
     if (input.assistantTextPreview) {
-      payload['assistantTextPreview'] = input.assistantTextPreview.slice(0, 200);
+      payload['assistantTextPreview'] = input.assistantTextPreview.slice(
+        0,
+        200,
+      );
     }
 
     this.repository

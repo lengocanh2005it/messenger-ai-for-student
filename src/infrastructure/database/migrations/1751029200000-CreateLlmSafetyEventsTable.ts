@@ -1,8 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateLlmSafetyEventsTable1751029200000
-  implements MigrationInterface
-{
+export class CreateLlmSafetyEventsTable1751029200000 implements MigrationInterface {
   name = 'CreateLlmSafetyEventsTable1751029200000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -33,12 +31,8 @@ export class CreateLlmSafetyEventsTable1751029200000
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS "idx_llm_safety_psid"`,
-    );
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS "idx_llm_safety_created_at"`,
-    );
+    await queryRunner.query(`DROP INDEX IF EXISTS "idx_llm_safety_psid"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "idx_llm_safety_created_at"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "llm_safety_events"`);
   }
 }

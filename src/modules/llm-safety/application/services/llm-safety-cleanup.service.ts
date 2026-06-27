@@ -6,11 +6,12 @@ import { LlmSafetyEventService } from './llm-safety-event.service';
 export class LlmSafetyCleanupService {
   private readonly logger = new Logger(LlmSafetyCleanupService.name);
 
-  constructor(
-    private readonly llmSafetyEventService: LlmSafetyEventService,
-  ) {}
+  constructor(private readonly llmSafetyEventService: LlmSafetyEventService) {}
 
-  @Cron('0 3 * * *', { name: 'llm-safety-cleanup', timeZone: 'Asia/Ho_Chi_Minh' })
+  @Cron('0 3 * * *', {
+    name: 'llm-safety-cleanup',
+    timeZone: 'Asia/Ho_Chi_Minh',
+  })
   async runCleanup(): Promise<void> {
     if (!this.llmSafetyEventService.isEnabled()) return;
 
