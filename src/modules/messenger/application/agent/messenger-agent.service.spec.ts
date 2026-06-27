@@ -38,7 +38,10 @@ function makeCompletion(
   } as unknown as ChatCompletion;
 }
 
-function makeToolCallCompletion(toolName: string, argsJson = '{}'): ChatCompletion {
+function makeToolCallCompletion(
+  toolName: string,
+  argsJson = '{}',
+): ChatCompletion {
   return makeCompletion({
     content: null,
     tool_calls: [
@@ -115,13 +118,17 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — no API key', () => {
     it('returns fallback text without calling LLM', async () => {
-      const { service, llmExecution } = buildService({ OPENAI_API_KEY: undefined });
+      const { service, llmExecution } = buildService({
+        OPENAI_API_KEY: undefined,
+      });
 
       const result = await service.reply(BASE_INPUT);
 
       expect(result.text).toMatch(/WISPACE/);
       expect(result.richFollowUps).toEqual([]);
-      expect((llmExecution.run as jest.Mock)).not.toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      const runFn = llmExecution.run as jest.Mock;
+      expect(runFn).not.toHaveBeenCalled();
     });
 
     it('fallback for obviously off-topic text returns scope redirect', async () => {
@@ -180,7 +187,9 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — normal LLM flow', () => {
     it('returns text and empty richFollowUps when LLM responds directly', async () => {
-      const completion = makeCompletion({ content: 'Tiến độ của bạn tốt lắm!' });
+      const completion = makeCompletion({
+        content: 'Tiến độ của bạn tốt lắm!',
+      });
       const llmRun = jest.fn().mockResolvedValue(completion);
 
       const { service, llmUsageRecorder } = buildService(
@@ -193,9 +202,9 @@ describe('MessengerAgentService', () => {
       expect(result.text).toBe('Tiến độ của bạn tốt lắm!');
       expect(result.richFollowUps).toEqual([]);
       expect(llmRun).toHaveBeenCalledTimes(1);
-      expect(
-        (llmUsageRecorder.recordFromCompletion as jest.Mock),
-      ).toHaveBeenCalledWith(
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      const recordFn = llmUsageRecorder.recordFromCompletion as jest.Mock;
+      expect(recordFn).toHaveBeenCalledWith(
         expect.objectContaining({
           feature: 'FREE_FORM_CHAT',
           psid: BASE_INPUT.psid,
@@ -216,13 +225,11 @@ describe('MessengerAgentService', () => {
 
       await service.reply(BASE_INPUT);
 
-      const createCall = llmRun.mock.calls[0];
-      // llmExecution.run receives (fn, ctx) — call fn to capture what was passed
-      const fnArg = createCall[0] as () => Promise<unknown>;
-      // The fn itself calls client.chat.completions.create — we just verify llmRun was called once
       expect(llmRun).toHaveBeenCalledTimes(1);
-      expect(createCall[1]).toMatchObject({ feature: 'FREE_FORM_CHAT' });
-      void fnArg; // suppress unused warning
+      expect(llmRun).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({ feature: 'FREE_FORM_CHAT' }),
+      );
     });
 
     it('throws when LLM returns empty choices', async () => {
@@ -259,8 +266,12 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — tool call round-trip', () => {
     it('calls toolsService.execute then returns final text after one tool round', async () => {
-      const textCompletion = makeCompletion({ content: 'Đây là kết quả của bạn.' });
-      const toolCompletion = makeToolCallCompletion('get_learning_progress_report');
+      const textCompletion = makeCompletion({
+        content: 'Đây là kết quả của bạn.',
+      });
+      const toolCompletion = makeToolCallCompletion(
+        'get_learning_progress_report',
+      );
 
       const llmRun = jest
         .fn()
@@ -322,7 +333,9 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — conversation history', () => {
     it('includes history messages in LLM request messages', async () => {
-      const completion = makeCompletion({ content: 'Trả lời dựa trên lịch sử.' });
+      const completion = makeCompletion({
+        content: 'Trả lời dựa trên lịch sử.',
+      });
       const llmRun = jest.fn().mockResolvedValue(completion);
 
       const { service } = buildService(
@@ -350,7 +363,9 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — unknown userId (unlinked user)', () => {
     it('works without userId', async () => {
-      const completion = makeCompletion({ content: 'Bạn chưa liên kết tài khoản.' });
+      const completion = makeCompletion({
+        content: 'Bạn chưa liên kết tài khoản.',
+      });
       const llmRun = jest.fn().mockResolvedValue(completion);
 
       const { service } = buildService(

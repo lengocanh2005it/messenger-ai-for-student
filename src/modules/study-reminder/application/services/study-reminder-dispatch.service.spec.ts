@@ -23,8 +23,18 @@ describe('StudyReminderDispatchService', () => {
   describe('dispatchDueReminders', () => {
     let service: StudyReminderDispatchService;
     let jobRepo: jest.Mocked<StudyReminderJobRepositoryPort>;
-    let scheduleService: jest.Mocked<Pick<StudyReminderScheduleService, 'getOutboxSettings' | 'isSessionStarted'>>;
-    let reminderService: jest.Mocked<Pick<StudyReminderService, 'preloadDisplayNames' | 'generateReminderForSession'>>;
+    let scheduleService: jest.Mocked<
+      Pick<
+        StudyReminderScheduleService,
+        'getOutboxSettings' | 'isSessionStarted'
+      >
+    >;
+    let reminderService: jest.Mocked<
+      Pick<
+        StudyReminderService,
+        'preloadDisplayNames' | 'generateReminderForSession'
+      >
+    >;
     let messageSender: jest.Mocked<MessageSenderPort>;
 
     const defaultSettings = {
@@ -33,7 +43,9 @@ describe('StudyReminderDispatchService', () => {
       retryBackoffMinutes: 2,
     };
 
-    function makeJob(overrides: Partial<StudyReminderJob> = {}): StudyReminderJob {
+    function makeJob(
+      overrides: Partial<StudyReminderJob> = {},
+    ): StudyReminderJob {
       return {
         id: 1,
         psid: 'psid-1',
@@ -62,21 +74,23 @@ describe('StudyReminderDispatchService', () => {
         findNextDueTime: jest.fn().mockResolvedValue(null),
         upsertPendingJob: jest.fn(),
         cancelStaleJobsForPsid: jest.fn(),
-      } as unknown as jest.Mocked<StudyReminderJobRepositoryPort>;
+      };
 
       scheduleService = {
         getOutboxSettings: jest.fn().mockReturnValue(defaultSettings),
         isSessionStarted: jest.fn().mockReturnValue(false),
-      } as unknown as jest.Mocked<Pick<StudyReminderScheduleService, 'getOutboxSettings' | 'isSessionStarted'>>;
+      };
 
       reminderService = {
         preloadDisplayNames: jest.fn().mockResolvedValue(undefined),
-        generateReminderForSession: jest.fn().mockResolvedValue('Nhắc nhở học toán!'),
-      } as unknown as jest.Mocked<Pick<StudyReminderService, 'preloadDisplayNames' | 'generateReminderForSession'>>;
+        generateReminderForSession: jest
+          .fn()
+          .mockResolvedValue('Nhắc nhở học toán!'),
+      };
 
       messageSender = {
         sendTextViaPsid: jest.fn().mockResolvedValue(undefined),
-      } as unknown as jest.Mocked<MessageSenderPort>;
+      };
 
       service = new StudyReminderDispatchService(
         jobRepo,
@@ -108,11 +122,18 @@ describe('StudyReminderDispatchService', () => {
 
       const result = await service.dispatchDueReminders();
 
+      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(messageSender.sendTextViaPsid).toHaveBeenCalledWith(
         expect.objectContaining({ psid: 'psid-1', text: 'Nhắc nhở học toán!' }),
       );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(jobRepo.markSent).toHaveBeenCalledWith(1);
-      expect(result).toMatchObject({ claimed: 1, sent: 1, cancelled: 0, failed: 0 });
+      expect(result).toMatchObject({
+        claimed: 1,
+        sent: 1,
+        cancelled: 0,
+        failed: 0,
+      });
     });
 
     it('cancels job when session has already started', async () => {
@@ -123,7 +144,11 @@ describe('StudyReminderDispatchService', () => {
 
       const result = await service.dispatchDueReminders();
 
-      expect(jobRepo.markCancelled).toHaveBeenCalledWith(1, 'session already started');
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(jobRepo.markCancelled).toHaveBeenCalledWith(
+        1,
+        'session already started',
+      );
       expect(result).toMatchObject({ claimed: 1, cancelled: 1, sent: 0 });
     });
 
@@ -135,6 +160,7 @@ describe('StudyReminderDispatchService', () => {
       const result = await service.dispatchDueReminders();
 
       expect(result.claimed).toBe(0);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(jobRepo.markSent).not.toHaveBeenCalled();
     });
 
@@ -143,11 +169,17 @@ describe('StudyReminderDispatchService', () => {
       jobRepo.findDueJobs.mockResolvedValue([job]);
       jobRepo.claimJob.mockResolvedValue(job);
       messageSender.sendTextViaPsid.mockRejectedValue(
-        new MessengerApiError('Send failed', 400, 'Bad Request', '{"error":{"code":10}}'),
+        new MessengerApiError(
+          'Send failed',
+          400,
+          'Bad Request',
+          '{"error":{"code":10}}',
+        ),
       );
 
       const result = await service.dispatchDueReminders();
 
+      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(jobRepo.markFailed).toHaveBeenCalledWith(
         expect.objectContaining({ jobId: 1, terminal: true }),
       );
@@ -165,6 +197,7 @@ describe('StudyReminderDispatchService', () => {
 
       const result = await service.dispatchDueReminders();
 
+      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(jobRepo.markFailed).toHaveBeenCalledWith(
         expect.objectContaining({ terminal: true }),
       );
@@ -181,10 +214,12 @@ describe('StudyReminderDispatchService', () => {
 
       const result = await service.dispatchDueReminders();
 
+      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(jobRepo.markFailed).toHaveBeenCalledWith(
         expect.objectContaining({
           terminal: false,
           retryCount: 1,
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           nextRetryAt: expect.any(Date),
         }),
       );
@@ -195,10 +230,13 @@ describe('StudyReminderDispatchService', () => {
       const job = makeJob({ retryCount: 3, maxRetries: 3 });
       jobRepo.findDueJobs.mockResolvedValue([job]);
       jobRepo.claimJob.mockResolvedValue(job);
-      messageSender.sendTextViaPsid.mockRejectedValue(new Error('Persistent error'));
+      messageSender.sendTextViaPsid.mockRejectedValue(
+        new Error('Persistent error'),
+      );
 
       const result = await service.dispatchDueReminders();
 
+      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(jobRepo.markFailed).toHaveBeenCalledWith(
         expect.objectContaining({ terminal: true, retryCount: 4 }),
       );
@@ -206,17 +244,25 @@ describe('StudyReminderDispatchService', () => {
     });
 
     it('preloads display names in one batch for all jobs with userId', async () => {
-      const jobs = [makeJob({ id: 1, userId: 10 }), makeJob({ id: 2, userId: 20 })];
+      const jobs = [
+        makeJob({ id: 1, userId: 10 }),
+        makeJob({ id: 2, userId: 20 }),
+      ];
       jobRepo.findDueJobs.mockResolvedValue(jobs);
       jobRepo.claimJob.mockResolvedValue(null);
 
       await service.dispatchDueReminders();
 
-      expect(reminderService.preloadDisplayNames).toHaveBeenCalledWith([10, 20]);
+      expect(reminderService.preloadDisplayNames).toHaveBeenCalledWith([
+        10, 20,
+      ]);
     });
 
     it('deduplicates userIds when preloading display names', async () => {
-      const jobs = [makeJob({ id: 1, userId: 42 }), makeJob({ id: 2, userId: 42 })];
+      const jobs = [
+        makeJob({ id: 1, userId: 42 }),
+        makeJob({ id: 2, userId: 42 }),
+      ];
       jobRepo.findDueJobs.mockResolvedValue(jobs);
       jobRepo.claimJob.mockResolvedValue(null);
 
@@ -229,7 +275,9 @@ describe('StudyReminderDispatchService', () => {
       const job = makeJob();
       jobRepo.findDueJobs.mockResolvedValue([job]);
       jobRepo.claimJob.mockResolvedValue(job);
-      reminderService.preloadDisplayNames.mockRejectedValue(new Error('Redis down'));
+      reminderService.preloadDisplayNames.mockRejectedValue(
+        new Error('Redis down'),
+      );
 
       const result = await service.dispatchDueReminders();
 
