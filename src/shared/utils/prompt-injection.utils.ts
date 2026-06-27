@@ -80,13 +80,7 @@ function hasRepetitionFlood(text: string): boolean {
   return /([^\s]{3,20}\s*)\1{25,}/i.test(text);
 }
 
-export function detectPromptInjection(userText: string): InjectionCheckResult {
-  const text = userText ?? '';
-
-  if (text.length > MAX_USER_TEXT_LENGTH) {
-    return { isInjection: true, reason: 'message_too_long' };
-  }
-
+function scanPatterns(text: string): InjectionCheckResult {
   if (hasRepetitionFlood(text)) {
     return { isInjection: true, reason: 'repetition_flood' };
   }
@@ -98,4 +92,32 @@ export function detectPromptInjection(userText: string): InjectionCheckResult {
   }
 
   return { isInjection: false };
+}
+
+/** Check user-supplied input — applies length limit + pattern scan. */
+export function detectPromptInjection(userText: string): InjectionCheckResult {
+  const text = userText ?? '';
+
+  if (text.length > MAX_USER_TEXT_LENGTH) {
+    return { isInjection: true, reason: 'message_too_long' };
+  }
+
+  return scanPatterns(text);
+}
+
+/** Check tool result content — pattern scan only (no length limit). */
+export function sanitizeToolResultContent(content: string): {
+  content: string;
+  wasSanitized: boolean;
+  reason?: string;
+} {
+  const check = scanPatterns(content);
+  if (check.isInjection) {
+    return {
+      content: JSON.stringify({ _sanitized: true }),
+      wasSanitized: true,
+      reason: check.reason,
+    };
+  }
+  return { content, wasSanitized: false };
 }

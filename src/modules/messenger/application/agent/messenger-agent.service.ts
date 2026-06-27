@@ -16,7 +16,10 @@ import {
 import type { ChatHistoryMessage } from '../services/messenger-chat-history.service';
 import type { MessengerRichFollowUp } from '../../domain/entities/messenger-rich-message.types';
 import { isObviouslyOffTopic } from '../../../../shared/utils/messenger-scope.utils';
-import { detectPromptInjection } from '../../../../shared/utils/prompt-injection.utils';
+import {
+  detectPromptInjection,
+  sanitizeToolResultContent,
+} from '../../../../shared/utils/prompt-injection.utils';
 import {
   buildPromptInjectionBlockedMessage,
   buildWispaceScopeRedirectMessage,
@@ -45,6 +48,7 @@ export class MessengerAgentService {
   private readonly logger = new Logger(MessengerAgentService.name);
   private openai: OpenAI | null = null;
   private static readonly DEFAULT_MAX_TOOL_ROUNDS = 6;
+  private static readonly DEFAULT_MAX_CONTEXT_CHARS = 24_000;
 
   constructor(
     private readonly configService: ConfigService,
@@ -104,19 +108,20 @@ export class MessengerAgentService {
 
     const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
     const client = this.getOpenAiClient(apiKey);
+    const systemPrompt = this.buildSystemPrompt(displayName, input.userId);
+    const safeHistory = this.buildSafeHistory(
+      input.history ?? [],
+      systemPrompt,
+      input.userText,
+      input.psid,
+    );
     const messages: ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: this.buildSystemPrompt(displayName, input.userId),
-      },
-      ...(input.history ?? []).map((entry) => ({
+      { role: 'system', content: systemPrompt },
+      ...safeHistory.map((entry) => ({
         role: entry.role,
         content: entry.content,
       })),
-      {
-        role: 'user',
-        content: input.userText.trim(),
-      },
+      { role: 'user', content: input.userText.trim() },
     ];
 
     for (let round = 0; round < this.getMaxToolRounds(); round++) {
@@ -174,10 +179,18 @@ export class MessengerAgentService {
           toolContext,
         );
 
+        const raw = JSON.stringify(result);
+        const sanitized = sanitizeToolResultContent(raw);
+        if (sanitized.wasSanitized) {
+          this.logger.warn(
+            `Tool result sanitized psid=${input.psid} tool=${toolCall.function.name} reason=${sanitized.reason}`,
+          );
+        }
+
         const toolMessage: ChatCompletionToolMessageParam = {
           role: 'tool',
           tool_call_id: toolCall.id,
-          content: JSON.stringify(result),
+          content: sanitized.content,
         };
         messages.push(toolMessage);
       }
@@ -206,6 +219,59 @@ export class MessengerAgentService {
       '',
       'Bạn có thể hỏi tự do về tiến độ, lịch học — WISPACE cũng gửi báo cáo và nhắc lịch tự động. Menu: «Đăng ký báo cáo».',
     ].join('\n');
+  }
+
+  /**
+   * Fix 2 — redact history entries containing injection patterns.
+   * Fix 3 — truncate history to stay within context character budget.
+   */
+  private buildSafeHistory(
+    history: ChatHistoryMessage[],
+    systemPrompt: string,
+    userText: string,
+    psid: string,
+  ): ChatHistoryMessage[] {
+    // Redact any history message that contains injection patterns
+    const redacted = history.map((entry) => {
+      const check = detectPromptInjection(entry.content);
+      if (check.isInjection) {
+        this.logger.warn(
+          `History entry redacted psid=${psid} reason=${check.reason}`,
+        );
+        return { ...entry, content: '[redacted]' };
+      }
+      return entry;
+    });
+
+    // Truncate oldest messages if total context would exceed budget
+    const maxChars = this.getMaxContextChars();
+    const fixedChars = systemPrompt.length + userText.length;
+    let budget = maxChars - fixedChars;
+
+    const result: ChatHistoryMessage[] = [];
+    for (let i = redacted.length - 1; i >= 0; i--) {
+      const entry = redacted[i];
+      if (!entry) continue;
+      if (budget >= entry.content.length) {
+        result.unshift(entry);
+        budget -= entry.content.length;
+      } else {
+        this.logger.debug(
+          `History truncated at index ${i} to stay within context budget psid=${psid}`,
+        );
+        break;
+      }
+    }
+
+    return result;
+  }
+
+  private getMaxContextChars(): number {
+    const raw = this.configService.get<string>('OPENAI_MAX_CONTEXT_CHARS');
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0
+      ? Math.floor(value)
+      : MessengerAgentService.DEFAULT_MAX_CONTEXT_CHARS;
   }
 
   private getMaxToolRounds(): number {

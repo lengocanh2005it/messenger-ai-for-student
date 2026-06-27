@@ -242,13 +242,28 @@ export class MessengerAgentToolsService {
       };
     }
 
+    const newLocalDate = this.readValidatedDate(args.newLocalDate);
+    const newTime = this.readValidatedTime(args.newTime);
+
+    if (
+      args.newLocalDate !== undefined &&
+      args.newLocalDate !== null &&
+      !newLocalDate
+    ) {
+      return { error: 'newLocalDate must be in YYYY-MM-DD format' };
+    }
+
+    if (args.newTime !== undefined && args.newTime !== null && !newTime) {
+      return { error: 'newTime must be in HH:MM format' };
+    }
+
     const staged = await this.rescheduleConfirmationService.stage({
       psid: ctx.psid,
       userId: ctx.userId,
       calendarId: matchedEntry.calendarId,
       schedulingMode,
-      newLocalDate: this.readOptionalString(args.newLocalDate),
-      newTime: this.readOptionalString(args.newTime),
+      newLocalDate,
+      newTime,
     });
 
     if ('error' in staged) {
@@ -471,5 +486,17 @@ export class MessengerAgentToolsService {
     }
 
     return undefined;
+  }
+
+  private readValidatedDate(value: unknown): string | undefined {
+    const str = this.readOptionalString(value);
+    if (!str) return undefined;
+    return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : undefined;
+  }
+
+  private readValidatedTime(value: unknown): string | undefined {
+    const str = this.readOptionalString(value);
+    if (!str) return undefined;
+    return /^\d{2}:\d{2}$/.test(str) ? str : undefined;
   }
 }
