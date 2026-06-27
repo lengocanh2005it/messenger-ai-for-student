@@ -246,6 +246,12 @@ Thiếu `OPENAI_API_KEY` → fallback template cứng trong service (không gọ
 
 Mọi `chat.completions.create` đi qua **`LlmExecutionService`** (`src/modules/llm-execution/`) — cap concurrent in-process (`p-limit`, `LLM_MAX_CONCURRENT`), retry 429/5xx (`LLM_OPENAI_RETRY_*`). Tắt gate: `LLM_EXECUTION_ENABLED=false`. Scale ≥2 pod: gate in-memory **không** chia cross-pod — cần Redis gate sau.
 
+LLM safety:
+
+- `MessengerAgentService` chặn prompt-injection tiếng Anh/Việt trước OpenAI, redact history độc hại, cap context và sanitize tool result dạng JSON.
+- Dữ liệu ngoài từ WISPACE/user profile trước khi vào reminder/report phải sanitize bằng `src/shared/utils/prompt-injection.utils.ts`.
+- Output JSON từ OpenAI phải parse + validate shape bằng `src/shared/utils/llm-json-output.utils.ts`; output sai shape fallback template, không format trực tiếp bằng type cast.
+
 ---
 
 ## 8. Cấu hình `.env`

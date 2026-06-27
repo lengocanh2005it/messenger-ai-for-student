@@ -33,6 +33,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **demo_send_message_f
 - Tra quota chat: `npm run chat-quota:status` (`--psid`, `--user-id`, `--date`, `--ops`); rebuild counter: `chat-quota:rebuild` (`--dry-run`).
 - Tra token LLM: `npm run llm-usage:status` (`--psid`, `--feature`, `--ops`); HTTP ops `GET /messenger/ops/llm-usage/summary` (`psid` \| `userId`, `from`, `to`) và `GET /messenger/ops/llm-usage/fleet` (`date`); USD: `LLM_COST_USD_PER_1M_*_GPT_5_4` = `2.50` / `15.00` (OpenAI Standard gpt-5.4); persist qua BullMQ queue `llm-usage-write` khi `REDIS_ENABLED=true`.
 - Cap concurrent OpenAI (1 instance): `LLM_EXECUTION_ENABLED=true`, `LLM_MAX_CONCURRENT` (mặc định `3`) — `LlmExecutionModule`; tắt nhanh: `LLM_EXECUTION_ENABLED=false`.
+- LLM safety: chat free-form chặn prompt-injection trước khi gọi OpenAI, sanitize history/tool results; dữ liệu ngoài cho reminder/report phải đi qua `prompt-injection.utils` / validate JSON output (`llm-json-output.utils`) trước khi format/gửi.
 - Ops health I1+S1: `npm run ops:health` (cron 09:00 ICT trong app khi `OPS_HEALTH_ALERT_ENABLED=true`).
 - Doppler webhook prod: sửa secret `prd` → `POST /messenger/ops/doppler-sync` tự sync `.env` + restart container ([doppler-secrets.md](docs/doppler-secrets.md) §4).
 - Audit log cleanup: cron `messenger-message-log-cleanup` — 03:00 ICT mỗi thứ Hai hàng tuần; `MESSENGER_MESSAGE_LOG_RETENTION_DAYS=90` (tắt: `MESSENGER_MESSAGE_LOG_CLEANUP_ENABLED=false`).
@@ -122,10 +123,14 @@ Spec hiện có:
 - `src/modules/messenger/application/services/messenger-chat-queue.service.spec.ts`
 - `src/modules/messenger/application/services/messenger-chat-queue.service.shared.spec.ts`
 - `src/modules/messenger/application/services/messenger-message-log-cleanup.service.spec.ts`
+- `src/modules/messenger/application/agent/messenger-agent.service.spec.ts`
 - `src/modules/study-reminder/application/services/study-reminder-schedule.service.spec.ts`
+- `src/modules/study-reminder/application/services/study-reminder.service.spec.ts`
 - `src/modules/study-reminder/application/services/study-reminder-cleanup.service.spec.ts`
+- `src/modules/student-report/application/services/student-report.service.spec.ts`
 - `src/shared/common/guards/internal-api-key.guard.spec.ts`
 - `src/shared/config/poc.constants.spec.ts`
+- `src/shared/utils/prompt-injection.utils.spec.ts`
 - `src/app.controller.spec.ts`
 
 ---
@@ -310,6 +315,7 @@ Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar`. Cron 30 p
 - Ops endpoints bảo vệ bởi `InternalApiKeyGuard` — không bỏ guard khi thêm endpoint vận hành.
 - Wispace API: chỉ header `x-psid`, không lưu/log full access token user.
 - Meta webhook: xác thực qua `VERIFY_TOKEN` (GET `/webhook`); POST `/webhook` verify `X-Hub-Signature-256` với `MESSENGER_APP_SECRET` (tắt: `MESSENGER_WEBHOOK_SIGNATURE_VERIFY=false`). `ENFORCE_PROD_CHAT_QUOTA=true` hoặc `NODE_ENV=production` → startup fail nếu thiếu secret / verify tắt / `CHAT_RATE_LIMIT_ENABLED=false`.
+- LLM prompt-injection: không đưa user/Wispace string thẳng vào prompt hoặc tool result. Dùng `sanitizeUntrustedTextForLlm` / `sanitizeToolResultContent`; output JSON từ OpenAI phải parse + validate shape, lỗi thì fallback template.
 
 ---
 

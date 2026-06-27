@@ -7,6 +7,12 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
 import { FALLBACK_DISPLAY_NAME } from '../../../../shared/config/poc.constants';
+import {
+  parseJsonObject,
+  readRequiredStringArrayField,
+  readRequiredStringField,
+} from '../../../../shared/utils/llm-json-output.utils';
+import { sanitizeUntrustedTextForLlm } from '../../../../shared/utils/prompt-injection.utils';
 import { StudentCapacityService } from '../../../student-report/application/services/student-capacity.service';
 import { UserGoalsApiService } from '../../../student-report/infrastructure/wispace/user-goals-api.service';
 import {
@@ -59,7 +65,8 @@ export class StudyReminderService {
         psid,
         userId: options?.userId,
       }));
-    const input = await this.buildLlmInput(psid, session, displayName);
+    const safeDisplayName = this.sanitizeDisplayName(displayName, psid);
+    const input = await this.buildLlmInput(psid, session, safeDisplayName);
     const output = await this.generateAiReminder(input, {
       psid,
       userId: options?.userId,
@@ -99,12 +106,13 @@ export class StudyReminderService {
       this.studyReminderScheduleService.formatScheduledTimeLabel(
         session.scheduledAt,
       );
+    const topic = this.sanitizeSessionTopic(session.topic, psid);
 
     const input: StudyReminderLlmInput = {
       displayName,
       scheduledAtIso: session.scheduledAt.toISOString(),
       scheduledTimeLabel,
-      topic: session.topic,
+      topic,
       minutesUntil: Math.round(minutesUntil),
     };
 
@@ -190,7 +198,64 @@ export class StudyReminderService {
       throw new InternalServerErrorException('OpenAI returned empty content');
     }
 
-    return JSON.parse(content) as StudyReminderLlmOutput;
+    try {
+      return this.parseReminderOutput(content);
+    } catch (error) {
+      this.logger.warn(
+        `Invalid study reminder LLM output psid=${context.psid}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return this.buildFallbackReminder(input);
+    }
+  }
+
+  private parseReminderOutput(content: string): StudyReminderLlmOutput {
+    const parsed = parseJsonObject(content);
+    return {
+      greeting: readRequiredStringField(parsed, 'greeting', { maxChars: 120 }),
+      intro: readRequiredStringField(parsed, 'intro', { maxChars: 240 }),
+      scheduledTime: readRequiredStringField(parsed, 'scheduledTime', {
+        maxChars: 120,
+      }),
+      tasks: readRequiredStringArrayField(parsed, 'tasks', {
+        minItems: 3,
+        maxItems: 4,
+        maxCharsPerItem: 180,
+      }),
+      motivation: readRequiredStringField(parsed, 'motivation', {
+        maxChars: 500,
+      }),
+      signoff: readRequiredStringField(parsed, 'signoff', { maxChars: 120 }),
+    };
+  }
+
+  private sanitizeDisplayName(displayName: string, psid: string): string {
+    const sanitized = sanitizeUntrustedTextForLlm(displayName, {
+      maxChars: 80,
+      unsafePlaceholder: FALLBACK_DISPLAY_NAME,
+    });
+    if (sanitized.wasSanitized) {
+      this.logger.warn(
+        `Display name sanitized for study reminder psid=${psid} reason=${sanitized.reason ?? 'format'}`,
+      );
+    }
+
+    return sanitized.text || FALLBACK_DISPLAY_NAME;
+  }
+
+  private sanitizeSessionTopic(topic: string, psid: string): string {
+    const sanitized = sanitizeUntrustedTextForLlm(topic || 'IELTS Writing', {
+      maxChars: 160,
+      unsafePlaceholder: 'IELTS Writing',
+    });
+    if (sanitized.wasSanitized) {
+      this.logger.warn(
+        `Session topic sanitized for study reminder psid=${psid} reason=${sanitized.reason ?? 'format'}`,
+      );
+    }
+
+    return sanitized.text || 'IELTS Writing';
   }
 
   private buildFallbackReminder(

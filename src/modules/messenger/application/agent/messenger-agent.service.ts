@@ -20,6 +20,7 @@ import {
   detectPromptInjection,
   sanitizeToolResultContent,
 } from '../../../../shared/utils/prompt-injection.utils';
+import { checkLlmGrounding } from '../../../../shared/utils/llm-grounding.utils';
 import {
   buildPromptInjectionBlockedMessage,
   buildWispaceScopeRedirectMessage,
@@ -124,6 +125,8 @@ export class MessengerAgentService {
       { role: 'user', content: input.userText.trim() },
     ];
 
+    const toolsCalledThisTurn = new Set<string>();
+
     for (let round = 0; round < this.getMaxToolRounds(); round++) {
       const response = await this.llmExecution.run(
         () =>
@@ -162,6 +165,14 @@ export class MessengerAgentService {
         if (!text) {
           throw new Error('OpenAI returned empty content');
         }
+
+        const groundingCheck = checkLlmGrounding(text, toolsCalledThisTurn);
+        if (groundingCheck.suspicious) {
+          this.logger.warn(
+            `LLM_GROUNDING_WARNING feature=FREE_FORM_CHAT psid=${input.psid} reason=${groundingCheck.reason} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
+          );
+        }
+
         return {
           text: sanitizeMessengerText(text),
           richFollowUps: toolContext.richFollowUps,
@@ -172,6 +183,8 @@ export class MessengerAgentService {
         if (toolCall.type !== 'function') {
           continue;
         }
+
+        toolsCalledThisTurn.add(toolCall.function.name);
 
         const result = await this.toolsService.execute(
           toolCall.function.name,

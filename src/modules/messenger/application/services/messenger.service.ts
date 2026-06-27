@@ -107,7 +107,9 @@ export class MessengerService {
     let processed = 0;
 
     for (const entry of Array.isArray(payload.entry) ? payload.entry : []) {
-      for (const event of Array.isArray(entry.messaging) ? entry.messaging : []) {
+      for (const event of Array.isArray(entry.messaging)
+        ? entry.messaging
+        : []) {
         this.logIncomingWebhookEvent(event);
         try {
           const handled = await this.handleEvent(event);

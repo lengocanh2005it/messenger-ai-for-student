@@ -50,7 +50,10 @@ describe('MessengerRescheduleConfirmationService', () => {
       throw new Error('expected staged reschedule result');
     }
     expect(result.richFollowUp.kind).toBe('button');
-    const followUp = result.richFollowUp as { kind: 'button'; buttons: unknown[] };
+    const followUp = result.richFollowUp as {
+      kind: 'button';
+      buttons: unknown[];
+    };
     expect(followUp.buttons).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ payload: 'CONFIRM_RESCHEDULE' }),
@@ -64,7 +67,12 @@ describe('MessengerRescheduleConfirmationService', () => {
       Promise.resolve({
         schedulingMode: 'default_next_day_same_time' as const,
         cancelledCalendarId: 42,
-        created: { id: 99, userId: 143, eventDate: '2026-06-29', time: '09:00' },
+        created: {
+          id: 99,
+          userId: 143,
+          eventDate: '2026-06-29',
+          time: '09:00',
+        },
         scheduledTimeLabel: 'Ngày kia lúc 09:00',
         outboxSyncQueued: true,
       }),

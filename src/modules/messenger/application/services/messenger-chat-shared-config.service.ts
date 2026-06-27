@@ -88,7 +88,10 @@ export class MessengerChatSharedConfigService {
   }
 
   getQueueCleanupIntervalMs(): number {
-    return this.readPositiveInt('CHAT_QUEUE_CLEANUP_INTERVAL_MS', 15 * 60 * 1000);
+    return this.readPositiveInt(
+      'CHAT_QUEUE_CLEANUP_INTERVAL_MS',
+      15 * 60 * 1000,
+    );
   }
 
   private readBoolean(key: string, fallback: boolean): boolean {

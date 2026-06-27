@@ -26,3 +26,5 @@ Nest copy assets sang `dist/shared/prompts/` (`nest-cli.json` → `assets`).
 - Không inline prompt dài trong application service.
 - Nội dung tin nhắn output: tiếng Việt, thân thiện, ngắn gọn phù hợp Messenger.
 - Thiếu `OPENAI_API_KEY` → service fallback template cứng (không gọi API).
+- Không đưa string từ user/WISPACE thẳng vào LLM nếu có thể chứa instruction: dùng `sanitizeUntrustedTextForLlm` cho field đơn lẻ và `sanitizeToolResultContent` cho tool result JSON.
+- Output JSON từ model không được cast thẳng rồi format; parse + validate shape bằng `llm-json-output.utils.ts`, lỗi thì fallback template.

@@ -6,6 +6,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
+import {
+  parseJsonObject,
+  readRequiredStringField,
+} from '../../../../shared/utils/llm-json-output.utils';
 import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { todayUsageDate } from '../../../chat-rate-limit/application/utils/chat-usage-date.utils';
@@ -123,7 +127,26 @@ export class StudentReportService {
       throw new InternalServerErrorException('OpenAI returned empty content');
     }
 
-    return JSON.parse(content) as StudentCapacityReport;
+    try {
+      return this.parseReportOutput(content);
+    } catch (error) {
+      this.logger.warn(
+        `Invalid student report LLM output psid=${psid}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return this.buildFallbackReport(input);
+    }
+  }
+
+  private parseReportOutput(content: string): StudentCapacityReport {
+    const parsed = parseJsonObject(content);
+    return {
+      headline: readRequiredStringField(parsed, 'headline'),
+      streak: readRequiredStringField(parsed, 'streak'),
+      'tình trạng task 2': readRequiredStringField(parsed, 'tình trạng task 2'),
+      'tình trạng task 1': readRequiredStringField(parsed, 'tình trạng task 1'),
+    };
   }
 
   private buildFallbackReport(
