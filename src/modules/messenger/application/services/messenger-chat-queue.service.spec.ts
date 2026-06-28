@@ -15,6 +15,7 @@ import {
   MessengerPartialSendError,
 } from './messenger-outbound.service';
 import { MessengerChatQueueService } from './messenger-chat-queue.service';
+import type { MetricsService } from '../../../metrics/metrics.service';
 
 describe('MessengerChatQueueService', () => {
   const quotaAllowed = (
@@ -94,12 +95,19 @@ describe('MessengerChatQueueService', () => {
       },
     } as ConfigService;
 
+    const metrics = {
+      chatStep: { startTimer: jest.fn(() => jest.fn()) },
+      timeStep: jest.fn((_step: string, fn: () => Promise<unknown>) => fn()),
+      timeLlmCall: jest.fn((_f: string, _m: string, _r: number, fn: () => Promise<unknown>) => fn()),
+    } as unknown as MetricsService;
+
     const service = new MessengerChatQueueService(
       configService,
       outbound,
       messengerAgentService,
       chatHistory,
       chatRateLimitService,
+      metrics,
       messengerRepository,
     );
 

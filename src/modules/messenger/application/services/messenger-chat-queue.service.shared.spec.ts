@@ -1,6 +1,7 @@
 import type { MessengerChatSharedConfigService } from './messenger-chat-shared-config.service';
 import type { ChatQueueStorePort } from '../../domain/repositories/chat-queue.store.port';
 import { MessengerChatQueueService } from './messenger-chat-queue.service';
+import type { MetricsService } from '../../../metrics/metrics.service';
 
 describe('MessengerChatQueueService distributed mode (H7/R4)', () => {
   const flushMicrotasks = async () => {
@@ -28,6 +29,12 @@ describe('MessengerChatQueueService distributed mode (H7/R4)', () => {
     } as MessengerChatSharedConfigService;
 
     const sendSenderActionOptional = jest.fn(() => Promise.resolve());
+    const metrics = {
+      chatStep: { startTimer: jest.fn(() => jest.fn()) },
+      timeStep: jest.fn((_step: string, fn: () => Promise<unknown>) => fn()),
+      timeLlmCall: jest.fn((_f: string, _m: string, _r: number, fn: () => Promise<unknown>) => fn()),
+    } as unknown as MetricsService;
+
     const service = new MessengerChatQueueService(
       { get: () => '0' } as never,
       { sendSenderActionOptional } as never,
@@ -37,6 +44,7 @@ describe('MessengerChatQueueService distributed mode (H7/R4)', () => {
         shouldEnforceForPsid: jest.fn(() => false),
         getSettings: jest.fn(() => ({ mergedTextMaxChars: 4000 })),
       } as never,
+      metrics,
       {} as never,
       sharedConfig,
       chatQueueStore,

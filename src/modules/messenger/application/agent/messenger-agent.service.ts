@@ -28,6 +28,7 @@ import {
 } from '../messages/wispace-scope.messages';
 import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
+import { MetricsService } from '../../../metrics/metrics.service';
 import { MESSENGER_AGENT_TOOLS } from './messenger-agent.tools';
 
 export interface MessengerAgentReply {
@@ -59,6 +60,7 @@ export class MessengerAgentService {
     private readonly llmUsageRecorder: LlmUsageRecorderService,
     private readonly llmExecution: LlmExecutionService,
     private readonly llmSafetyEventService: LlmSafetyEventService,
+    private readonly metrics: MetricsService,
   ) {}
 
   async reply(input: MessengerAgentInput): Promise<MessengerAgentReply> {
@@ -130,18 +132,24 @@ export class MessengerAgentService {
     const toolsCalledThisTurn = new Set<string>();
 
     for (let round = 0; round < this.getMaxToolRounds(); round++) {
-      const response = await this.llmExecution.run(
+      const response = await this.metrics.timeLlmCall(
+        'FREE_FORM_CHAT',
+        model,
+        round,
         () =>
-          client.chat.completions.create({
-            model,
-            messages,
-            tools: MESSENGER_AGENT_TOOLS,
-            tool_choice: 'auto',
-          }),
-        {
-          feature: 'FREE_FORM_CHAT',
-          correlationId: input.correlationId,
-        },
+          this.llmExecution.run(
+            () =>
+              client.chat.completions.create({
+                model,
+                messages,
+                tools: MESSENGER_AGENT_TOOLS,
+                tool_choice: 'auto',
+              }),
+            {
+              feature: 'FREE_FORM_CHAT',
+              correlationId: input.correlationId,
+            },
+          ),
       );
 
       this.llmUsageRecorder.recordFromCompletion({
@@ -163,6 +171,12 @@ export class MessengerAgentService {
 
       const toolCalls = choice.tool_calls;
       if (!toolCalls?.length) {
+        // LLM decided to reply directly — no more tool rounds
+        this.metrics.llmRoundOutcome.inc({
+          feature: 'FREE_FORM_CHAT',
+          outcome: 'direct_reply',
+        });
+
         const text = choice.content?.trim();
         if (!text) {
           throw new Error('OpenAI returned empty content');
@@ -190,24 +204,33 @@ export class MessengerAgentService {
         };
       }
 
+      // LLM requested tool calls — execute each and feed results back
+      this.metrics.llmRoundOutcome.inc({
+        feature: 'FREE_FORM_CHAT',
+        outcome: 'tool_call',
+      });
+
       for (const toolCall of toolCalls) {
         if (toolCall.type !== 'function') {
           continue;
         }
 
-        toolsCalledThisTurn.add(toolCall.function.name);
+        const toolName = toolCall.function.name;
+        toolsCalledThisTurn.add(toolName);
 
-        const result = await this.toolsService.execute(
-          toolCall.function.name,
-          toolCall.function.arguments ?? '{}',
-          toolContext,
+        const result = await this.metrics.timeTool(toolName, () =>
+          this.toolsService.execute(
+            toolName,
+            toolCall.function.arguments ?? '{}',
+            toolContext,
+          ),
         );
 
         const raw = JSON.stringify(result);
         const sanitized = sanitizeToolResultContent(raw);
         if (sanitized.wasSanitized) {
           this.logger.warn(
-            `Tool result sanitized psid=${input.psid} tool=${toolCall.function.name} reason=${sanitized.reason}`,
+            `Tool result sanitized psid=${input.psid} tool=${toolName} reason=${sanitized.reason}`,
           );
         }
 
@@ -220,6 +243,10 @@ export class MessengerAgentService {
       }
     }
 
+    this.metrics.llmRoundOutcome.inc({
+      feature: 'FREE_FORM_CHAT',
+      outcome: 'exhausted',
+    });
     throw new Error('Messenger agent exceeded maximum tool rounds');
   }
 

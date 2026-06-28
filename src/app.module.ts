@@ -11,6 +11,7 @@ import { StudentReportModule } from './modules/student-report/student-report.mod
 import { StudyReminderModule } from './modules/study-reminder/study-reminder.module';
 import { ChatRateLimitModule } from './modules/chat-rate-limit/chat-rate-limit.module';
 import { LlmUsageModule } from './modules/llm-usage/llm-usage.module';
+import { MetricsModule } from './modules/metrics/metrics.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { LlmUsageModule } from './modules/llm-usage/llm-usage.module';
     SchedulerModule,
     ChatRateLimitModule,
     LlmUsageModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

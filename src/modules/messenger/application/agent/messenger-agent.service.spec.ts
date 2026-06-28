@@ -6,6 +6,7 @@ import { UserDisplayNameService } from '../../../study-reminder/application/serv
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmSafetyEventService } from '../../../llm-safety/application/services/llm-safety-event.service';
+import type { MetricsService } from '../../../metrics/metrics.service';
 
 // Stub loadSystemPrompt so tests don't hit the filesystem
 jest.mock('../../../../shared/prompts/load-system-prompt', () => ({
@@ -94,6 +95,13 @@ function buildService(
     recordGroundingWarning: jest.fn(),
   } as unknown as LlmSafetyEventService;
 
+  const metrics = {
+    timeLlmCall: jest.fn((_f: string, _m: string, _r: number, fn: () => Promise<unknown>) => fn()),
+    timeStep: jest.fn((_step: string, fn: () => Promise<unknown>) => fn()),
+    timeTool: jest.fn((_name: string, fn: () => Promise<unknown>) => fn()),
+    llmRoundOutcome: { inc: jest.fn() },
+  } as unknown as MetricsService;
+
   const service = new MessengerAgentService(
     configService,
     toolsService,
@@ -101,6 +109,7 @@ function buildService(
     llmUsageRecorder,
     llmExecution,
     llmSafetyEventService,
+    metrics,
   );
 
   return {

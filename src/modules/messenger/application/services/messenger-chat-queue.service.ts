@@ -30,6 +30,7 @@ import {
   MessengerPartialSendError,
 } from './messenger-outbound.service';
 import { buildChatDeliveryErrorMessage } from '../messages/chat-delivery.messages';
+import { MetricsService } from '../../../metrics/metrics.service';
 
 export interface EnqueueChatMessageInput {
   psid: string;
@@ -80,6 +81,7 @@ export class MessengerChatQueueService implements OnModuleDestroy {
     private readonly messengerAgentService: MessengerAgentService,
     private readonly chatHistory: MessengerChatHistoryService,
     private readonly chatRateLimitService: ChatRateLimitService,
+    private readonly metrics: MetricsService,
     @Inject(MESSENGER_REPOSITORY)
     private readonly messengerRepository: MessengerRepositoryPort,
     @Optional()
@@ -308,6 +310,17 @@ export class MessengerChatQueueService implements OnModuleDestroy {
   }
 
   private async processChatBatch(input: ChatBatchInput): Promise<void> {
+    const endTotal = this.metrics.chatStep.startTimer({ step: 'chat_total' });
+    try {
+      await this.processChatBatchInner(input);
+      endTotal({ status: 'ok' });
+    } catch (err) {
+      endTotal({ status: 'error' });
+      throw err;
+    }
+  }
+
+  private async processChatBatchInner(input: ChatBatchInput): Promise<void> {
     const { psid, mergedText, userId, linkContext, idempotencyKey } = input;
 
     let reservedUsageDate: string | undefined;
@@ -329,12 +342,9 @@ export class MessengerChatQueueService implements OnModuleDestroy {
       await this.outbound.sendSenderActionOptional(psid, 'typing_on');
 
       if (idempotencyKey) {
-        const quota = await this.chatRateLimitService.reserveFreeFormSlot(
-          psid,
-          {
-            userId,
-            idempotencyKey,
-          },
+        const quota = await this.metrics.timeStep(
+          'rate_limit_reserve',
+          () => this.chatRateLimitService.reserveFreeFormSlot(psid, { userId, idempotencyKey }),
         );
 
         if (!quota.allowed) {
@@ -381,23 +391,29 @@ export class MessengerChatQueueService implements OnModuleDestroy {
         );
       }
 
-      const reply = await this.messengerAgentService.reply({
-        psid,
-        userId,
-        userText: mergedText,
-        linkContext,
-        history: await this.chatHistory.getHistory(psid),
-        correlationId: idempotencyKey,
-      });
+      const history = await this.metrics.timeStep('history_load', () =>
+        this.chatHistory.getHistory(psid),
+      );
+
+      const reply = await this.metrics.timeStep('llm_agent', () =>
+        this.messengerAgentService.reply({
+          psid,
+          userId,
+          userText: mergedText,
+          linkContext,
+          history,
+          correlationId: idempotencyKey,
+        }),
+      );
 
       const assistantText = reply.text.trim();
       if (assistantText) {
-        await this.chatHistory.appendTurn(psid, mergedText, assistantText);
-        mainReplyDelivered = await this.deliverMainReplyBubbles({
-          psid,
-          userId,
-          text: assistantText,
-        });
+        await this.metrics.timeStep('history_append', () =>
+          this.chatHistory.appendTurn(psid, mergedText, assistantText),
+        );
+        mainReplyDelivered = await this.metrics.timeStep('meta_send', () =>
+          this.deliverMainReplyBubbles({ psid, userId, text: assistantText }),
+        );
 
         if (mainReplyDelivered) {
           await finalizeQuota();
