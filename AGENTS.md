@@ -120,6 +120,19 @@ npm run build              # nest build + copy assets → dist/
 
 Sửa lỗi lint/test/build cho đến khi pass. `npm run test:e2e` cần PostgreSQL thật — không nằm trong gate CI.
 
+### Bẫy thường gặp khi chạy CI
+
+| Triệu chứng | Nguyên nhân | Fix |
+|-------------|-------------|-----|
+| Jest pass local nhưng CI treo rồi fail sau ~30s | Service có `setInterval` / `setTimeout` chưa clear → open handle | Thêm `OnModuleDestroy` + `clearInterval`; `forceExit: true` trong Jest config |
+| `prettier --check` fail dù local không báo lỗi | File có CRLF (Windows) nhưng Prettier config expect LF | Chạy `npm run format` trước khi commit |
+| `eslint` báo `no-useless-escape` | Regex dùng `\/` hoặc `\-` trong character class | Bỏ backslash: `[/-]` thay `[\/\-]` |
+| Test pass local nhưng fail CI do date/time | CI chạy UTC, local chạy UTC+7 | Không hardcode ngày — dùng `new Date()` hoặc mock `Date.now` |
+
+**Quy tắc khi thêm service mới có timer/interval:**
+- `collectDefaultMetrics()` của `prom-client`, `setInterval`, `setTimeout` dài → **bắt buộc** implement `OnModuleDestroy` và clear trong `onModuleDestroy()`
+- Registry `prom-client`: gọi `this.registry.clear()` khi destroy để dọn collectors
+
 Spec hiện có:
 
 - `src/modules/chat-rate-limit/application/services/chat-rate-limit.service.spec.ts`
