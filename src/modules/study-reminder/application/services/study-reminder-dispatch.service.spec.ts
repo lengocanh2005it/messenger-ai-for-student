@@ -4,7 +4,6 @@ import { WispaceApiError } from '../../../../shared/errors/wispace-api.error';
 import type { StudyReminderJobRepositoryPort } from '../../domain/repositories/study-reminder-job.repository.port';
 import type { MessageSenderPort } from '../../../messenger/application/ports/message-sender.port';
 import type { StudyReminderJob } from '../../domain/entities/study-reminder-job.types';
-import type { MetricsService } from '../../../metrics/metrics.service';
 import { StudyReminderDispatchService } from './study-reminder-dispatch.service';
 import { StudyReminderScheduleService } from './study-reminder-schedule.service';
 import { StudyReminderService } from './study-reminder.service';

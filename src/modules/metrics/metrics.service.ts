@@ -181,10 +181,7 @@ export class MetricsService implements OnModuleDestroy {
   }
 
   /** Time one LLM call at execution-service layer — emits Prometheus histogram + OTel span. */
-  async timeLlmExecution<T>(
-    feature: string,
-    fn: () => Promise<T>,
-  ): Promise<T> {
+  async timeLlmExecution<T>(feature: string, fn: () => Promise<T>): Promise<T> {
     const span = this.tracer.startSpan('llm.execution');
     span.setAttribute('llm.feature', feature);
     const end = this.llmExecution.startTimer({ feature });

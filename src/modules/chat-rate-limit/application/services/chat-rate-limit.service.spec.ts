@@ -415,9 +415,9 @@ describe('ChatRateLimitService', () => {
 
       await service.reserveFreeFormSlot('psid-1', { idempotencyKey: 'mid-1' });
 
-      expect(
-        (metrics.quotaDenied.inc as jest.Mock).mock.calls,
-      ).toContainEqual([{ reason: 'DAILY_LIMIT' }]);
+      expect((metrics.quotaDenied.inc as jest.Mock).mock.calls).toContainEqual([
+        { reason: 'DAILY_LIMIT' },
+      ]);
     });
 
     it('increments quotaDenied{reason=BURST_LIMIT} when burst window is full', async () => {
@@ -425,9 +425,9 @@ describe('ChatRateLimitService', () => {
 
       await service.reserveFreeFormSlot('psid-1', { idempotencyKey: 'mid-2' });
 
-      expect(
-        (metrics.quotaDenied.inc as jest.Mock).mock.calls,
-      ).toContainEqual([{ reason: 'BURST_LIMIT' }]);
+      expect((metrics.quotaDenied.inc as jest.Mock).mock.calls).toContainEqual([
+        { reason: 'BURST_LIMIT' },
+      ]);
     });
 
     it('does not increment quotaDenied when reserve succeeds', async () => {
@@ -446,9 +446,9 @@ describe('ChatRateLimitService', () => {
 
       await service.reserveFreeFormSlot('psid-1', { idempotencyKey: 'mid-4' });
 
-      expect(
-        (metrics.quotaDenied.inc as jest.Mock).mock.calls,
-      ).toContainEqual([{ reason: 'DAILY_LIMIT' }]);
+      expect((metrics.quotaDenied.inc as jest.Mock).mock.calls).toContainEqual([
+        { reason: 'DAILY_LIMIT' },
+      ]);
     });
   });
 });
