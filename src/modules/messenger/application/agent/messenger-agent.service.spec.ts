@@ -96,7 +96,9 @@ function buildService(
   } as unknown as LlmSafetyEventService;
 
   const metrics = {
-    timeLlmCall: jest.fn((_f: string, _m: string, _r: number, fn: () => Promise<unknown>) => fn()),
+    timeLlmCall: jest.fn(
+      (_f: string, _m: string, _r: number, fn: () => Promise<unknown>) => fn(),
+    ),
     timeStep: jest.fn((_step: string, fn: () => Promise<unknown>) => fn()),
     timeTool: jest.fn((_name: string, fn: () => Promise<unknown>) => fn()),
     llmRoundOutcome: { inc: jest.fn() },

@@ -342,9 +342,11 @@ export class MessengerChatQueueService implements OnModuleDestroy {
       await this.outbound.sendSenderActionOptional(psid, 'typing_on');
 
       if (idempotencyKey) {
-        const quota = await this.metrics.timeStep(
-          'rate_limit_reserve',
-          () => this.chatRateLimitService.reserveFreeFormSlot(psid, { userId, idempotencyKey }),
+        const quota = await this.metrics.timeStep('rate_limit_reserve', () =>
+          this.chatRateLimitService.reserveFreeFormSlot(psid, {
+            userId,
+            idempotencyKey,
+          }),
         );
 
         if (!quota.allowed) {

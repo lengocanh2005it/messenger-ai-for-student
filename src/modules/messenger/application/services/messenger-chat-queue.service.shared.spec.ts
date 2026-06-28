@@ -32,7 +32,10 @@ describe('MessengerChatQueueService distributed mode (H7/R4)', () => {
     const metrics = {
       chatStep: { startTimer: jest.fn(() => jest.fn()) },
       timeStep: jest.fn((_step: string, fn: () => Promise<unknown>) => fn()),
-      timeLlmCall: jest.fn((_f: string, _m: string, _r: number, fn: () => Promise<unknown>) => fn()),
+      timeLlmCall: jest.fn(
+        (_f: string, _m: string, _r: number, fn: () => Promise<unknown>) =>
+          fn(),
+      ),
     } as unknown as MetricsService;
 
     const service = new MessengerChatQueueService(
