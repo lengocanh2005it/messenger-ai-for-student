@@ -29,6 +29,7 @@ import {
 import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { MetricsService } from '../../../metrics/metrics.service';
+import { trace } from '@opentelemetry/api';
 import { MESSENGER_AGENT_TOOLS } from './messenger-agent.tools';
 
 export interface MessengerAgentReply {
@@ -64,6 +65,16 @@ export class MessengerAgentService {
   ) {}
 
   async reply(input: MessengerAgentInput): Promise<MessengerAgentReply> {
+    // Annotate current span (chat.llm_agent) with psid so Tempo can filter by user
+    const activeSpan = trace.getActiveSpan();
+    if (activeSpan) {
+      activeSpan.setAttributes({
+        'messenger.psid': input.psid,
+        'messenger.user_id': input.userId ?? 0,
+        'llm.feature': 'FREE_FORM_CHAT',
+      });
+    }
+
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (!apiKey) {
       this.logger.warn('OPENAI_API_KEY missing, using fallback chat reply');

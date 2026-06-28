@@ -31,6 +31,7 @@ import {
 } from './messenger-outbound.service';
 import { buildChatDeliveryErrorMessage } from '../messages/chat-delivery.messages';
 import { MetricsService } from '../../../metrics/metrics.service';
+import { trace, context, SpanStatusCode, SpanKind } from '@opentelemetry/api';
 
 export interface EnqueueChatMessageInput {
   psid: string;
@@ -310,14 +311,32 @@ export class MessengerChatQueueService implements OnModuleDestroy {
   }
 
   private async processChatBatch(input: ChatBatchInput): Promise<void> {
-    const endTotal = this.metrics.chatStep.startTimer({ step: 'chat_total' });
-    try {
-      await this.processChatBatchInner(input);
-      endTotal({ status: 'ok' });
-    } catch (err) {
-      endTotal({ status: 'error' });
-      throw err;
-    }
+    const tracer = trace.getTracer('messenger-ai-for-student');
+    const rootSpan = tracer.startSpan('chat.batch', { kind: SpanKind.SERVER });
+    rootSpan.setAttributes({
+      'messenger.psid': input.psid,
+      'messenger.idempotency_key': input.idempotencyKey ?? '',
+      'messenger.user_id': input.userId ?? 0,
+      'messenger.merged_text_len': input.mergedText.length,
+    });
+
+    await context.with(trace.setSpan(context.active(), rootSpan), async () => {
+      try {
+        await this.metrics.timeStep('chat_total', () =>
+          this.processChatBatchInner(input),
+        );
+        rootSpan.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        rootSpan.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: String(err),
+        });
+        rootSpan.recordException(err as Error);
+        throw err;
+      } finally {
+        rootSpan.end();
+      }
+    });
   }
 
   private async processChatBatchInner(input: ChatBatchInput): Promise<void> {
