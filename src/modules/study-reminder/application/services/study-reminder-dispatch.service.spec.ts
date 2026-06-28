@@ -4,6 +4,7 @@ import { WispaceApiError } from '../../../../shared/errors/wispace-api.error';
 import type { StudyReminderJobRepositoryPort } from '../../domain/repositories/study-reminder-job.repository.port';
 import type { MessageSenderPort } from '../../../messenger/application/ports/message-sender.port';
 import type { StudyReminderJob } from '../../domain/entities/study-reminder-job.types';
+import type { MetricsService } from '../../../metrics/metrics.service';
 import { StudyReminderDispatchService } from './study-reminder-dispatch.service';
 import { StudyReminderScheduleService } from './study-reminder-schedule.service';
 import { StudyReminderService } from './study-reminder.service';
@@ -36,6 +37,7 @@ describe('StudyReminderDispatchService', () => {
       >
     >;
     let messageSender: jest.Mocked<MessageSenderPort>;
+    let metrics: { reminderDispatch: { inc: jest.Mock } };
 
     const defaultSettings = {
       stuckProcessingMs: 600_000,
@@ -92,11 +94,14 @@ describe('StudyReminderDispatchService', () => {
         sendTextViaPsid: jest.fn().mockResolvedValue(undefined),
       };
 
+      metrics = { reminderDispatch: { inc: jest.fn() } };
+
       service = new StudyReminderDispatchService(
         jobRepo,
         scheduleService as unknown as StudyReminderScheduleService,
         reminderService as unknown as StudyReminderService,
         messageSender,
+        metrics,
       );
     });
 
@@ -324,6 +329,73 @@ describe('StudyReminderDispatchService', () => {
       const result = await service.dispatchDueReminders();
 
       expect(result.nextDueAt).toBeNull();
+    });
+
+    describe('metrics — reminderDispatch counter', () => {
+      it('increments status=sent on successful dispatch', async () => {
+        const job = makeJob();
+        jobRepo.findDueJobs.mockResolvedValue([job]);
+        jobRepo.claimJob.mockResolvedValue(job);
+
+        await service.dispatchDueReminders();
+
+        expect(metrics.reminderDispatch.inc).toHaveBeenCalledWith({
+          status: 'sent',
+        });
+        expect(metrics.reminderDispatch.inc).toHaveBeenCalledTimes(1);
+      });
+
+      it('increments status=cancelled when session already started', async () => {
+        const job = makeJob();
+        jobRepo.findDueJobs.mockResolvedValue([job]);
+        jobRepo.claimJob.mockResolvedValue(job);
+        (scheduleService.isSessionStarted as jest.Mock).mockReturnValue(true);
+
+        await service.dispatchDueReminders();
+
+        expect(metrics.reminderDispatch.inc).toHaveBeenCalledWith({
+          status: 'cancelled',
+        });
+      });
+
+      it('increments status=failed on terminal error', async () => {
+        const job = makeJob({ retryCount: 3, maxRetries: 3 });
+        jobRepo.findDueJobs.mockResolvedValue([job]);
+        jobRepo.claimJob.mockResolvedValue(job);
+        messageSender.sendTextViaPsid.mockRejectedValue(
+          new Error('Persistent error'),
+        );
+
+        await service.dispatchDueReminders();
+
+        expect(metrics.reminderDispatch.inc).toHaveBeenCalledWith({
+          status: 'failed',
+        });
+      });
+
+      it('increments status=retried on transient error with retries remaining', async () => {
+        const job = makeJob({ retryCount: 0, maxRetries: 3 });
+        jobRepo.findDueJobs.mockResolvedValue([job]);
+        jobRepo.claimJob.mockResolvedValue(job);
+        reminderService.generateReminderForSession.mockRejectedValue(
+          new Error('Transient error'),
+        );
+
+        await service.dispatchDueReminders();
+
+        expect(metrics.reminderDispatch.inc).toHaveBeenCalledWith({
+          status: 'retried',
+        });
+      });
+
+      it('does not increment when no jobs are claimed', async () => {
+        jobRepo.findDueJobs.mockResolvedValue([makeJob()]);
+        jobRepo.claimJob.mockResolvedValue(null);
+
+        await service.dispatchDueReminders();
+
+        expect(metrics.reminderDispatch.inc).not.toHaveBeenCalled();
+      });
     });
   });
 });

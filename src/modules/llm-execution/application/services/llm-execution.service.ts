@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import pLimit from 'p-limit';
 import { isOpenAiRetryableError } from '../../../../shared/utils/openai-error.utils';
+import { MetricsService } from '../../../metrics/metrics.service';
 import { LlmExecutionConfigService } from './llm-execution-config.service';
 
 export type LlmExecutionFeature =
@@ -20,13 +21,20 @@ function sleep(ms: number): Promise<void> {
 }
 
 function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
+    timer = setTimeout(() => {
       reject(new Error(`LLM request timed out after ${timeoutMs}ms`));
     }, timeoutMs);
   });
 
-  return Promise.race([fn(), timeoutPromise]);
+  return Promise.race([Promise.resolve().then(fn), timeoutPromise]).finally(
+    () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    },
+  );
 }
 
 @Injectable()
@@ -34,7 +42,10 @@ export class LlmExecutionService {
   private readonly logger = new Logger(LlmExecutionService.name);
   private limiter: ReturnType<typeof pLimit>;
 
-  constructor(private readonly config: LlmExecutionConfigService) {
+  constructor(
+    private readonly config: LlmExecutionConfigService,
+    private readonly metrics: MetricsService,
+  ) {
     this.limiter = pLimit(this.config.getMaxConcurrent());
   }
 
@@ -67,10 +78,13 @@ export class LlmExecutionService {
     let lastError: unknown;
 
     const timeoutMs = this.config.getRequestTimeoutMs();
+    const feature = context?.feature ?? 'unknown';
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        return await withTimeout(fn, timeoutMs);
+        return await this.metrics.timeLlmExecution(feature, () =>
+          withTimeout(fn, timeoutMs),
+        );
       } catch (error) {
         lastError = error;
 

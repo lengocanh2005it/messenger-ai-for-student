@@ -1,5 +1,10 @@
+import type { MetricsService } from '../../../metrics/metrics.service';
 import { LlmExecutionConfigService } from './llm-execution-config.service';
 import { LlmExecutionService } from './llm-execution.service';
+
+const noopMetrics = {
+  timeLlmExecution: <T>(_feature: string, fn: () => Promise<T>) => fn(),
+} as unknown as MetricsService;
 
 function createConfig(overrides: {
   enabled?: boolean;
@@ -29,7 +34,7 @@ function createConfig(overrides: {
 describe('LlmExecutionService', () => {
   it('bypasses the limiter when execution gate is disabled', async () => {
     const config = createConfig({ enabled: false, maxConcurrent: 1 });
-    const service = new LlmExecutionService(config);
+    const service = new LlmExecutionService(config, noopMetrics);
     let concurrent = 0;
     let maxConcurrent = 0;
 
@@ -49,7 +54,7 @@ describe('LlmExecutionService', () => {
 
   it('caps concurrent runs when enabled', async () => {
     const config = createConfig({ enabled: true, maxConcurrent: 1 });
-    const service = new LlmExecutionService(config);
+    const service = new LlmExecutionService(config, noopMetrics);
     let concurrent = 0;
     let maxConcurrent = 0;
 
@@ -74,7 +79,7 @@ describe('LlmExecutionService', () => {
       retryMaxAttempts: 3,
       retryBackoffMs: 1,
     });
-    const service = new LlmExecutionService(config);
+    const service = new LlmExecutionService(config, noopMetrics);
     let attempts = 0;
 
     const result = await service.run(() => {
@@ -99,7 +104,7 @@ describe('LlmExecutionService', () => {
       retryMaxAttempts: 3,
       retryBackoffMs: 1,
     });
-    const service = new LlmExecutionService(config);
+    const service = new LlmExecutionService(config, noopMetrics);
     let attempts = 0;
 
     await expect(
@@ -110,5 +115,84 @@ describe('LlmExecutionService', () => {
     ).rejects.toThrow('validation failed');
 
     expect(attempts).toBe(1);
+  });
+
+  describe('metrics — timeLlmExecution', () => {
+    it('passes the feature label from context to timeLlmExecution', async () => {
+      const config = createConfig({
+        enabled: true,
+        maxConcurrent: 3,
+        retryMaxAttempts: 1,
+      });
+      const timeLlmExecution = jest.fn(
+        <T>(_feature: string, fn: () => Promise<T>) => fn(),
+      );
+      const metrics = { timeLlmExecution } as unknown as MetricsService;
+      const service = new LlmExecutionService(config, metrics);
+
+      await service.run(() => Promise.resolve('ok'), {
+        feature: 'STUDY_REMINDER',
+      });
+
+      expect(timeLlmExecution).toHaveBeenCalledWith(
+        'STUDY_REMINDER',
+        expect.any(Function),
+      );
+    });
+
+    it('defaults feature to "unknown" when context is omitted', async () => {
+      const config = createConfig({
+        enabled: true,
+        maxConcurrent: 3,
+        retryMaxAttempts: 1,
+      });
+      const timeLlmExecution = jest.fn(
+        <T>(_feature: string, fn: () => Promise<T>) => fn(),
+      );
+      const metrics = { timeLlmExecution } as unknown as MetricsService;
+      const service = new LlmExecutionService(config, metrics);
+
+      await service.run(() => Promise.resolve('ok'));
+
+      expect(timeLlmExecution).toHaveBeenCalledWith(
+        'unknown',
+        expect.any(Function),
+      );
+    });
+
+    it('calls timeLlmExecution once per attempt on retry', async () => {
+      const config = createConfig({
+        enabled: true,
+        maxConcurrent: 3,
+        retryMaxAttempts: 3,
+        retryBackoffMs: 1,
+      });
+      const timeLlmExecution = jest.fn(
+        <T>(_feature: string, fn: () => Promise<T>) => fn(),
+      );
+      const metrics = { timeLlmExecution } as unknown as MetricsService;
+      const service = new LlmExecutionService(config, metrics);
+      let attempts = 0;
+
+      await service.run(
+        () => {
+          attempts += 1;
+          if (attempts < 3) {
+            throw Object.assign(new Error('rate limit'), {
+              name: 'RateLimitError',
+              status: 429,
+            });
+          }
+          return Promise.resolve('ok');
+        },
+        { feature: 'FREE_FORM_CHAT' },
+      );
+
+      expect(timeLlmExecution).toHaveBeenCalledTimes(3);
+      expect(timeLlmExecution).toHaveBeenCalledWith(
+        'FREE_FORM_CHAT',
+        expect.any(Function),
+      );
+    });
   });
 });

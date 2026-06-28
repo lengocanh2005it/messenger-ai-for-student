@@ -19,7 +19,9 @@ export class StudyReminderWorkerService
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(StudyReminderWorkerService.name);
+  private readonly eveningRolloverCronName = 'study-reminder-evening-rollover';
   private dispatchTimer: ReturnType<typeof setTimeout> | null = null;
+  private shuttingDown = false;
 
   constructor(
     private readonly studyReminderSyncService: StudyReminderSyncService,
@@ -57,9 +59,16 @@ export class StudyReminderWorkerService
   }
 
   onModuleDestroy(): void {
+    this.shuttingDown = true;
     if (this.dispatchTimer !== null) {
       clearTimeout(this.dispatchTimer);
       this.dispatchTimer = null;
+    }
+
+    try {
+      this.schedulerRegistry.deleteCronJob(this.eveningRolloverCronName);
+    } catch {
+      // Cron may not have been registered if module init failed early.
     }
   }
 
@@ -77,7 +86,7 @@ export class StudyReminderWorkerService
       timezone,
     );
 
-    this.schedulerRegistry.addCronJob('study-reminder-evening-rollover', job);
+    this.schedulerRegistry.addCronJob(this.eveningRolloverCronName, job);
     job.start();
 
     this.logger.log(
@@ -102,9 +111,14 @@ export class StudyReminderWorkerService
   }
 
   private scheduleNextDispatch(delayMs: number): void {
+    if (this.shuttingDown) {
+      return;
+    }
+
     this.dispatchTimer = setTimeout(() => {
       void this.runDispatchTick();
     }, delayMs);
+    this.dispatchTimer.unref?.();
   }
 
   private async runDispatchTick(): Promise<void> {

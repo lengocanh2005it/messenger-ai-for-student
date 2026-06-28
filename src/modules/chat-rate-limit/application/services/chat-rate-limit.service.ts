@@ -13,6 +13,7 @@ import {
   type ChatBurstCounterPort,
 } from '../../domain/repositories/chat-burst-counter.port';
 import { todayUsageDate } from '../utils/chat-usage-date.utils';
+import { MetricsService } from '../../../metrics/metrics.service';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
 import { ChatQuotaEventRecorderService } from './chat-quota-event-recorder.service';
 
@@ -31,6 +32,7 @@ export class ChatRateLimitService {
     @Inject(CHAT_BURST_COUNTER)
     private readonly burstCounter: ChatBurstCounterPort,
     private readonly quotaEventRecorder: ChatQuotaEventRecorderService,
+    private readonly metrics: MetricsService,
   ) {}
 
   getSettings(): ChatRateLimitSettings {
@@ -91,6 +93,7 @@ export class ChatRateLimitService {
       burstPerMinute,
     );
     if (!burstResult.allowed) {
+      this.metrics.quotaDenied.inc({ reason: 'BURST_LIMIT' });
       this.logQuotaDeny(
         'BURST_LIMIT',
         psid,
@@ -149,6 +152,7 @@ export class ChatRateLimitService {
       await this.burstCounter.releaseReservation(psid);
       // Count is known to be >= dailyLimit — no need for a second DB read.
       const used = params.dailyLimit;
+      this.metrics.quotaDenied.inc({ reason: 'DAILY_LIMIT' });
       this.logQuotaDeny(
         'DAILY_LIMIT',
         psid,

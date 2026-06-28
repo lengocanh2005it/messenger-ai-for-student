@@ -2,6 +2,7 @@
 import { ConfigService } from '@nestjs/config';
 import type { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate-limit.repository.port';
 import type { ChatBurstCounterPort } from '../../domain/repositories/chat-burst-counter.port';
+import type { MetricsService } from '../../../metrics/metrics.service';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
 import { ChatQuotaEventRecorderService } from './chat-quota-event-recorder.service';
 import { ChatRateLimitService } from './chat-rate-limit.service';
@@ -110,11 +111,16 @@ describe('ChatRateLimitService', () => {
       isEnabled: jest.fn(() => true),
     } as unknown as ChatQuotaEventRecorderService;
 
+    const metrics = {
+      quotaDenied: { inc: jest.fn() },
+    } as unknown as MetricsService;
+
     const service = new ChatRateLimitService(
       configService,
       repository,
       burstCounter,
       quotaEventRecorder,
+      metrics,
     );
 
     return {
@@ -122,6 +128,7 @@ describe('ChatRateLimitService', () => {
       repository,
       burstCounter,
       quotaEventRecorder,
+      metrics,
       getCount: () => count,
       getReserveCallCount: () => reserveCallCount,
     };
@@ -399,6 +406,49 @@ describe('ChatRateLimitService', () => {
       limit: 15,
       reason: 'DAILY_LIMIT',
       quotaReserved: false,
+    });
+  });
+
+  describe('metrics — quotaDenied counter', () => {
+    it('increments quotaDenied{reason=DAILY_LIMIT} when daily cap is reached', async () => {
+      const { service, metrics } = createService(true, 15);
+
+      await service.reserveFreeFormSlot('psid-1', { idempotencyKey: 'mid-1' });
+
+      expect(
+        (metrics.quotaDenied.inc as jest.Mock).mock.calls,
+      ).toContainEqual([{ reason: 'DAILY_LIMIT' }]);
+    });
+
+    it('increments quotaDenied{reason=BURST_LIMIT} when burst window is full', async () => {
+      const { service, metrics } = createService(true, 0, { burstCount: 3 });
+
+      await service.reserveFreeFormSlot('psid-1', { idempotencyKey: 'mid-2' });
+
+      expect(
+        (metrics.quotaDenied.inc as jest.Mock).mock.calls,
+      ).toContainEqual([{ reason: 'BURST_LIMIT' }]);
+    });
+
+    it('does not increment quotaDenied when reserve succeeds', async () => {
+      const { service, metrics } = createService(true, 0);
+
+      await service.reserveFreeFormSlot('psid-1', { idempotencyKey: 'mid-3' });
+
+      expect(metrics.quotaDenied.inc as jest.Mock).not.toHaveBeenCalled();
+    });
+
+    it('increments quotaDenied{reason=DAILY_LIMIT} on H3 transaction hard cap', async () => {
+      const { service, metrics, repository } = createService(true, 14);
+      (
+        repository.reserveFreeFormSlotInTransaction as jest.Mock
+      ).mockResolvedValue({ status: 'daily_limit_exceeded' });
+
+      await service.reserveFreeFormSlot('psid-1', { idempotencyKey: 'mid-4' });
+
+      expect(
+        (metrics.quotaDenied.inc as jest.Mock).mock.calls,
+      ).toContainEqual([{ reason: 'DAILY_LIMIT' }]);
     });
   });
 });

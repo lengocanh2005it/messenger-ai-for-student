@@ -4,6 +4,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { MetricsService } from '../../../metrics/metrics.service';
 import { UserGoalsApiService } from '../../../student-report/infrastructure/wispace/user-goals-api.service';
 import { WispaceApiError } from '../../../../shared/errors/wispace-api.error';
 import {
@@ -36,6 +37,7 @@ export class UserCalendarApiService {
   constructor(
     private readonly configService: ConfigService,
     private readonly userGoalsApiService: UserGoalsApiService,
+    private readonly metrics: MetricsService,
   ) {}
 
   async listCalendars(psid: string): Promise<UserCalendarRecord[]> {
@@ -46,15 +48,17 @@ export class UserCalendarApiService {
       500,
     );
 
-    return withRetry(() => this.doListCalendars(url, psid), {
-      maxRetries,
-      baseDelayMs,
-      shouldRetry: isWispaceRetryable,
-      onRetry: (attempt, max, err) =>
-        this.logger.warn(
-          `UserCalendar retry ${attempt}/${max} (psid=${psid}): ${err instanceof Error ? err.message : String(err)}`,
-        ),
-    });
+    return this.metrics.timeWispaceCall('UserCalendar', 'list', () =>
+      withRetry(() => this.doListCalendars(url, psid), {
+        maxRetries,
+        baseDelayMs,
+        shouldRetry: isWispaceRetryable,
+        onRetry: (attempt, max, err) =>
+          this.logger.warn(
+            `UserCalendar retry ${attempt}/${max} (psid=${psid}): ${err instanceof Error ? err.message : String(err)}`,
+          ),
+      }),
+    );
   }
 
   private async doListCalendars(
@@ -86,6 +90,16 @@ export class UserCalendarApiService {
   }
 
   async createCalendar(
+    psid: string,
+    input: CreateUserCalendarInput,
+    options?: { userId?: number },
+  ): Promise<UserCalendarRecord> {
+    return this.metrics.timeWispaceCall('UserCalendar', 'create', () =>
+      this.doCreateCalendar(psid, input, options),
+    );
+  }
+
+  private async doCreateCalendar(
     psid: string,
     input: CreateUserCalendarInput,
     options?: { userId?: number },
@@ -128,6 +142,15 @@ export class UserCalendarApiService {
   }
 
   async deleteCalendar(psid: string, calendarId: number): Promise<void> {
+    return this.metrics.timeWispaceCall('UserCalendar', 'delete', () =>
+      this.doDeleteCalendar(psid, calendarId),
+    );
+  }
+
+  private async doDeleteCalendar(
+    psid: string,
+    calendarId: number,
+  ): Promise<void> {
     const url = `${this.getBaseUrl()}/${calendarId}`;
     const response = await fetch(url, {
       method: 'DELETE',

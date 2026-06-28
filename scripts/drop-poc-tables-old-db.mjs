@@ -22,9 +22,18 @@ const POC_TABLES = [
   'user_messenger_mappings',
 ];
 
-const host = process.env.DB_HOST ?? '69.62.74.196';
-const port = Number(process.env.DB_PORT ?? 5434);
-const user = process.env.DB_USER ?? 'ielts_admin';
+const requireEnv = (key) => {
+  const value = process.env[key]?.trim();
+  if (!value) {
+    console.error(`${key} is required`);
+    process.exit(1);
+  }
+  return value;
+};
+
+const host = requireEnv('DB_HOST');
+const port = Number(process.env.DB_PORT ?? 5432);
+const user = requireEnv('DB_USER');
 const password = process.env.DB_PASSWORD;
 const database = process.env.SOURCE_DB_NAME ?? 'writing_ai_hub_db';
 

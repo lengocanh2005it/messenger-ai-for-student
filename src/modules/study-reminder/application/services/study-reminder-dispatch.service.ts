@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { MetricsService } from '../../../metrics/metrics.service';
 import { MESSAGE_SENDER } from '../../../messenger/application/ports/message-sender.port';
 import type { MessageSenderPort } from '../../../messenger/application/ports/message-sender.port';
 import { shouldSkipProactiveRetries } from '../../../messenger/application/utils/proactive-send.utils';
@@ -25,6 +26,7 @@ export class StudyReminderDispatchService {
     private readonly studyReminderService: StudyReminderService,
     @Inject(MESSAGE_SENDER)
     private readonly messageSender: MessageSenderPort,
+    private readonly metrics: MetricsService,
   ) {}
 
   async dispatchDueReminders(): Promise<{
@@ -91,6 +93,7 @@ export class StudyReminderDispatchService {
           'session already started',
         );
         cancelled += 1;
+        this.metrics.reminderDispatch.inc({ status: 'cancelled' });
         continue;
       }
 
@@ -111,6 +114,7 @@ export class StudyReminderDispatchService {
         });
         await this.studyReminderJobRepository.markSent(job.id);
         sent += 1;
+        this.metrics.reminderDispatch.inc({ status: 'sent' });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const nextRetryCount = job.retryCount + 1;
@@ -145,6 +149,7 @@ export class StudyReminderDispatchService {
             terminal: true,
           });
           failed += 1;
+          this.metrics.reminderDispatch.inc({ status: 'failed' });
         } else {
           const nextRetryAt = new Date(
             now.getTime() + settings.retryBackoffMinutes * 60 * 1000,
@@ -157,6 +162,7 @@ export class StudyReminderDispatchService {
             terminal: false,
           });
           retried += 1;
+          this.metrics.reminderDispatch.inc({ status: 'retried' });
         }
 
         failures.push({

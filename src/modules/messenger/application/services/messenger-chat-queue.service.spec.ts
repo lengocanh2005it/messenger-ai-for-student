@@ -18,6 +18,8 @@ import { MessengerChatQueueService } from './messenger-chat-queue.service';
 import type { MetricsService } from '../../../metrics/metrics.service';
 
 describe('MessengerChatQueueService', () => {
+  let createdServices: MessengerChatQueueService[] = [];
+
   const quotaAllowed = (
     overrides: Partial<ChatQuotaCheckResult> = {},
   ): ChatQuotaCheckResult => ({
@@ -113,6 +115,7 @@ describe('MessengerChatQueueService', () => {
       metrics,
       messengerRepository,
     );
+    createdServices.push(service);
 
     return {
       service,
@@ -128,10 +131,15 @@ describe('MessengerChatQueueService', () => {
   };
 
   beforeEach(() => {
+    createdServices = [];
     jest.useFakeTimers();
   });
 
   afterEach(() => {
+    for (const service of createdServices) {
+      service.onModuleDestroy();
+    }
+    jest.clearAllTimers();
     jest.useRealTimers();
   });
 

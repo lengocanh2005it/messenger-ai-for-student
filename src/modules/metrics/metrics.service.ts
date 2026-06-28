@@ -37,6 +37,15 @@ export class MetricsService implements OnModuleDestroy {
   /** Agent round outcome counter — direct_reply | tool_call | exhausted | error */
   readonly llmRoundOutcome: Counter<'feature' | 'outcome'>;
 
+  /** Chat quota deny events — labeled by reason (DAILY_LIMIT | BURST_LIMIT) */
+  readonly quotaDenied: Counter<'reason'>;
+
+  /** Study reminder dispatch outcomes — labeled by status (sent | cancelled | failed | retried) */
+  readonly reminderDispatch: Counter<'status'>;
+
+  /** LLM call duration at execution-service layer — covers all features */
+  readonly llmExecution: Histogram<'feature' | 'status'>;
+
   private readonly tracer: Tracer;
 
   constructor() {
@@ -81,6 +90,25 @@ export class MetricsService implements OnModuleDestroy {
       name: 'messenger_llm_round_outcome_total',
       help: 'Agent round outcome: direct_reply, tool_call, exhausted, error',
       labelNames: ['feature', 'outcome'],
+    });
+
+    this.quotaDenied = c({
+      name: 'messenger_chat_quota_denied_total',
+      help: 'Chat quota denied events by reason',
+      labelNames: ['reason'],
+    });
+
+    this.reminderDispatch = c({
+      name: 'messenger_reminder_dispatch_total',
+      help: 'Study reminder dispatch outcomes by status',
+      labelNames: ['status'],
+    });
+
+    this.llmExecution = h({
+      name: 'messenger_llm_execution_duration_seconds',
+      help: 'LLM request duration at execution-service layer, per feature',
+      labelNames: ['feature', 'status'],
+      buckets: LLM_CALL_BUCKETS,
     });
   }
 
@@ -143,6 +171,57 @@ export class MetricsService implements OnModuleDestroy {
         return result;
       } catch (err) {
         end({ status: 'error' });
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
+  }
+
+  /** Time one LLM call at execution-service layer — emits Prometheus histogram + OTel span. */
+  async timeLlmExecution<T>(
+    feature: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const span = this.tracer.startSpan('llm.execution');
+    span.setAttribute('llm.feature', feature);
+    const end = this.llmExecution.startTimer({ feature });
+    return context.with(trace.setSpan(context.active(), span), async () => {
+      try {
+        const result = await fn();
+        end({ status: 'ok' });
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (err) {
+        end({ status: 'error' });
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
+  }
+
+  /** Wrap a Wispace API call with an OTel child span. */
+  async timeWispaceCall<T>(
+    service: string,
+    operation: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const span = this.tracer.startSpan(`wispace.${service}.${operation}`);
+    span.setAttributes({
+      'wispace.service': service,
+      'wispace.operation': operation,
+    });
+    return context.with(trace.setSpan(context.active(), span), async () => {
+      try {
+        const result = await fn();
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (err) {
         span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
         span.recordException(err as Error);
         throw err;

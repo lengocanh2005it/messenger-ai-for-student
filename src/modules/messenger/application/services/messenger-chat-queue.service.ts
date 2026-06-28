@@ -101,10 +101,23 @@ export class MessengerChatQueueService implements OnModuleDestroy {
       () => this.evictStaleMemoryQueues(),
       cleanupIntervalMs,
     );
+    this.staleQueueCleanupTimer.unref?.();
   }
 
   onModuleDestroy(): void {
     clearInterval(this.staleQueueCleanupTimer);
+    for (const state of this.queues.values()) {
+      if (state.debounceTimer) {
+        clearTimeout(state.debounceTimer);
+        state.debounceTimer = undefined;
+      }
+    }
+    this.queues.clear();
+
+    for (const timer of this.sharedFlushTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.sharedFlushTimers.clear();
   }
 
   private evictStaleMemoryQueues(): void {
@@ -201,9 +214,14 @@ export class MessengerChatQueueService implements OnModuleDestroy {
       clearTimeout(state.debounceTimer);
     }
 
-    state.debounceTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
+      if (state.debounceTimer === timer) {
+        state.debounceTimer = undefined;
+      }
       void this.flush(psid);
     }, this.getDebounceMs());
+    timer.unref?.();
+    state.debounceTimer = timer;
   }
 
   private scheduleDistributedFlush(psid: string): void {
@@ -216,6 +234,7 @@ export class MessengerChatQueueService implements OnModuleDestroy {
       this.sharedFlushTimers.delete(psid);
       void this.flush(psid);
     }, this.getDebounceMs());
+    timer.unref?.();
 
     this.sharedFlushTimers.set(psid, timer);
   }

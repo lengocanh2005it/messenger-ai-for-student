@@ -1,12 +1,14 @@
 import { join } from 'path';
 import { DataSourceOptions } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import { LlmSafetyEventEntity } from './entities/llm-safety-event.entity';
 import { MessengerChatDailyUsageEntity } from './entities/messenger-chat-daily-usage.entity';
 import { MessengerChatEventEntity } from './entities/messenger-chat-event.entity';
 import { LlmUsageEventEntity } from './entities/llm-usage-event.entity';
 import { MessengerChatIdempotencyEntity } from './entities/messenger-chat-idempotency.entity';
 import { MessengerMessageLogEntity } from './entities/messenger-message-log.entity';
 import { MessengerScheduledReportClaimEntity } from './entities/messenger-scheduled-report-claim.entity';
+import { MessengerWebhookDeadLetterEntity } from './entities/messenger-webhook-dead-letter.entity';
 import { ReportSendJobEntity } from './entities/report-send-job.entity';
 import { StudyReminderJobEntity } from './entities/study-reminder-job.entity';
 import { UserMessengerMappingEntity } from './entities/user-messenger-mapping.entity';
@@ -40,11 +42,13 @@ export function getTypeOrmOptions(
     entities: [
       UserMessengerMappingEntity,
       MessengerMessageLogEntity,
+      MessengerWebhookDeadLetterEntity,
       MessengerScheduledReportClaimEntity,
       ReportSendJobEntity,
       MessengerChatDailyUsageEntity,
       MessengerChatEventEntity,
       LlmUsageEventEntity,
+      LlmSafetyEventEntity,
       MessengerChatIdempotencyEntity,
       StudyReminderJobEntity,
       ...(options?.includeUsers ? [UserEntity] : []),

@@ -78,7 +78,7 @@ npm run chat-quota:rebuild            # rebuild counter từ messenger_chat_even
 npm run llm-usage:status              # tra token LLM theo feature/psid (--ops)
 npm run chat-quota:recover-stuck    # H2: refund stuck reserved (optional --dry-run)
 npm run chat-quota:cleanup          # H6: xóa idempotency completed/refunded cũ (optional --dry-run)
-# Ops DB migrate (một lần, cần DB_PASSWORD):
+# Ops DB migrate (một lần, cần DB_HOST + DB_USER + DB_PASSWORD):
 node scripts/migrate-hub-to-chat-bot-db.mjs   # writing_ai_hub_db → ai_chat_bot_db
 node scripts/drop-poc-tables-old-db.mjs       # xóa bảng POC + migrations trên DB cũ
 ```
@@ -124,7 +124,7 @@ Sửa lỗi lint/test/build cho đến khi pass. `npm run test:e2e` cần Postgr
 
 | Triệu chứng | Nguyên nhân | Fix |
 |-------------|-------------|-----|
-| Jest pass local nhưng CI treo rồi fail sau ~30s | Service có `setInterval` / `setTimeout` chưa clear → open handle | Thêm `OnModuleDestroy` + `clearInterval`; `forceExit: true` trong Jest config |
+| Jest pass local nhưng CI treo rồi fail sau ~30s | Service có `setInterval` / `setTimeout` chưa clear → open handle | Thêm `OnModuleDestroy` + `clearInterval`; `npm run test` chạy `jest --runInBand` và không dùng `forceExit` |
 | `prettier --check` fail dù local không báo lỗi | File có CRLF (Windows) nhưng Prettier config expect LF | Chạy `npm run format` trước khi commit |
 | `eslint` báo `no-useless-escape` | Regex dùng `\/` hoặc `\-` trong character class | Bỏ backslash: `[/-]` thay `[\/\-]` |
 | Test pass local nhưng fail CI do date/time | CI chạy UTC, local chạy UTC+7 | Không hardcode ngày — dùng `new Date()` hoặc mock `Date.now` |

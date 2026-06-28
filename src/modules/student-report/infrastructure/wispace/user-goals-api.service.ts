@@ -4,6 +4,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { MetricsService } from '../../../metrics/metrics.service';
 import { WispaceApiError } from '../../domain/errors/wispace-api.error';
 import { UserGoalsRecord } from '../../domain/types/user-goals.types';
 import { withRetry } from '../../../../shared/common/with-retry';
@@ -26,21 +27,26 @@ function isWispaceRetryable(error: unknown): boolean {
 export class UserGoalsApiService {
   private readonly logger = new Logger(UserGoalsApiService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly metrics: MetricsService,
+  ) {}
 
   async getUserGoals(psid: string): Promise<UserGoalsRecord> {
     const url =
       this.configService.get<string>('WISPACE_API_USER_GOALS_URL') ??
       'https://backend.aihubproduction.com/api/User/goals';
 
-    return withRetry(() => this.fetchUserGoals(url, psid), {
-      ...this.retryOptions(),
-      shouldRetry: isWispaceRetryable,
-      onRetry: (attempt, max, err) =>
-        this.logger.warn(
-          `User/goals retry ${attempt}/${max} (psid=${psid}): ${err instanceof Error ? err.message : String(err)}`,
-        ),
-    });
+    return this.metrics.timeWispaceCall('UserGoals', 'get', () =>
+      withRetry(() => this.fetchUserGoals(url, psid), {
+        ...this.retryOptions(),
+        shouldRetry: isWispaceRetryable,
+        onRetry: (attempt, max, err) =>
+          this.logger.warn(
+            `User/goals retry ${attempt}/${max} (psid=${psid}): ${err instanceof Error ? err.message : String(err)}`,
+          ),
+      }),
+    );
   }
 
   private async fetchUserGoals(
