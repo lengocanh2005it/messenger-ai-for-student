@@ -32,10 +32,7 @@ describe('checkLlmGrounding', () => {
     ] as const;
 
     it.each(cases)('%s', (_label, text, tools) => {
-      const result = checkLlmGrounding(
-        text,
-        tools as unknown as ReadonlySet<string>,
-      );
+      const result = checkLlmGrounding(text, tools);
       expect(result.suspicious).toBe(false);
     });
   });
