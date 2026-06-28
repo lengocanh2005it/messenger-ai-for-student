@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import {
   collectDefaultMetrics,
   Counter,
@@ -12,7 +12,7 @@ const LLM_CALL_BUCKETS = [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60];
 const TOOL_BUCKETS = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20];
 
 @Injectable()
-export class MetricsService {
+export class MetricsService implements OnModuleDestroy {
   readonly registry = new Registry();
 
   /** Per-step pipeline durations: rate_limit_reserve, history_load, llm_agent,
@@ -72,6 +72,10 @@ export class MetricsService {
       help: 'Agent round outcome: direct_reply, tool_call, exhausted, error',
       labelNames: ['feature', 'outcome'],
     });
+  }
+
+  onModuleDestroy(): void {
+    this.registry.clear();
   }
 
   async getMetrics(): Promise<string> {
