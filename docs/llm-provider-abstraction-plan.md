@@ -14,6 +14,16 @@ Mục tiêu chính:
 - Chuẩn bị đường để dùng OpenAI-compatible endpoint hoặc provider khác như Anthropic, Gemini, local LLM, gateway nội bộ.
 - Không phá các lớp Clean Architecture hiện có.
 
+## 1b. Quyết định thiết kế đã chốt
+
+Ba điểm này đã được phân tích và chốt — **không cần thảo luận lại khi implement**:
+
+| # | Vấn đề | Quyết định |
+|---|--------|------------|
+| 1 | `LlmFeature` / `LlmUsageFeature` / `LlmExecutionFeature` — 3 type cùng giá trị | Hợp nhất trong Phase 1: canonical `LlmFeature` ở `llm-execution/domain`, hai type cũ thành alias backward-compat, xóa sau khi migrate xong |
+| 2 | `LlmExecutionService.run()` signature | Giữ nguyên `run<T>(fn, context?)` — không đổi để tránh sửa tất cả caller. Pseudo code trong tài liệu đã được sửa để khớp |
+| 3 | `OpenAiLlmClient` đọc config từ đâu | Inject `LlmExecutionConfigService`, thêm `getApiKey()` / `getModel()` / `getBaseUrl()` vào đó — single source of truth, không inject `ConfigService` riêng trong adapter |
+
 ## 2. Đặt vấn đề
 
 Hiện tại dự án dùng OpenAI ở nhiều điểm trong application services. Điều này chạy tốt cho POC, nhưng nếu sau này muốn đổi provider thì phải sửa nhiều nơi:
@@ -503,16 +513,44 @@ export interface LlmProviderMetadata {
 }
 ```
 
-**Quyết định về `LlmFeature` vs `LlmUsageFeature`:**
+**Quyết định về `LlmFeature` / `LlmUsageFeature` / `LlmExecutionFeature` — hợp nhất trong Phase 1:**
 
-Repo đã có `LlmUsageFeature` trong `llm-usage/domain`. Nếu để hai type riêng, phase 3 sẽ phải sync thủ công và dễ drift. Quyết định:
+Codebase hiện có **3 type cùng giá trị**:
 
-- Đặt `LlmFeature` (tên canonical) tại `src/modules/llm-execution/domain/entities/llm.types.ts`.
-- `LlmUsageModule` import type này bằng `import type { LlmFeature } from '../../llm-execution/domain/entities/llm.types'`.
-- Xóa hoặc alias `LlmUsageFeature` thành `LlmFeature` ở `llm-usage/domain` để tránh hai tên cho cùng khái niệm.
-- Hướng phụ thuộc: `llm-usage` → `llm-execution/domain` (chỉ types, không import service/module NestJS) là chấp nhận được vì domain types không kéo NestJS DI.
+| Type | File hiện tại |
+|------|--------------|
+| `LlmExecutionFeature` | `llm-execution/application/services/llm-execution.service.ts` |
+| `LlmUsageFeature` | `llm-usage/domain/entities/llm-usage.types.ts` |
+| `LlmFeature` (mới) | `llm-execution/domain/entities/llm.types.ts` |
 
-Nếu sau này hai module tách deployment riêng, có thể extract lên `src/shared/llm/` nhưng chưa cần trong phase này.
+Để không để 3 type cùng tồn tại, **Phase 1 hợp nhất luôn**:
+
+1. Định nghĩa canonical tại `src/modules/llm-execution/domain/entities/llm.types.ts`:
+
+```ts
+export type LlmFeature =
+  | 'FREE_FORM_CHAT'
+  | 'STUDENT_REPORT'
+  | 'STUDY_REMINDER';
+```
+
+2. `llm-execution.service.ts` — xóa `LlmExecutionFeature`, alias lại:
+
+```ts
+import type { LlmFeature } from '../../domain/entities/llm.types';
+export type LlmExecutionFeature = LlmFeature; // backward compat alias, xóa sau
+```
+
+3. `llm-usage/domain/entities/llm-usage.types.ts` — xóa `LlmUsageFeature`, alias lại:
+
+```ts
+import type { LlmFeature } from '../../../llm-execution/domain/entities/llm.types';
+export type LlmUsageFeature = LlmFeature; // backward compat alias, xóa sau
+```
+
+4. Các caller hiện tại (`llm-usage-recorder.service.ts`, `student-report.service.ts`, v.v.) không cần sửa ngay vì alias giữ type compatibility. Cleanup tên alias sau khi toàn bộ migration xong.
+
+Hướng phụ thuộc chấp nhận được: `llm-usage/domain` → `llm-execution/domain` (chỉ import type, không kéo NestJS DI). Nếu sau này hai module tách deployment riêng thì extract lên `src/shared/llm/`.
 
 ### 7.3. JSON generation request/response
 
@@ -712,35 +750,70 @@ File mới:
 
 Nhiệm vụ:
 
-- Đọc config provider/model/API key/baseURL.
+- Đọc config từ `LlmExecutionConfigService` — **không inject `ConfigService` trực tiếp**.
 - Tạo và cache OpenAI client.
-- Implement `isConfigured()`.
-- Implement `getDefaultModel()`.
-- Implement `generateJson(...)`.
-- Implement `chatWithTools(...)`.
-- Map neutral tools/messages sang OpenAI request.
+- Implement `isConfigured()`, `getDefaultModel()`, `generateJson(...)`, `chatWithTools(...)`.
+- Map neutral tools/messages sang OpenAI request qua mapper.
 - Map OpenAI response sang neutral response.
-- Không chứa business prompt.
-- Không tự sanitize data.
-- Không tự validate JSON business output.
+- Không chứa business prompt, không tự sanitize, không tự validate JSON output.
 
-Pseudo code:
+**Tại sao dùng `LlmExecutionConfigService` thay vì `ConfigService`:**
+
+`LlmExecutionConfigService` là single source of truth cho LLM config trong module này (retry, timeout, concurrency). Nếu `OpenAiLlmClient` tự inject `ConfigService` riêng thì sẽ có 2 nơi đọc cùng env, dễ drift khi thêm env mới. Thêm `getApiKey()` và `getModel()` vào `LlmExecutionConfigService` để tập trung.
+
+**Thêm vào `LlmExecutionConfigService`:**
+
+```ts
+getApiKey(): string | undefined {
+  return (
+    this.configService.get<string>('LLM_API_KEY')?.trim() ||
+    this.configService.get<string>('OPENAI_API_KEY')?.trim() ||
+    undefined
+  );
+}
+
+getModel(): string {
+  return (
+    this.configService.get<string>('LLM_MODEL')?.trim() ||
+    this.configService.get<string>('OPENAI_MODEL')?.trim() ||
+    'gpt-4o'
+  );
+}
+
+getBaseUrl(): string | undefined {
+  return this.configService.get<string>('LLM_BASE_URL')?.trim() || undefined;
+}
+```
+
+Precedence: `LLM_*` ưu tiên hơn `OPENAI_*`, fallback về default nếu thiếu cả hai.
+
+**Pseudo code adapter:**
 
 ```ts
 @Injectable()
 export class OpenAiLlmClient implements LlmClientPort {
   private client: OpenAI | null = null;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly config: LlmExecutionConfigService) {}
 
   isConfigured(): boolean {
-    return Boolean(this.getApiKey());
+    return Boolean(this.config.getApiKey());
   }
 
   getDefaultModel(): string {
-    return this.configService.get<string>('LLM_MODEL')
-      ?? this.configService.get<string>('OPENAI_MODEL')
-      ?? 'gpt-5.4';
+    return this.config.getModel();
+  }
+
+  private getClientOrThrow(): OpenAI {
+    if (!this.client) {
+      const apiKey = this.config.getApiKey();
+      if (!apiKey) throw new Error('LLM provider not configured: missing API key');
+      this.client = new OpenAI({
+        apiKey,
+        baseURL: this.config.getBaseUrl(),
+      });
+    }
+    return this.client;
   }
 
   async generateJson(request: LlmJsonRequest): Promise<LlmJsonResponse> {
@@ -767,7 +840,7 @@ export class OpenAiLlmClient implements LlmClientPort {
         provider: 'openai',
         model,
         responseId: response.id,
-        usage: mapOpenAiUsage(response.usage),
+        usage: fromOpenAiUsage(response.usage),
       },
     };
   }
@@ -799,34 +872,43 @@ File sửa:
 
 - `src/modules/llm-execution/llm-execution.module.ts`
 
-Thêm provider:
+Thêm provider và export:
 
 ```ts
-{
-  provide: LLM_CLIENT,
-  useClass: OpenAiLlmClient,
-}
+import { OpenAiLlmClient } from './infrastructure/openai/openai-llm-client.service';
+import { LLM_CLIENT } from './application/ports/llm-client.port';
+
+@Module({
+  providers: [
+    LlmExecutionConfigService,
+    LlmExecutionService,
+    OpenAiLlmClient,
+    {
+      provide: LLM_CLIENT,
+      useClass: OpenAiLlmClient,
+    },
+  ],
+  exports: [LlmExecutionService, LlmExecutionConfigService, LLM_CLIENT],
+})
+export class LlmExecutionModule {}
 ```
 
-Export thêm `LLM_CLIENT`.
+`OpenAiLlmClient` được khai báo thêm trong `providers` để NestJS DI inject `LlmExecutionConfigService` vào nó — không tạo instance thủ công trong factory.
 
-Phase sau nếu support nhiều provider:
+Phase sau nếu cần multi-provider qua config:
 
 ```ts
 {
   provide: LLM_CLIENT,
-  useFactory: (config: ConfigService) => {
-    const provider = config.get('LLM_PROVIDER') ?? 'openai';
-    if (provider === 'openai') return new OpenAiLlmClient(config);
-    if (provider === 'openai-compatible') return new OpenAiLlmClient(config);
-    ...
+  useFactory: (config: LlmExecutionConfigService, openai: OpenAiLlmClient) => {
+    const provider = config.getProvider(); // 'openai' | 'openai-compatible'
+    return openai; // hiện chỉ có một adapter
   },
+  inject: [LlmExecutionConfigService, OpenAiLlmClient],
 }
 ```
 
-Tuy nhiên với NestJS, factory tạo class thủ công có thể làm mất DI phụ thuộc khác. Nếu adapter có nhiều dependency, nên dùng provider classes riêng và factory return instance đã inject qua `ModuleRef`, hoặc tách dynamic module sau.
-
-Khuyến nghị phase đầu: bind trực tiếp `OpenAiLlmClient`.
+Factory inject instance đã được NestJS resolve — tránh mất DI chain. Khi thêm `AnthropicLlmClient` thì inject thêm vào factory, không sửa business code.
 
 ### 8.6. Update StudentReportService
 
@@ -844,7 +926,7 @@ Thay đổi:
 - Trong callback gọi `this.llmClient.generateJson(...)`.
 - Ghi usage bằng `recordUsage(...)` từ normalized response.
 
-Pseudo code:
+Pseudo code — giữ nguyên signature `run<T>(fn, context?)` hiện tại, không đổi:
 
 ```ts
 if (!this.llmClient.isConfigured()) {
@@ -852,17 +934,16 @@ if (!this.llmClient.isConfigured()) {
   return this.buildFallbackReport(...);
 }
 
-const response = await this.llmExecution.run({
-  feature: 'STUDENT_REPORT',
-  correlationId,
-  fn: () =>
+const response = await this.llmExecution.run(
+  () =>
     this.llmClient.generateJson({
       feature: 'STUDENT_REPORT',
       systemPrompt,
       userContent,
       correlationId,
     }),
-});
+  { feature: 'STUDENT_REPORT', correlationId },
+);
 
 this.recordLlmUsage({
   feature: 'STUDENT_REPORT',
@@ -964,17 +1045,16 @@ const messages: LlmMessage[] = [
 ];
 
 for (let round = 1; round <= maxToolRounds; round += 1) {
-  const response = await this.llmExecution.run({
-    feature: 'FREE_FORM_CHAT',
-    correlationId,
-    fn: () =>
+  const response = await this.llmExecution.run(
+    () =>
       this.llmClient.chatWithTools({
         feature: 'FREE_FORM_CHAT',
         messages,
         tools: MESSENGER_AGENT_TOOLS,
         toolChoice: 'auto',
       }),
-  });
+    { feature: 'FREE_FORM_CHAT', correlationId },
+  );
 
   this.recordLlmUsage(response, round);
 
