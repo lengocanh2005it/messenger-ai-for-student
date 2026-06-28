@@ -6,6 +6,12 @@ import {
   Registry,
 } from 'prom-client';
 import type { HistogramConfiguration, CounterConfiguration } from 'prom-client';
+import {
+  trace,
+  context,
+  SpanStatusCode,
+  type Tracer,
+} from '@opentelemetry/api';
 
 const CHAT_STEP_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30];
 const LLM_CALL_BUCKETS = [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60];
@@ -31,8 +37,12 @@ export class MetricsService implements OnModuleDestroy {
   /** Agent round outcome counter — direct_reply | tool_call | exhausted | error */
   readonly llmRoundOutcome: Counter<'feature' | 'outcome'>;
 
+  private readonly tracer: Tracer;
+
   constructor() {
     collectDefaultMetrics({ register: this.registry });
+
+    this.tracer = trace.getTracer('messenger-ai-for-student');
 
     const h = <L extends string>(opts: HistogramConfiguration<L>) =>
       new Histogram<L>({ ...opts, registers: [this.registry] });
@@ -86,53 +96,83 @@ export class MetricsService implements OnModuleDestroy {
     return this.registry.contentType;
   }
 
-  /** Time an async pipeline step. */
+  /** Time an async pipeline step — emits both Prometheus metric and OTel span. */
   async timeStep<T>(step: string, fn: () => Promise<T>): Promise<T> {
+    const span = this.tracer.startSpan(`chat.${step}`);
     const end = this.chatStep.startTimer({ step });
-    try {
-      const result = await fn();
-      end({ status: 'ok' });
-      return result;
-    } catch (err) {
-      end({ status: 'error' });
-      throw err;
-    }
+    return context.with(trace.setSpan(context.active(), span), async () => {
+      try {
+        const result = await fn();
+        end({ status: 'ok' });
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (err) {
+        end({ status: 'error' });
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
   }
 
-  /** Time one OpenAI API call (single round). */
+  /** Time one OpenAI API call — emits both Prometheus metric and OTel span. */
   async timeLlmCall<T>(
     feature: string,
     model: string,
     round: number,
     fn: () => Promise<T>,
   ): Promise<T> {
+    const span = this.tracer.startSpan(`llm.call.round_${round}`);
+    span.setAttributes({
+      'llm.feature': feature,
+      'llm.model': model,
+      'llm.round': round,
+    });
     const end = this.llmCall.startTimer({
       feature,
       model,
       round: String(round),
     });
-    try {
-      const result = await fn();
-      end({ status: 'ok' });
-      return result;
-    } catch (err) {
-      end({ status: 'error' });
-      throw err;
-    }
+    return context.with(trace.setSpan(context.active(), span), async () => {
+      try {
+        const result = await fn();
+        end({ status: 'ok' });
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (err) {
+        end({ status: 'error' });
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
   }
 
-  /** Time one tool execution and increment the call counter. */
+  /** Time one tool execution — emits both Prometheus metric and OTel span. */
   async timeTool<T>(toolName: string, fn: () => Promise<T>): Promise<T> {
+    const span = this.tracer.startSpan(`llm.tool.${toolName}`);
+    span.setAttribute('llm.tool_name', toolName);
     const end = this.llmToolDuration.startTimer({ tool_name: toolName });
-    try {
-      const result = await fn();
-      end({ status: 'ok' });
-      this.llmToolCalls.inc({ tool_name: toolName, status: 'ok' });
-      return result;
-    } catch (err) {
-      end({ status: 'error' });
-      this.llmToolCalls.inc({ tool_name: toolName, status: 'error' });
-      throw err;
-    }
+    return context.with(trace.setSpan(context.active(), span), async () => {
+      try {
+        const result = await fn();
+        end({ status: 'ok' });
+        this.llmToolCalls.inc({ tool_name: toolName, status: 'ok' });
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (err) {
+        end({ status: 'error' });
+        this.llmToolCalls.inc({ tool_name: toolName, status: 'error' });
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
   }
 }
