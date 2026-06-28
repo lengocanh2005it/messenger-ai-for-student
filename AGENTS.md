@@ -103,14 +103,18 @@ npm run test:e2e            # test/app.e2e-spec.ts
 
 Trước khi kết thúc task (sửa code): **bắt buộc** cập nhật agent docs/skills liên quan (mục *Docs & skills khi đổi code*) và chạy test/build.
 
-**Tối thiểu — khớp CI deploy:**
+**Bắt buộc sau mỗi lần sửa code — khớp CI deploy (theo đúng thứ tự):**
 
 ```bash
 npm ci                     # bắt buộc nếu vừa npm ci --omit=dev
-npm run lint
-npm run test               # Jest — lệnh test chuẩn của project
-npm run build
+npm run format:check       # prettier --check — CI fail nếu sai format
+npm run lint               # eslint --fix
+npm run typecheck          # tsc --noEmit
+npm run test               # Jest — 377 specs
+npm run build              # nest build + copy assets → dist/
 ```
+
+> Chạy thiếu bước nào cũng có thể fail CI. Thứ tự trên khớp jobs `quality` trong `.github/workflows/deploy.yml`.
 
 **Local đầy đủ (khuyến nghị):** `npm run format` rồi `npm run verify`.
 
@@ -382,4 +386,4 @@ Khi đóng gap: cập nhật `docs/study-session-reminder.md` và bảng trên.
 - Chỉ commit khi user yêu cầu rõ ràng.
 - Không commit `.env` hoặc file chứa secrets.
 - Message commit: ngắn, mô tả **why** hơn **what**.
-- Trước PR: `npm run lint`, `npm run test`, `npm run build` pass (CI); local khuyến nghị `npm run verify`.
+- Trước PR: chạy đủ 5 lệnh CI theo thứ tự `format:check → lint → typecheck → test → build`; local khuyến nghị `npm run verify`.
