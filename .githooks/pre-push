@@ -1,0 +1,6 @@
+#!/bin/sh
+# Full quality gate before pushing — mirrors CI (deploy.yml quality job).
+set -e
+
+echo "[pre-push] npx turbo run format:check lint typecheck test build"
+npx turbo run format:check lint typecheck test build
