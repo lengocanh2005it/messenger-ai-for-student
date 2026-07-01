@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { MessengerWebhookDeadLetterEntity } from '../../infrastructure/database/entities';
+import { WebhookDeadLetterEntity } from '../../infrastructure/database/entities';
 import { MESSENGER_WEBHOOK_DEAD_LETTER_REPOSITORY } from './domain/repositories/messenger-webhook-dead-letter.repository.port';
 import { MessengerWebhookDeadLetterRepository } from './infrastructure/persistence/messenger-webhook-dead-letter.repository';
 import { CommonModule } from '../../shared/common/common.module';
@@ -54,7 +54,7 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     LlmSafetyModule,
     StudentReportModule,
     StudyReminderModule,
-    TypeOrmModule.forFeature([MessengerWebhookDeadLetterEntity]),
+    TypeOrmModule.forFeature([WebhookDeadLetterEntity]),
   ],
   controllers: [MessengerController],
   providers: [

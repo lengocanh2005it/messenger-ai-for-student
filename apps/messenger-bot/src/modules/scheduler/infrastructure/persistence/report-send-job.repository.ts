@@ -5,6 +5,9 @@ import { ReportSendJobEntity } from '../../../../infrastructure/database/entitie
 import { ReportSendJob } from '../../domain/entities/report-send-job.types';
 import { ReportSendJobRepositoryPort } from '../../domain/repositories/report-send-job.repository.port';
 
+/** This repository only ever writes rows for the Messenger bot. */
+const PLATFORM = 'messenger' as const;
+
 @Injectable()
 export class ReportSendJobRepository implements ReportSendJobRepositoryPort {
   constructor(
@@ -22,7 +25,11 @@ export class ReportSendJobRepository implements ReportSendJobRepositoryPort {
     errorMessage: string;
   }): Promise<ReportSendJob> {
     const existing = await this.jobRepo.findOne({
-      where: { psid: params.psid, examDate: params.examDate },
+      where: {
+        platform: PLATFORM,
+        externalUserId: params.psid,
+        examDate: params.examDate,
+      },
     });
 
     if (existing?.status === 'sent') {
@@ -47,7 +54,8 @@ export class ReportSendJobRepository implements ReportSendJobRepositoryPort {
     }
 
     const created = this.jobRepo.create({
-      psid: params.psid,
+      platform: PLATFORM,
+      externalUserId: params.psid,
       userId: params.userId ?? null,
       examDate: params.examDate,
       firstAttemptDate: params.firstAttemptDate,
@@ -121,7 +129,8 @@ export class ReportSendJobRepository implements ReportSendJobRepositoryPort {
   async markSentByPsidExamDate(psid: string, examDate: string): Promise<void> {
     await this.jobRepo.update(
       {
-        psid,
+        platform: PLATFORM,
+        externalUserId: psid,
         examDate,
         status: In(['failed', 'processing', 'pending']),
       },
@@ -158,7 +167,7 @@ export class ReportSendJobRepository implements ReportSendJobRepositoryPort {
   private mapEntity(entity: ReportSendJobEntity): ReportSendJob {
     return {
       id: entity.id,
-      psid: entity.psid,
+      psid: entity.externalUserId,
       userId: entity.userId ?? undefined,
       examDate: entity.examDate,
       firstAttemptDate: entity.firstAttemptDate,

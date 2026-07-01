@@ -1,18 +1,22 @@
 import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
 
-export type MessengerChatIdempotencyStatus =
-  | 'reserved'
-  | 'completed'
-  | 'refunded';
+export type ChatIdempotencyStatus = 'reserved' | 'completed' | 'refunded';
 
-@Entity('messenger_chat_idempotency')
-@Index('idx_chat_idempotency_psid_date', ['psid', 'usageDate'])
-export class MessengerChatIdempotencyEntity {
+@Entity('chat_idempotency')
+@Index('idx_chat_idempotency_platform_external_date', [
+  'platform',
+  'externalUserId',
+  'usageDate',
+])
+export class ChatIdempotencyEntity {
   @PrimaryColumn({ name: 'idempotency_key', type: 'varchar', length: 128 })
   idempotencyKey: string;
 
-  @Column({ type: 'varchar', length: 64 })
-  psid: string;
+  @Column({ type: 'varchar', length: 16, default: 'messenger' })
+  platform: string;
+
+  @Column({ name: 'external_user_id', type: 'varchar', length: 64 })
+  externalUserId: string;
 
   @Column({ name: 'user_id', type: 'int', nullable: true })
   userId: number | null;
@@ -28,5 +32,5 @@ export class MessengerChatIdempotencyEntity {
   reservedAt: Date;
 
   @Column({ type: 'varchar', length: 16, default: 'reserved' })
-  status: MessengerChatIdempotencyStatus;
+  status: ChatIdempotencyStatus;
 }

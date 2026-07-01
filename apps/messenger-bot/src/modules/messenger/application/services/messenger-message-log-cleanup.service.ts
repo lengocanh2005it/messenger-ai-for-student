@@ -54,11 +54,11 @@ export class MessengerMessageLogCleanupService {
 
     if (deleted > 0) {
       this.logger.log(
-        `Purged ${deleted} messenger_message_logs row(s) older than ${retentionDays} day(s) (before ${cutoff.toISOString()})`,
+        `Purged ${deleted} message_logs row(s) older than ${retentionDays} day(s) (before ${cutoff.toISOString()})`,
       );
     } else {
       this.logger.log(
-        `messenger_message_logs cleanup: 0 rows older than ${retentionDays} day(s)`,
+        `message_logs cleanup: 0 rows older than ${retentionDays} day(s)`,
       );
     }
 

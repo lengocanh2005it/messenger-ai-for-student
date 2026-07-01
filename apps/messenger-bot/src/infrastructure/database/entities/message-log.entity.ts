@@ -5,16 +5,24 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 
-@Entity('messenger_message_logs')
-export class MessengerMessageLogEntity {
+@Entity('message_logs')
+export class MessageLogEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
   @Column({ name: 'user_id', type: 'int', nullable: true })
   userId: number | null;
 
-  @Column({ type: 'varchar', length: 64, nullable: true })
-  psid: string | null;
+  @Column({ type: 'varchar', length: 16, default: 'messenger' })
+  platform: string;
+
+  @Column({
+    name: 'external_user_id',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  externalUserId: string | null;
 
   @Column({ name: 'message_type', type: 'varchar', length: 50 })
   messageType: string;

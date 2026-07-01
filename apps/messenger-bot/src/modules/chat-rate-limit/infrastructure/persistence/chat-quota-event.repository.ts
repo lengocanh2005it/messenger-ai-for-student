@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
-import { MessengerChatEventEntity } from '../../../../infrastructure/database/entities/messenger-chat-event.entity';
+import { ChatQuotaEventEntity } from '../../../../infrastructure/database/entities/chat-quota-event.entity';
 import type {
   ChatQuotaEventRepositoryPort,
   InsertChatQuotaDeniedInput,
@@ -9,11 +9,13 @@ import type {
   InsertChatQuotaReservedInput,
 } from '../../domain/repositories/chat-quota-event.repository.port';
 
+const PLATFORM = 'messenger' as const;
+
 @Injectable()
 export class ChatQuotaEventRepository implements ChatQuotaEventRepositoryPort {
   constructor(
-    @InjectRepository(MessengerChatEventEntity)
-    private readonly eventRepo: Repository<MessengerChatEventEntity>,
+    @InjectRepository(ChatQuotaEventEntity)
+    private readonly eventRepo: Repository<ChatQuotaEventEntity>,
   ) {}
 
   async insertReservedInTransaction(
@@ -22,7 +24,8 @@ export class ChatQuotaEventRepository implements ChatQuotaEventRepositoryPort {
   ): Promise<void> {
     await manager.query(
       `
-        INSERT INTO messenger_chat_events (
+        INSERT INTO chat_quota_events (
+          platform,
           aggregate_id,
           aggregate_type,
           event_type,
@@ -31,9 +34,10 @@ export class ChatQuotaEventRepository implements ChatQuotaEventRepositoryPort {
           user_id,
           idempotency_key
         )
-        VALUES ($1, 'chat_quota', 'CHAT_QUOTA_RESERVED', $2::jsonb, $3::date, $4, $5)
+        VALUES ($1, $2, 'chat_quota', 'CHAT_QUOTA_RESERVED', $3::jsonb, $4::date, $5, $6)
       `,
       [
+        PLATFORM,
         input.psid,
         JSON.stringify(input.payload),
         input.usageDate,
@@ -49,7 +53,8 @@ export class ChatQuotaEventRepository implements ChatQuotaEventRepositoryPort {
   ): Promise<void> {
     await manager.query(
       `
-        INSERT INTO messenger_chat_events (
+        INSERT INTO chat_quota_events (
+          platform,
           aggregate_id,
           aggregate_type,
           event_type,
@@ -58,9 +63,10 @@ export class ChatQuotaEventRepository implements ChatQuotaEventRepositoryPort {
           user_id,
           idempotency_key
         )
-        VALUES ($1, 'chat_quota', 'CHAT_QUOTA_RELEASED', $2::jsonb, $3::date, $4, $5)
+        VALUES ($1, $2, 'chat_quota', 'CHAT_QUOTA_RELEASED', $3::jsonb, $4::date, $5, $6)
       `,
       [
+        PLATFORM,
         input.psid,
         JSON.stringify(input.payload),
         input.usageDate,
@@ -73,7 +79,8 @@ export class ChatQuotaEventRepository implements ChatQuotaEventRepositoryPort {
   async insertDenied(input: InsertChatQuotaDeniedInput): Promise<void> {
     await this.eventRepo.manager.query(
       `
-        INSERT INTO messenger_chat_events (
+        INSERT INTO chat_quota_events (
+          platform,
           aggregate_id,
           aggregate_type,
           event_type,
@@ -82,9 +89,10 @@ export class ChatQuotaEventRepository implements ChatQuotaEventRepositoryPort {
           user_id,
           idempotency_key
         )
-        VALUES ($1, 'chat_quota', 'CHAT_QUOTA_DENIED', $2::jsonb, $3::date, $4, NULL)
+        VALUES ($1, $2, 'chat_quota', 'CHAT_QUOTA_DENIED', $3::jsonb, $4::date, $5, NULL)
       `,
       [
+        PLATFORM,
         input.psid,
         JSON.stringify(input.payload),
         input.usageDate,
@@ -97,7 +105,7 @@ export class ChatQuotaEventRepository implements ChatQuotaEventRepositoryPort {
     const rows: Array<{ count: string }> = await this.eventRepo.manager.query(
       `
         WITH deleted AS (
-          DELETE FROM messenger_chat_events
+          DELETE FROM chat_quota_events
           WHERE occurred_at < $1
           RETURNING id
         )

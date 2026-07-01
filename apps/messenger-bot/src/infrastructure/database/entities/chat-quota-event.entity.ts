@@ -1,11 +1,14 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
-@Entity('messenger_chat_events')
+@Entity('chat_quota_events')
 @Index('idx_chat_events_aggregate_time', ['aggregateId', 'occurredAt'])
 @Index('idx_chat_events_usage_date', ['usageDate', 'eventType'])
-export class MessengerChatEventEntity {
+export class ChatQuotaEventEntity {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id: string;
+
+  @Column({ type: 'varchar', length: 16, default: 'messenger' })
+  platform: string;
 
   @Column({ name: 'aggregate_id', type: 'varchar', length: 64 })
   aggregateId: string;

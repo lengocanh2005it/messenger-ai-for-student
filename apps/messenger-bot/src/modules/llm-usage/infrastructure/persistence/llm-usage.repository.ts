@@ -21,6 +21,9 @@ interface AggregateQueryRow {
   unstored_completion_tokens: string;
 }
 
+/** This repository only ever writes rows for the Messenger bot. */
+const PLATFORM = 'messenger' as const;
+
 @Injectable()
 export class LlmUsageRepository implements LlmUsageRepositoryPort {
   constructor(
@@ -36,7 +39,8 @@ export class LlmUsageRepository implements LlmUsageRepositoryPort {
         INSERT INTO llm_usage_events (
           usage_date,
           feature,
-          psid,
+          platform,
+          external_user_id,
           user_id,
           model,
           prompt_tokens,
@@ -49,11 +53,12 @@ export class LlmUsageRepository implements LlmUsageRepositoryPort {
           error_message,
           estimated_cost_usd
         )
-        VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       `,
       [
         input.usageDate,
         input.feature,
+        PLATFORM,
         input.psid ?? null,
         input.userId ?? null,
         input.model,
@@ -126,7 +131,7 @@ export class LlmUsageRepository implements LlmUsageRepositoryPort {
     let index = startIndex;
 
     if (filter.psid) {
-      clauses.push(`psid = $${index}`);
+      clauses.push(`external_user_id = $${index}`);
       index += 1;
     }
 

@@ -9,14 +9,22 @@ import {
 
 export type WebhookDeadLetterStatus = 'pending' | 'replayed' | 'abandoned';
 
-@Entity('messenger_webhook_dead_letters')
+@Entity('webhook_dead_letters')
 @Index('idx_webhook_dead_letter_status_created', ['status', 'createdAt'])
-export class MessengerWebhookDeadLetterEntity {
+export class WebhookDeadLetterEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 64, nullable: true })
-  psid: string | null;
+  @Column({ type: 'varchar', length: 16, default: 'messenger' })
+  platform: string;
+
+  @Column({
+    name: 'external_user_id',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  externalUserId: string | null;
 
   @Column({ name: 'message_mid', type: 'varchar', length: 255, nullable: true })
   messageMid: string | null;

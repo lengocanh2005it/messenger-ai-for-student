@@ -9,20 +9,21 @@ import {
 
 export type ScheduledReportClaimStatus = 'claimed' | 'sent' | 'released';
 
-@Entity('messenger_scheduled_report_claims')
+@Entity('scheduled_report_claims')
 @Index(
-  'idx_messenger_scheduled_report_claims_psid_date',
-  ['psid', 'reportDate'],
-  {
-    unique: true,
-  },
+  'idx_scheduled_report_claims_platform_external_date',
+  ['platform', 'externalUserId', 'reportDate'],
+  { unique: true },
 )
-export class MessengerScheduledReportClaimEntity {
+export class ScheduledReportClaimEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 64 })
-  psid: string;
+  @Column({ type: 'varchar', length: 16, default: 'messenger' })
+  platform: string;
+
+  @Column({ name: 'external_user_id', type: 'varchar', length: 64 })
+  externalUserId: string;
 
   @Column({ name: 'report_date', type: 'date' })
   reportDate: string;

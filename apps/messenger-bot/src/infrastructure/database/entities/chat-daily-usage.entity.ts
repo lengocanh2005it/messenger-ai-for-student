@@ -7,16 +7,21 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-@Entity('messenger_chat_daily_usage')
-@Index('uq_chat_daily_usage_psid_date', ['psid', 'usageDate'], {
-  unique: true,
-})
-export class MessengerChatDailyUsageEntity {
+@Entity('chat_daily_usage')
+@Index(
+  'uq_chat_daily_usage_platform_external_date',
+  ['platform', 'externalUserId', 'usageDate'],
+  { unique: true },
+)
+export class ChatDailyUsageEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 64 })
-  psid: string;
+  @Column({ type: 'varchar', length: 16, default: 'messenger' })
+  platform: string;
+
+  @Column({ name: 'external_user_id', type: 'varchar', length: 64 })
+  externalUserId: string;
 
   @Column({ name: 'user_id', type: 'int', nullable: true })
   userId: number | null;
