@@ -9,7 +9,7 @@
     "packages/*"
   ],
   "scripts": {
-    "prepare": "git config core.hooksPath .githooks",
+    "prepare": "husky",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "format": "turbo run format",
@@ -19,6 +19,11 @@
     "verify": "turbo run format:check lint typecheck test build"
   },
   "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.8",
     "turbo": "^2.3.0"
+  },
+  "lint-staged": {
+    "*.ts": ["prettier --check", "eslint"]
   }
 }
