@@ -55,14 +55,16 @@ Repo NestJS đơn lẻ, `src/` ở root, 1 app duy nhất (Messenger bot), 1 Pos
 
 **Mục tiêu:** Discord bot thật, dùng chung `packages/llm-agent` + DB (đã generalize khóa ở Phase 2).
 
+**Stack:** [Necord](https://necord.org/) — wrapper NestJS quanh `discord.js`, cung cấp decorator (`@Once`, `@On`, `@SlashCommand`, `@Context()`...) và tích hợp module/DI theo đúng phong cách NestJS đã dùng xuyên suốt repo (thay vì tự viết gateway thô bằng `discord.js` trần). `NecordModule.forRoot({ token, intents })` đăng ký client Discord như 1 NestJS module bình thường.
+
 **Việc cần làm:**
-- `discord.js` (hoặc tương đương) làm gateway/interaction handler.
-- Implement `MessageSenderPort`-tương-đương cho Discord (gửi tin nhắn qua Discord REST API), tương tự `MessengerOutboundService`.
+- Cài `necord` + `discord.js` vào `apps/discord-bot`; `NecordModule.forRoot()` trong `AppModule` (token từ `.env`, intents tối thiểu: `Guilds`, `GuildMessages`, `MessageContent`, `DirectMessages` tùy cách bot nhận tin — ưu tiên slash command (`@SlashCommand`) hoặc DM listener (`@On('messageCreate')`) làm entrypoint chat).
+- Implement `MessageSenderPort`-tương-đương cho Discord (gửi tin nhắn qua Discord REST API — Necord expose `Client` từ `discord.js` để `channel.send()`/`interaction.reply()`), tương tự `MessengerOutboundService`.
 - Viết tool handlers riêng cho Discord (implement `ToolExecutorPort` từ `@wispace/llm-agent`) — gọi cùng Wispace API như Messenger, nhưng có thể tái dùng phần lớn logic nếu tách thêm 1 package `wispace-client` (không bắt buộc ở phase này, có thể copy tạm rồi tối ưu sau).
 - Prompt riêng cho Discord (`apps/discord-bot/src/prompts/discord-chat.system.txt`) — không dùng chung file `.txt` với Messenger vì nội dung có thể cần đổi giọng văn / định dạng phù hợp Discord.
 - Quota/rate-limit: dùng lại `chat-rate-limit` module pattern nhưng khóa theo `(platform='discord', external_user_id=discordUserId)`.
 
-**Verify:** chat thử qua Discord server test, xác nhận function-calling hoạt động đúng (gọi đúng tool, trả đúng dữ liệu Wispace).
+**Verify:** chat thử qua Discord server test (dùng Necord's `@On('clientReady')` để log bot online), xác nhận function-calling hoạt động đúng (gọi đúng tool, trả đúng dữ liệu Wispace).
 
 ---
 
