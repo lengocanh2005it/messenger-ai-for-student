@@ -29,7 +29,9 @@ ensure_production_env_vars() {
     local key="$1"
     local value="$2"
     if grep -q "^${key}=" "$env_file"; then
-      sed -i "s/^${key}=.*/${key}=${value}/" "$env_file"
+      # Delimiter is '#' (not '/') because several values are filesystem
+      # paths (e.g. DEPLOY_DIR=/deploy) which would break a '/'-delimited s///.
+      sed -i "s#^${key}=.*#${key}=${value}#" "$env_file"
     else
       printf '\n%s=%s\n' "$key" "$value" >> "$env_file"
     fi
