@@ -35,7 +35,7 @@ Repo NestJS đơn lẻ, `src/` ở root, 1 app duy nhất (Messenger bot), 1 Pos
 
 ---
 
-## Phase 2 — Generalize khóa DB: `psid` → `(platform, external_user_id)` (ĐÃ XONG — code, chưa chạy migration trên VPS)
+## Phase 2 — Generalize khóa DB: `psid` → `(platform, external_user_id)` (ĐÃ XONG — đã chạy migration trên VPS production)
 
 **Mục tiêu:** cho phép Discord/Zalo bot dùng chung DB mà không đụng độ khóa với Messenger.
 
@@ -44,10 +44,13 @@ Repo NestJS đơn lẻ, `src/` ở root, 1 app duy nhất (Messenger bot), 1 Pos
 - **Không đổi public port method signature** (`MessengerRepositoryPort.findActiveMappingByPsid(psid)` vẫn giữ nguyên) — vì `apps/messenger-bot` là implementation duy nhất hiện có và luôn ghi `platform='messenger'`. Discord/Zalo (Phase 3/4) sẽ có repository implementation riêng của chính họ, không import từ `apps/messenger-bot`. Chỉ 7 file entity + 10 file repository implementation (persistence layer) bị đổi — application services/controllers/domain types hoàn toàn không đổi.
 - **Quota/rate-limit vẫn tính riêng theo từng bot** (đã chốt trước đó) — chỉ cần thêm `platform` vào index/query key, không cần bảng map xuyên platform.
 
-**Chưa làm (cố ý, theo quyết định an toàn):**
-- **Chưa chạy `migration:run` trên VPS production** — migration đã merge vào code nhưng cần chạy như 1 bước riêng, có xác nhận rõ ràng, vì đổi tên bảng/cột trên DB đang chạy thật (dù data hiện tại rất ít, đã verify qua SSH).
+**Migration đã chạy trên VPS production** (qua `DB_MIGRATIONS_RUN=true` khi container khởi động, trigger tự động bởi deploy.yml) — xác nhận qua SSH: `\dt` trên `ai_chat_bot_db` cho đúng 13 bảng với tên mới (`user_platform_mappings`, `chat_daily_usage`, `chat_idempotency`, `message_logs`, `scheduled_report_claims`, `webhook_dead_letters`, `chat_quota_events` + 5 bảng giữ tên cũ có thêm cột `platform`/`external_user_id`), data cũ backfill `platform='messenger'` đúng, container `messenger-bot` boot sạch (`Nest application successfully started`, không lỗi).
 
-**Verify đã làm:** `npx turbo run format:check lint typecheck test build --filter=@wispace/messenger-bot...` pass toàn bộ (321 test, không đổi hành vi runtime nào — chỉ đổi tầng persistence).
+**Sự cố đã gặp và fix trong lúc chạy (tham khảo khi làm Phase 3/4 nếu cần sửa migration khác):**
+- `uq_chat_daily_usage_psid_date` là `CONSTRAINT` inline (tạo trong `CREATE TABLE` gốc), không phải `CREATE UNIQUE INDEX` như các unique key khác — `DROP INDEX` báo lỗi `cannot drop index ... because constraint ... requires it`. Phải dùng `ALTER TABLE ... DROP CONSTRAINT IF EXISTS`. Migration transaction của TypeORM tự rollback sạch khi lỗi, DB không bị hư giữa chừng.
+- Bug có sẵn trong `.github/scripts/vps-deploy.sh` (`set_env_var`) — `sed -i "s/^${key}=.*/${key}=${value}/"` dùng `/` làm delimiter nhưng giá trị (`DEPLOY_DIR=/deploy`...) cũng chứa `/`, phá cú pháp sed. Đổi delimiter sang `#`.
+
+**Verify đã làm:** `npx turbo run format:check lint typecheck test build --filter=@wispace/messenger-bot...` pass toàn bộ (321 test, không đổi hành vi runtime nào — chỉ đổi tầng persistence) + verify thật trên VPS qua SSH.
 
 ---
 
@@ -94,7 +97,7 @@ Tương tự Phase 3, dùng Zalo OA API thay Discord REST API. Ưu tiên làm sa
 |-------|----------|-----------|
 | 0 | Hiện trạng ban đầu | Tham chiếu |
 | 1 | Turborepo scaffold + tách `packages/llm-agent` + placeholder discord/zalo | ✅ Đã xong |
-| 2 | Generalize khóa DB `(platform, external_user_id)` | ✅ Code xong — chờ chạy `migration:run` trên VPS |
+| 2 | Generalize khóa DB `(platform, external_user_id)` | ✅ Đã xong — đã chạy migration trên VPS production, verify qua SSH |
 | 3 | Triển khai Discord bot | ⏳ Chưa làm |
 | 4 | Triển khai Zalo bot | ⏳ Chưa làm |
 | 5 | CI/CD độc lập hoàn toàn | ⏳ Chưa làm |
