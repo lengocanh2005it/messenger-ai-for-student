@@ -1,0 +1,58 @@
+export interface LlmExecutionPort {
+  run<T>(
+    fn: () => Promise<T>,
+    meta: { feature: string; correlationId?: string },
+  ): Promise<T>;
+}
+
+export interface LlmUsageRecorderPort {
+  recordFromCompletion(params: {
+    feature: string;
+    externalUserId: string;
+    userId?: number;
+    model: string;
+    response: unknown;
+    correlationId?: string;
+    toolRound: number;
+  }): void;
+}
+
+export interface LlmSafetyEventPort {
+  recordGroundingWarning(params: {
+    externalUserId: string;
+    userId?: number;
+    correlationId?: string;
+    reason: string;
+    userTextPreview: string;
+    assistantTextPreview: string;
+    toolNamesUsed: string[];
+  }): void;
+}
+
+export type LlmRoundOutcome = 'direct_reply' | 'tool_call' | 'exhausted';
+
+export interface AgentMetricsPort {
+  timeLlmCall<T>(
+    feature: string,
+    model: string,
+    round: number,
+    fn: () => Promise<T>,
+  ): Promise<T>;
+  timeTool<T>(toolName: string, fn: () => Promise<T>): Promise<T>;
+  llmRoundOutcomeInc(feature: string, outcome: LlmRoundOutcome): void;
+}
+
+/** Executes a single tool call against platform-specific business services. */
+export interface ToolExecutorPort<TToolContext> {
+  execute(
+    toolName: string,
+    argsJson: string,
+    context: TToolContext,
+  ): Promise<unknown>;
+}
+
+export const NOOP_METRICS_PORT: AgentMetricsPort = {
+  timeLlmCall: (_feature, _model, _round, fn) => fn(),
+  timeTool: (_toolName, fn) => fn(),
+  llmRoundOutcomeInc: () => undefined,
+};

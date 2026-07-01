@@ -1,4 +1,4 @@
-name: Deploy NestJS Backend to VPS
+name: Deploy Messenger Bot to VPS
 
 on:
   push:
@@ -38,16 +38,18 @@ jobs:
         with:
           filters: |
             app:
-              - 'src/**'
-              - 'test/**'
-              - 'Dockerfile'
-              - '.dockerignore'
+              - 'apps/messenger-bot/src/**'
+              - 'apps/messenger-bot/test/**'
+              - 'apps/messenger-bot/Dockerfile'
+              - 'apps/messenger-bot/package.json'
+              - 'apps/messenger-bot/nest-cli.json'
+              - 'apps/messenger-bot/tsconfig*.json'
+              - 'packages/llm-agent/**'
               - 'package.json'
               - 'package-lock.json'
-              - 'nest-cli.json'
-              - 'tsconfig*.json'
+              - 'turbo.json'
             deploy:
-              - 'docker-compose.prod.yml'
+              - 'apps/messenger-bot/docker-compose.prod.yml'
               - '.github/workflows/deploy.yml'
               - '.github/workflows/sync-env.yml'
               - '.github/scripts/**'
@@ -73,19 +75,19 @@ jobs:
         run: npm ci
 
       - name: Format check
-        run: npm run format:check
+        run: npx turbo run format:check --filter=@wispace/messenger-bot...
 
       - name: Lint
-        run: npm run lint
+        run: npx turbo run lint --filter=@wispace/messenger-bot...
 
       - name: Typecheck
-        run: npm run typecheck
+        run: npx turbo run typecheck --filter=@wispace/messenger-bot...
 
       - name: Test
-        run: npm run test
+        run: npx turbo run test --filter=@wispace/messenger-bot...
 
       - name: Build application
-        run: npm run build
+        run: npx turbo run build --filter=@wispace/messenger-bot...
 
   build-image:
     needs: [changes, quality]
@@ -117,15 +119,16 @@ jobs:
         id: prep
         run: |
           REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE="${{ env.REGISTRY }}/${REPO_LC}:${{ github.sha }}"
+          IMAGE="${{ env.REGISTRY }}/${REPO_LC}/messenger-bot:${{ github.sha }}"
           echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
-          echo "IMAGE_LATEST=${{ env.REGISTRY }}/${REPO_LC}:latest" >> "$GITHUB_ENV"
+          echo "IMAGE_LATEST=${{ env.REGISTRY }}/${REPO_LC}/messenger-bot:latest" >> "$GITHUB_ENV"
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: apps/messenger-bot/Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE }}
@@ -158,10 +161,10 @@ jobs:
         run: |
           REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           if [ "${{ needs.build-image.result }}" = "success" ]; then
-            echo "IMAGE=${{ env.REGISTRY }}/${REPO_LC}:${{ github.sha }}" >> "$GITHUB_ENV"
+            echo "IMAGE=${{ env.REGISTRY }}/${REPO_LC}/messenger-bot:${{ github.sha }}" >> "$GITHUB_ENV"
             echo "DEPLOY_MODE=new-build" >> "$GITHUB_ENV"
           else
-            echo "IMAGE=${{ env.REGISTRY }}/${REPO_LC}:latest" >> "$GITHUB_ENV"
+            echo "IMAGE=${{ env.REGISTRY }}/${REPO_LC}/messenger-bot:latest" >> "$GITHUB_ENV"
             echo "DEPLOY_MODE=reuse-latest" >> "$GITHUB_ENV"
           fi
 
@@ -183,7 +186,7 @@ jobs:
       - name: Prepare VPS upload bundle
         run: |
           mkdir -p upload-bundle
-          cp docker-compose.prod.yml upload-bundle/
+          cp apps/messenger-bot/docker-compose.prod.yml upload-bundle/
           cp .github/scripts/vps-deploy.sh upload-bundle/
           if [ -f production.env ]; then
             cp production.env upload-bundle/

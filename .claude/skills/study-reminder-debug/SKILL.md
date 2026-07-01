@@ -7,7 +7,7 @@ description: Debug study reminder jobs — sync, dispatch, remind_at, job status
 
 ## 1. Đọc context
 
-- `docs/study-session-reminder.md` (luồng sync/dispatch/rollover)
+- `apps/messenger-bot/docs/study-session-reminder.md` (luồng sync/dispatch/rollover)
 - `.claude/rules/study-reminder.md`
 
 ## 2. Kiểm tra jobs trong DB

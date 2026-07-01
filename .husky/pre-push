@@ -1,0 +1,2 @@
+# Full quality gate before pushing — mirrors CI (deploy.yml quality job).
+npx turbo run format:check lint typecheck test build

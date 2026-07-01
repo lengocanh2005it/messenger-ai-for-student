@@ -7,3 +7,4 @@ coverage/
 data/*.json
 *.tsbuildinfo
 GUIDE.md
+.turbo/
