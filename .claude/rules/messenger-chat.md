@@ -1,6 +1,6 @@
 ---
 alwaysApply: false
-paths: src/modules/messenger/application/services/messenger-chat*
+paths: apps/messenger-bot/src/modules/messenger/application/services/messenger-chat*
 ---
 
 # Messenger chat queue & shared state (H7 + R4)
@@ -92,4 +92,4 @@ Port queue: `CHAT_QUEUE_STORE`. Port history: `CHAT_HISTORY_STORE`.
 ## Liên quan
 
 - Quota logic: `.claude/rules/chat-rate-limit.md`
-- Docs: `docs/chat-rate-limit-quota.md` §5.3, H7
+- Docs: `apps/messenger-bot/docs/chat-rate-limit-quota.md` §5.3, H7

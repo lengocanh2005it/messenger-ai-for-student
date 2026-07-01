@@ -1,6 +1,6 @@
 ---
 alwaysApply: false
-paths: src/modules/study-reminder/**
+paths: apps/messenger-bot/src/modules/study-reminder/**
 ---
 
 # Study reminder module

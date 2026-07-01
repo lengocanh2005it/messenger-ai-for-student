@@ -1,0 +1,16 @@
+{
+  "name": "@wispace/zalo-bot",
+  "version": "0.0.1",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "echo 'zalo-bot: not implemented yet' && exit 0",
+    "lint": "echo 'zalo-bot: not implemented yet' && exit 0",
+    "format:check": "echo 'zalo-bot: not implemented yet' && exit 0",
+    "typecheck": "echo 'zalo-bot: not implemented yet' && exit 0",
+    "test": "echo 'zalo-bot: not implemented yet' && exit 0"
+  },
+  "dependencies": {
+    "@wispace/llm-agent": "*"
+  }
+}

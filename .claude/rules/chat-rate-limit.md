@@ -1,6 +1,6 @@
 ---
 alwaysApply: false
-paths: src/modules/chat-rate-limit/**
+paths: apps/messenger-bot/src/modules/chat-rate-limit/**
 ---
 
 # Chat rate limit module
@@ -72,4 +72,4 @@ npm run chat-quota:cleanup -- --dry-run
 
 ## Tài liệu
 
-`docs/chat-rate-limit-quota.md` — kiến trúc, §5.10 H1–H7, runbook.
+`apps/messenger-bot/docs/chat-rate-limit-quota.md` — kiến trúc, §5.10 H1–H7, runbook.

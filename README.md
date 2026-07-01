@@ -14,11 +14,11 @@ POC **WISPACE × Facebook Messenger** — NestJS service gửi báo cáo học t
 
 | File | Mô tả |
 |------|--------|
-| [docs/project-overview.md](docs/project-overview.md) | Kiến trúc, cấu trúc code, DB, API, cron, runbook quota |
-| [docs/chat-rate-limit-quota.md](docs/chat-rate-limit-quota.md) | Rate limit chat V1 + H1–H7 |
-| [docs/edge-cases-roadmap.md](docs/edge-cases-roadmap.md) | Gap toàn POC + checklist QA + phase khắc phục |
-| [docs/study-session-reminder.md](docs/study-session-reminder.md) | Nhắc lịch học (chi tiết) |
-| [docs/README.md](docs/README.md) | Mục lục tài liệu |
+| [apps/messenger-bot/docs/project-overview.md](apps/messenger-bot/docs/project-overview.md) | Kiến trúc, cấu trúc code, DB, API, cron, runbook quota |
+| [apps/messenger-bot/docs/chat-rate-limit-quota.md](apps/messenger-bot/docs/chat-rate-limit-quota.md) | Rate limit chat V1 + H1–H7 |
+| [apps/messenger-bot/docs/edge-cases-roadmap.md](apps/messenger-bot/docs/edge-cases-roadmap.md) | Gap toàn POC + checklist QA + phase khắc phục |
+| [apps/messenger-bot/docs/study-session-reminder.md](apps/messenger-bot/docs/study-session-reminder.md) | Nhắc lịch học (chi tiết) |
+| [apps/messenger-bot/docs/README.md](apps/messenger-bot/docs/README.md) | Mục lục tài liệu |
 | [AGENTS.md](AGENTS.md) | Hướng dẫn cho AI agent / Cursor |
 
 ## Chạy nhanh

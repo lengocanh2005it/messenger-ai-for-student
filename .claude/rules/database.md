@@ -1,6 +1,6 @@
 ---
 alwaysApply: false
-paths: src/infrastructure/database/**
+paths: apps/messenger-bot/src/infrastructure/database/**
 ---
 
 # Database & migrations
@@ -31,11 +31,13 @@ Migration H7 tạo `messenger_chat_queue_buffer` + `messenger_chat_history` — 
 
 ## Thêm migration
 
-1. Sửa/thêm entity trong `src/infrastructure/database/entities/`.
-2. Tạo file migration trong `src/infrastructure/database/migrations/` (timestamp prefix).
-3. Chạy `npm run migration:run`.
+1. Sửa/thêm entity trong `apps/messenger-bot/src/infrastructure/database/entities/`.
+2. Tạo file migration trong `apps/messenger-bot/src/infrastructure/database/migrations/` (timestamp prefix).
+3. Chạy `npm run migration:run` (trong `apps/messenger-bot/`).
 
-CLI generate (nếu cần): `npm run migration:generate -- src/infrastructure/database/migrations/TenMigration`.
+CLI generate (nếu cần): `npm run migration:generate -- src/infrastructure/database/migrations/TenMigration` (chạy trong `apps/messenger-bot/`).
+
+DB dùng chung giữa các bot (Messenger nay, Discord/Zalo sau) — khóa `psid` sẽ generalize thành `(platform, external_user_id)` ở Phase 2, xem `docs/turborepo-migration-plan.md`.
 
 ## Lưu ý
 
