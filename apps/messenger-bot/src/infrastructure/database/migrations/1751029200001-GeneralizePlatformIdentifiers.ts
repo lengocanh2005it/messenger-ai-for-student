@@ -45,8 +45,10 @@ export class GeneralizePlatformIdentifiers1751029200001 implements MigrationInte
     await queryRunner.query(
       `ALTER TABLE "chat_daily_usage" ADD COLUMN "platform" character varying(16) NOT NULL DEFAULT 'messenger'`,
     );
+    // Created as an inline table CONSTRAINT in the original migration, not a
+    // plain index — DROP INDEX fails on it (needs DROP CONSTRAINT).
     await queryRunner.query(
-      `DROP INDEX IF EXISTS "uq_chat_daily_usage_psid_date"`,
+      `ALTER TABLE "chat_daily_usage" DROP CONSTRAINT IF EXISTS "uq_chat_daily_usage_psid_date"`,
     );
     await queryRunner.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS "uq_chat_daily_usage_platform_external_date"
