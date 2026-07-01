@@ -26,6 +26,9 @@ RUN apk add --no-cache docker-cli docker-cli-compose curl bash gnupg \
 COPY --from=build --chown=app:app /app/apps/messenger-bot/dist ./dist
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/apps/messenger-bot/package.json ./package.json
+# node_modules/@wispace/llm-agent is an npm-workspaces symlink to ../packages/llm-agent —
+# the real package must exist at the same relative path for it to resolve at runtime.
+COPY --from=build --chown=app:app /app/packages/llm-agent ./packages/llm-agent
 
 USER app
 
