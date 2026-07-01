@@ -1,6 +1,6 @@
 ---
 name: typeorm-migration
-description: Add or modify TypeORM entities and migrations for this NestJS POC. Use when user asks for migration, new table, schema change, entity, or database column.
+description: Add or modify TypeORM entities and migrations for the Messenger bot (apps/messenger-bot). Use when user asks for migration, new table, schema change, entity, or database column.
 disable-model-invocation: true
 ---
 
@@ -9,10 +9,10 @@ disable-model-invocation: true
 ## Steps
 
 1. Read `.Codex/rules/database.md`.
-2. Edit entity in `src/infrastructure/database/entities/`.
-3. Create migration in `src/infrastructure/database/migrations/` with timestamp prefix (match existing files).
-4. Export entity from `src/infrastructure/database/entities/index.ts` if new.
-5. Run:
+2. Edit entity in `apps/messenger-bot/src/infrastructure/database/entities/`.
+3. Create migration in `apps/messenger-bot/src/infrastructure/database/migrations/` with timestamp prefix (match existing files).
+4. Export entity from `apps/messenger-bot/src/infrastructure/database/entities/index.ts` if new.
+5. Run (trong `apps/messenger-bot/`, hoặc `npx turbo run build test --filter=@wispace/messenger-bot...` từ root):
 
 ```bash
 npm run migration:run
@@ -22,13 +22,13 @@ npm run test
 
 ## Constraints
 
-- Migration bảng POC: mappings, logs, jobs, `users` + view `"Users"` (DB dedicated).
+- Migration bảng POC: mappings, logs, jobs, `users` + view `"Users"` (DB dedicated, dùng chung giữa các bot — xem `docs/turborepo-migration-plan.md` Phase 2 về generalize khóa `psid`).
 - **Không** migration bảng Wispace (`UserCalendars`, `"Users"` hub, …) — cache user qua bảng `users` local.
-- Cập nhật `.env.example` nếu thêm biến môi trường mới (không phải DB column).
+- Cập nhật `apps/messenger-bot/.env.example` nếu thêm biến môi trường mới (không phải DB column).
 
 ## Tách DB (ops một lần)
 
-Prod dùng `DB_NAME=ai_chat_bot_db`. Scripts:
+Prod dùng `DB_NAME=ai_chat_bot_db`. Scripts (chạy trong `apps/messenger-bot/`):
 
 ```bash
 DB_PASSWORD=... node scripts/migrate-hub-to-chat-bot-db.mjs

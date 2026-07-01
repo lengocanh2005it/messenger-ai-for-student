@@ -26,7 +26,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **wispace-bots** — 
 - **DB prod:** `DB_NAME=ai_chat_bot_db` (không còn `writing_ai_hub_db`).
 - Webhook Meta cần URL public (ngrok/tunnel) trỏ tới `POST /webhook`.
 - Sau lần deploy đầu: gọi `POST /messenger/profile/setup` (header `X-Internal-Api-Key`) — menu prod chỉ **Đăng ký báo cáo** (báo cáo/nhắc lịch bot gửi tự động).
-- Sửa file trong `src/shared/prompts/*.system.txt` → **bắt buộc** `npm run build` (Nest copy assets sang `dist/shared/prompts/`).
+- Sửa file trong `apps/messenger-bot/src/shared/prompts/*.system.txt` → **bắt buộc** `npm run build` (Nest copy assets sang `dist/shared/prompts/`).
 - Study reminder: biến `STUDY_REMINDER_*` **bắt buộc** — dùng `readRequiredPositiveNumber`, không hardcode fallback trong code.
 - Wispace API auth: header **`x-psid`** (PSID Messenger) + **`X-Internal-Key`** (`WISPACE_INTERNAL_KEY`); liên kết mapping **bắt buộc** verify token qua **`POST WISPACE_API_VERIFY_MESSENGER_TOKEN_URL`** (`MESSENGER_LINK_MODE=token`; startup fail nếu thiếu config).
 - Ops HTTP (`/messenger/study-calendar/sync`, `send-reports`, …) cần header **`X-Internal-Api-Key`** hoặc `Authorization: Bearer …` khớp `INTERNAL_API_KEY`.
@@ -146,19 +146,19 @@ Sửa lỗi lint/test/build cho đến khi pass. `npm run test:e2e` cần Postgr
 
 Spec hiện có:
 
-- `src/modules/chat-rate-limit/application/services/chat-rate-limit.service.spec.ts`
-- `src/modules/chat-rate-limit/infrastructure/persistence/chat-rate-limit.repository.spec.ts`
-- `src/modules/messenger/application/services/messenger-chat-queue.service.spec.ts`
-- `src/modules/messenger/application/services/messenger-chat-queue.service.shared.spec.ts`
-- `src/modules/messenger/application/services/messenger-message-log-cleanup.service.spec.ts`
-- `src/modules/messenger/application/agent/messenger-agent.service.spec.ts`
-- `src/modules/study-reminder/application/services/study-reminder-schedule.service.spec.ts`
-- `src/modules/study-reminder/application/services/study-reminder.service.spec.ts`
-- `src/modules/study-reminder/application/services/study-reminder-cleanup.service.spec.ts`
-- `src/modules/student-report/application/services/student-report.service.spec.ts`
-- `src/shared/common/guards/internal-api-key.guard.spec.ts`
-- `src/shared/config/poc.constants.spec.ts`
-- `src/shared/utils/prompt-injection.utils.spec.ts`
+- `apps/messenger-bot/src/modules/chat-rate-limit/application/services/chat-rate-limit.service.spec.ts`
+- `apps/messenger-bot/src/modules/chat-rate-limit/infrastructure/persistence/chat-rate-limit.repository.spec.ts`
+- `apps/messenger-bot/src/modules/messenger/application/services/messenger-chat-queue.service.spec.ts`
+- `apps/messenger-bot/src/modules/messenger/application/services/messenger-chat-queue.service.shared.spec.ts`
+- `apps/messenger-bot/src/modules/messenger/application/services/messenger-message-log-cleanup.service.spec.ts`
+- `apps/messenger-bot/src/modules/messenger/application/agent/messenger-agent.service.spec.ts`
+- `apps/messenger-bot/src/modules/study-reminder/application/services/study-reminder-schedule.service.spec.ts`
+- `apps/messenger-bot/src/modules/study-reminder/application/services/study-reminder.service.spec.ts`
+- `apps/messenger-bot/src/modules/study-reminder/application/services/study-reminder-cleanup.service.spec.ts`
+- `apps/messenger-bot/src/modules/student-report/application/services/student-report.service.spec.ts`
+- `apps/messenger-bot/src/shared/common/guards/internal-api-key.guard.spec.ts`
+- `apps/messenger-bot/src/shared/config/poc.constants.spec.ts`
+- `apps/messenger-bot/src/shared/utils/prompt-injection.utils.spec.ts`
 - `src/app.controller.spec.ts`
 
 ---
@@ -175,7 +175,7 @@ Cùng PR/task với code — cập nhật hàng **agent** (không chỉ `docs/` 
 | Study reminder / sync / dispatch | `apps/messenger-bot/docs/study-session-reminder.md`, `.claude/rules/study-reminder.md`, skill `/study-reminder-debug` |
 | Entity / migration / tách DB | `.claude/rules/database.md`, skill `/typeorm-migration`, `.env.example` nếu thêm biến |
 | Bỏ fallback DB UserCalendars (I3) | `user-calendar-schedule.service.ts`, `apps/messenger-bot/docs/study-session-reminder.md`, `apps/messenger-bot/docs/edge-cases-roadmap.md` |
-| System prompt LLM | `src/shared/prompts/*.system.txt`, skill `/edit-llm-prompt` |
+| System prompt LLM | `apps/messenger-bot/src/shared/prompts/*.system.txt`, skill `/edit-llm-prompt` |
 | Deploy / CI / VPS path | `.github/workflows/deploy.yml`, `apps/messenger-bot/docs/c2-master-implementation-plan.md`, `apps/messenger-bot/docs/doppler-secrets.md`, `apps/messenger-bot/docs/scale-phase-b-runbook.md`, `deploy/nginx/` |
 | Env mới | `.env.example` + dòng tương ứng trong `apps/messenger-bot/docs/project-overview.md` hoặc `AGENTS.md` |
 | Webhook Meta signature / `MESSENGER_APP_SECRET` | `apps/messenger-bot/docs/project-overview.md`, `apps/messenger-bot/docs/edge-cases-roadmap.md` §1, `AGENTS.md` Security |
@@ -258,8 +258,8 @@ domain/entities|repositories/ → application/services|ports/ → infrastructure
 - **Tin nhắn user-facing:** tiếng Việt.
 - **Log / comment:** tiếng Anh hoặc Việt ngắn — chỉ khi logic không hiển nhiên.
 - **Config:** `ConfigService` + `.env`; thêm biến mới → cập nhật `.env.example`.
-- **Migration:** `src/infrastructure/database/migrations/`, entity trong `src/infrastructure/database/entities/`.
-- **Prompts:** `src/shared/prompts/` — không inline system prompt dài trong service.
+- **Migration:** `apps/messenger-bot/src/infrastructure/database/migrations/`, entity trong `apps/messenger-bot/src/infrastructure/database/entities/`.
+- **Prompts:** `apps/messenger-bot/src/shared/prompts/` — không inline system prompt dài trong service.
 - **Cross-module:** inject port (`@Inject(TOKEN)`), `import type` cho interface.
 
 ### Anti-patterns (tránh)
@@ -356,9 +356,9 @@ Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar`. Cron 30 p
 | 3 | [apps/messenger-bot/docs/chat-rate-limit-quota.md](apps/messenger-bot/docs/chat-rate-limit-quota.md) | Chatbot hai chiều, rate limit, quota |
 | 4 | [apps/messenger-bot/docs/edge-cases-roadmap.md](apps/messenger-bot/docs/edge-cases-roadmap.md) | Gap & phase khắc phục toàn POC (ngoài chat H1–H7) |
 | 5 | `.env.example` | Biến môi trường bắt buộc |
-| 6 | `src/shared/config/poc.constants.ts` | Link `m.me`, parse `userId` từ `ref` |
-| — | `.claude/rules/clean-architecture.md` | Sửa/thêm code trong `src/modules/` |
-| — | `.claude/rules/chat-rate-limit.md` | Sửa `src/modules/chat-rate-limit/**` |
+| 6 | `apps/messenger-bot/src/shared/config/poc.constants.ts` | Link `m.me`, parse `userId` từ `ref` |
+| — | `.claude/rules/clean-architecture.md` | Sửa/thêm code trong `apps/messenger-bot/src/modules/` |
+| — | `.claude/rules/chat-rate-limit.md` | Sửa `apps/messenger-bot/src/modules/chat-rate-limit/**` |
 | — | `.claude/rules/messenger-chat.md` | Sửa chat queue/history/worker |
 
 ### Claude Code (`.claude/`)
