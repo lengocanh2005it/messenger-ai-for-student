@@ -8,10 +8,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY apps/messenger-bot/package.json apps/messenger-bot/package.json
 COPY packages/llm-agent/package.json packages/llm-agent/package.json
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY . .
-RUN npx turbo run build --filter=@wispace/messenger-bot... && npm ci --omit=dev
+RUN npx turbo run build --filter=@wispace/messenger-bot... && npm ci --omit=dev --ignore-scripts
 
 FROM node:20-alpine AS production
 WORKDIR /app
