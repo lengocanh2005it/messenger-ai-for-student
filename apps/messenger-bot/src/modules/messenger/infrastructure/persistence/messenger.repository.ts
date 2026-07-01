@@ -3,9 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Not, Repository } from 'typeorm';
 import { buildPocPsidToken } from '../../../../shared/config/poc.constants';
 import {
-  MessengerMessageLogEntity,
-  MessengerScheduledReportClaimEntity,
-  UserMessengerMappingEntity,
+  MessageLogEntity,
+  ScheduledReportClaimEntity,
+  UserPlatformMappingEntity,
 } from '../../../../infrastructure/database/entities';
 import { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
 import {
@@ -14,22 +14,25 @@ import {
   UserMessengerMapping,
 } from '../../domain/entities/messenger.types';
 
+/** This repository only ever writes rows for the Messenger bot. */
+const PLATFORM = 'messenger' as const;
+
 @Injectable()
 export class MessengerRepository implements MessengerRepositoryPort {
   constructor(
-    @InjectRepository(UserMessengerMappingEntity)
-    private readonly mappingRepo: Repository<UserMessengerMappingEntity>,
-    @InjectRepository(MessengerMessageLogEntity)
-    private readonly logRepo: Repository<MessengerMessageLogEntity>,
-    @InjectRepository(MessengerScheduledReportClaimEntity)
-    private readonly reportClaimRepo: Repository<MessengerScheduledReportClaimEntity>,
+    @InjectRepository(UserPlatformMappingEntity)
+    private readonly mappingRepo: Repository<UserPlatformMappingEntity>,
+    @InjectRepository(MessageLogEntity)
+    private readonly logRepo: Repository<MessageLogEntity>,
+    @InjectRepository(ScheduledReportClaimEntity)
+    private readonly reportClaimRepo: Repository<ScheduledReportClaimEntity>,
   ) {}
 
   async findActiveMappingByPsid(
     psid: string,
   ): Promise<UserMessengerMapping | null> {
     const row = await this.mappingRepo.findOne({
-      where: { psid, status: 'ACTIVE' },
+      where: { platform: PLATFORM, externalUserId: psid, status: 'ACTIVE' },
     });
 
     return row ? this.mapEntity(row) : null;
@@ -43,7 +46,7 @@ export class MessengerRepository implements MessengerRepositoryPort {
       order: { id: 'DESC' },
     });
 
-    if (!row?.psid) {
+    if (!row?.externalUserId) {
       return null;
     }
 
@@ -58,12 +61,12 @@ export class MessengerRepository implements MessengerRepositoryPort {
   }): Promise<UserMessengerMapping> {
     const token = buildPocPsidToken(params.psid);
     const existing = await this.mappingRepo.findOne({
-      where: { psid: params.psid },
+      where: { platform: PLATFORM, externalUserId: params.psid },
     });
 
     if (existing) {
       existing.userId = params.userId;
-      existing.psid = params.psid;
+      existing.externalUserId = params.psid;
       existing.notificationMessagesToken =
         existing.notificationMessagesToken || token;
       existing.topic = params.topic ?? existing.topic;
@@ -76,7 +79,8 @@ export class MessengerRepository implements MessengerRepositoryPort {
 
     const created = this.mappingRepo.create({
       userId: params.userId,
-      psid: params.psid,
+      platform: PLATFORM,
+      externalUserId: params.psid,
       notificationMessagesToken: token,
       topic: params.topic ?? null,
       cadence: params.cadence ?? null,
@@ -96,14 +100,15 @@ export class MessengerRepository implements MessengerRepositoryPort {
   }): Promise<UserMessengerMapping> {
     const existing =
       (await this.mappingRepo.findOne({
-        where: { psid: params.psid },
+        where: { platform: PLATFORM, externalUserId: params.psid },
       })) ??
       (await this.mappingRepo.findOne({
         where: { notificationMessagesToken: params.notificationMessagesToken },
       }));
 
     if (existing) {
-      existing.psid = params.psid;
+      existing.platform = PLATFORM;
+      existing.externalUserId = params.psid;
       existing.userId = params.userId;
       existing.notificationMessagesToken = params.notificationMessagesToken;
       existing.cadence = params.cadence;
@@ -116,7 +121,8 @@ export class MessengerRepository implements MessengerRepositoryPort {
 
     const created = this.mappingRepo.create({
       userId: params.userId,
-      psid: params.psid,
+      platform: PLATFORM,
+      externalUserId: params.psid,
       notificationMessagesToken: params.notificationMessagesToken,
       cadence: params.cadence,
       topic: params.topic,
@@ -141,7 +147,11 @@ export class MessengerRepository implements MessengerRepositoryPort {
       })) ??
       (params.psid
         ? await this.mappingRepo.findOne({
-            where: { psid: params.psid, status: 'ACTIVE' },
+            where: {
+              platform: PLATFORM,
+              externalUserId: params.psid,
+              status: 'ACTIVE',
+            },
             order: { id: 'DESC' },
           })
         : null);
@@ -151,7 +161,8 @@ export class MessengerRepository implements MessengerRepositoryPort {
     }
 
     if (existing) {
-      existing.psid = params.psid ?? existing.psid;
+      existing.platform = PLATFORM;
+      existing.externalUserId = params.psid ?? existing.externalUserId;
       existing.userId = resolvedUserId;
       existing.notificationMessagesToken = params.notificationMessagesToken;
       existing.cadence = params.cadence ?? existing.cadence;
@@ -159,15 +170,19 @@ export class MessengerRepository implements MessengerRepositoryPort {
       existing.status = 'ACTIVE';
 
       const saved = await this.mappingRepo.save(existing);
-      if (saved.psid) {
-        await this.deactivateDuplicateMappingsForPsid(saved.psid, saved.id);
+      if (saved.externalUserId) {
+        await this.deactivateDuplicateMappingsForPsid(
+          saved.externalUserId,
+          saved.id,
+        );
       }
       return this.mapEntity(saved);
     }
 
     const created = this.mappingRepo.create({
       userId: resolvedUserId,
-      psid: params.psid ?? null,
+      platform: PLATFORM,
+      externalUserId: params.psid ?? null,
       notificationMessagesToken: params.notificationMessagesToken,
       cadence: params.cadence ?? null,
       topic: params.topic ?? null,
@@ -175,8 +190,11 @@ export class MessengerRepository implements MessengerRepositoryPort {
     });
 
     const saved = await this.mappingRepo.save(created);
-    if (saved.psid) {
-      await this.deactivateDuplicateMappingsForPsid(saved.psid, saved.id);
+    if (saved.externalUserId) {
+      await this.deactivateDuplicateMappingsForPsid(
+        saved.externalUserId,
+        saved.id,
+      );
     }
     return this.mapEntity(saved);
   }
@@ -238,7 +256,8 @@ export class MessengerRepository implements MessengerRepositoryPort {
   ): Promise<void> {
     await this.mappingRepo.update(
       {
-        psid,
+        platform: PLATFORM,
+        externalUserId: psid,
         id: Not(keepId),
         status: 'ACTIVE',
       },
@@ -250,15 +269,15 @@ export class MessengerRepository implements MessengerRepositoryPort {
     const result = await this.mappingRepo.manager.query<Array<{ id: number }>>(
       `
       WITH keepers AS (
-        SELECT DISTINCT ON (psid) id
-        FROM user_messenger_mappings
-        WHERE status = 'ACTIVE' AND psid IS NOT NULL
-        ORDER BY psid, id DESC
+        SELECT DISTINCT ON (platform, external_user_id) id
+        FROM user_platform_mappings
+        WHERE status = 'ACTIVE' AND external_user_id IS NOT NULL
+        ORDER BY platform, external_user_id, id DESC
       )
-      UPDATE user_messenger_mappings
+      UPDATE user_platform_mappings
       SET status = 'INACTIVE', updated_at = now()
       WHERE status = 'ACTIVE'
-        AND psid IS NOT NULL
+        AND external_user_id IS NOT NULL
         AND id NOT IN (SELECT id FROM keepers)
       RETURNING id
       `,
@@ -269,11 +288,11 @@ export class MessengerRepository implements MessengerRepositoryPort {
       `
       WITH keepers AS (
         SELECT DISTINCT ON (user_id) id
-        FROM user_messenger_mappings
+        FROM user_platform_mappings
         WHERE status = 'ACTIVE' AND user_id IS NOT NULL
         ORDER BY user_id, id DESC
       )
-      UPDATE user_messenger_mappings
+      UPDATE user_platform_mappings
       SET status = 'INACTIVE', updated_at = now()
       WHERE status = 'ACTIVE'
         AND user_id IS NOT NULL
@@ -292,7 +311,8 @@ export class MessengerRepository implements MessengerRepositoryPort {
     await this.mappingRepo.update(
       {
         userId: params.userId,
-        psid: Not(params.psid),
+        platform: PLATFORM,
+        externalUserId: Not(params.psid),
         status: 'ACTIVE',
       },
       { status: 'INACTIVE' },
@@ -300,7 +320,8 @@ export class MessengerRepository implements MessengerRepositoryPort {
 
     await this.mappingRepo.update(
       {
-        psid: params.psid,
+        platform: PLATFORM,
+        externalUserId: params.psid,
         userId: Not(params.userId),
         status: 'ACTIVE',
       },
@@ -313,7 +334,10 @@ export class MessengerRepository implements MessengerRepositoryPort {
   ): Promise<UserMessengerMapping | null> {
     const row = await this.mappingRepo
       .createQueryBuilder('mapping')
-      .where('mapping.psid = :psid', { psid })
+      .where('mapping.platform = :platform', { platform: PLATFORM })
+      .andWhere('mapping.external_user_id = :externalUserId', {
+        externalUserId: psid,
+      })
       .andWhere('mapping.status = :status', { status: 'ACTIVE' })
       .andWhere('mapping.notification_messages_token NOT LIKE :legacyToken', {
         legacyToken: 'poc:psid:%',
@@ -327,7 +351,7 @@ export class MessengerRepository implements MessengerRepositoryPort {
     const rows = await this.mappingRepo
       .createQueryBuilder('mapping')
       .where('mapping.status = :status', { status: 'ACTIVE' })
-      .andWhere('mapping.psid IS NOT NULL')
+      .andWhere('mapping.external_user_id IS NOT NULL')
       .orderBy('mapping.id', 'DESC')
       .getMany();
 
@@ -340,7 +364,10 @@ export class MessengerRepository implements MessengerRepositoryPort {
 
     const count = await this.logRepo
       .createQueryBuilder('log')
-      .where('log.psid = :psid', { psid })
+      .where('log.platform = :platform', { platform: PLATFORM })
+      .andWhere('log.external_user_id = :externalUserId', {
+        externalUserId: psid,
+      })
       .andWhere('log.status = :status', { status: 'SENT' })
       .andWhere(
         `(log.message_type = :primaryType
@@ -385,12 +412,12 @@ export class MessengerRepository implements MessengerRepositoryPort {
     const rows: Array<{ id: number }> =
       await this.reportClaimRepo.manager.query(
         `
-        INSERT INTO messenger_scheduled_report_claims (psid, report_date, user_id, status)
-        VALUES ($1, $2::date, $3, 'claimed')
-        ON CONFLICT (psid, report_date) DO NOTHING
+        INSERT INTO scheduled_report_claims (platform, external_user_id, report_date, user_id, status)
+        VALUES ($1, $2, $3::date, $4, 'claimed')
+        ON CONFLICT (platform, external_user_id, report_date) DO NOTHING
         RETURNING id
       `,
-        [params.psid, params.reportDate, params.userId ?? null],
+        [PLATFORM, params.psid, params.reportDate, params.userId ?? null],
       );
 
     return rows.length > 0;
@@ -402,7 +429,8 @@ export class MessengerRepository implements MessengerRepositoryPort {
   }): Promise<void> {
     await this.reportClaimRepo.update(
       {
-        psid: params.psid,
+        platform: PLATFORM,
+        externalUserId: params.psid,
         reportDate: params.reportDate,
       },
       { status: 'sent' },
@@ -415,7 +443,8 @@ export class MessengerRepository implements MessengerRepositoryPort {
   }): Promise<void> {
     await this.reportClaimRepo.update(
       {
-        psid: params.psid,
+        platform: PLATFORM,
+        externalUserId: params.psid,
         reportDate: params.reportDate,
         status: 'claimed',
       },
@@ -433,7 +462,8 @@ export class MessengerRepository implements MessengerRepositoryPort {
   }): Promise<MessengerMessageLog> {
     const created = this.logRepo.create({
       userId: params.userId ?? null,
-      psid: params.psid ?? null,
+      platform: PLATFORM,
+      externalUserId: params.psid ?? null,
       messageType: params.messageType,
       messageText: params.messageText,
       status: params.status,
@@ -444,11 +474,11 @@ export class MessengerRepository implements MessengerRepositoryPort {
     return this.mapLogEntity(saved);
   }
 
-  private mapEntity(entity: UserMessengerMappingEntity): UserMessengerMapping {
+  private mapEntity(entity: UserPlatformMappingEntity): UserMessengerMapping {
     return {
       id: entity.id,
       userId: entity.userId ?? undefined,
-      psid: entity.psid ?? undefined,
+      psid: entity.externalUserId ?? undefined,
       notificationMessagesToken: entity.notificationMessagesToken,
       cadence: entity.cadence ?? undefined,
       topic: entity.topic ?? undefined,
@@ -458,11 +488,11 @@ export class MessengerRepository implements MessengerRepositoryPort {
     };
   }
 
-  private mapLogEntity(entity: MessengerMessageLogEntity): MessengerMessageLog {
+  private mapLogEntity(entity: MessageLogEntity): MessengerMessageLog {
     return {
       id: entity.id,
       userId: entity.userId ?? undefined,
-      psid: entity.psid ?? undefined,
+      psid: entity.externalUserId ?? undefined,
       messageType: entity.messageType,
       messageText: entity.messageText,
       status: entity.status,

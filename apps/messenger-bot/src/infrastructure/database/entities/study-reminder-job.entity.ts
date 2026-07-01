@@ -15,16 +15,21 @@ export type StudyReminderJobStatus =
   | 'cancelled';
 
 @Entity('study_reminder_jobs')
-@Index('idx_study_reminder_jobs_psid_session_key', ['psid', 'sessionKey'], {
-  unique: true,
-})
+@Index(
+  'idx_study_reminder_jobs_platform_external_session_key',
+  ['platform', 'externalUserId', 'sessionKey'],
+  { unique: true },
+)
 @Index('idx_study_reminder_jobs_dispatch', ['status', 'remindAt'])
 export class StudyReminderJobEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 64 })
-  psid: string;
+  @Column({ type: 'varchar', length: 16, default: 'messenger' })
+  platform: string;
+
+  @Column({ name: 'external_user_id', type: 'varchar', length: 64 })
+  externalUserId: string;
 
   @Column({ name: 'user_id', type: 'int', nullable: true })
   userId: number | null;

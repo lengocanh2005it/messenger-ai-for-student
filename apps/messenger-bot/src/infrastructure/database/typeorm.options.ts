@@ -2,16 +2,16 @@ import { join } from 'path';
 import { DataSourceOptions } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { LlmSafetyEventEntity } from './entities/llm-safety-event.entity';
-import { MessengerChatDailyUsageEntity } from './entities/messenger-chat-daily-usage.entity';
-import { MessengerChatEventEntity } from './entities/messenger-chat-event.entity';
+import { ChatDailyUsageEntity } from './entities/chat-daily-usage.entity';
+import { ChatQuotaEventEntity } from './entities/chat-quota-event.entity';
 import { LlmUsageEventEntity } from './entities/llm-usage-event.entity';
-import { MessengerChatIdempotencyEntity } from './entities/messenger-chat-idempotency.entity';
-import { MessengerMessageLogEntity } from './entities/messenger-message-log.entity';
-import { MessengerScheduledReportClaimEntity } from './entities/messenger-scheduled-report-claim.entity';
-import { MessengerWebhookDeadLetterEntity } from './entities/messenger-webhook-dead-letter.entity';
+import { ChatIdempotencyEntity } from './entities/chat-idempotency.entity';
+import { MessageLogEntity } from './entities/message-log.entity';
+import { ScheduledReportClaimEntity } from './entities/scheduled-report-claim.entity';
+import { WebhookDeadLetterEntity } from './entities/webhook-dead-letter.entity';
 import { ReportSendJobEntity } from './entities/report-send-job.entity';
 import { StudyReminderJobEntity } from './entities/study-reminder-job.entity';
-import { UserMessengerMappingEntity } from './entities/user-messenger-mapping.entity';
+import { UserPlatformMappingEntity } from './entities/user-platform-mapping.entity';
 import { UserEntity } from './entities/user.entity';
 
 type EnvSource = ConfigService | NodeJS.ProcessEnv;
@@ -40,16 +40,16 @@ export function getTypeOrmOptions(
         ? { rejectUnauthorized: false }
         : false,
     entities: [
-      UserMessengerMappingEntity,
-      MessengerMessageLogEntity,
-      MessengerWebhookDeadLetterEntity,
-      MessengerScheduledReportClaimEntity,
+      UserPlatformMappingEntity,
+      MessageLogEntity,
+      WebhookDeadLetterEntity,
+      ScheduledReportClaimEntity,
       ReportSendJobEntity,
-      MessengerChatDailyUsageEntity,
-      MessengerChatEventEntity,
+      ChatDailyUsageEntity,
+      ChatQuotaEventEntity,
       LlmUsageEventEntity,
       LlmSafetyEventEntity,
-      MessengerChatIdempotencyEntity,
+      ChatIdempotencyEntity,
       StudyReminderJobEntity,
       ...(options?.includeUsers ? [UserEntity] : []),
     ],

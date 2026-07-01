@@ -8,6 +8,9 @@ import {
 } from '../../domain/entities/study-reminder-job.types';
 import { StudyReminderJobRepositoryPort } from '../../domain/repositories/study-reminder-job.repository.port';
 
+/** This repository only ever writes rows for the Messenger bot. */
+const PLATFORM = 'messenger' as const;
+
 @Injectable()
 export class StudyReminderJobRepository implements StudyReminderJobRepositoryPort {
   constructor(
@@ -34,12 +37,17 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
     input: UpsertStudyReminderJobInput,
   ): Promise<StudyReminderJob> {
     const existing = await manager.findOne(StudyReminderJobEntity, {
-      where: { psid: input.psid, sessionKey: input.sessionKey },
+      where: {
+        platform: PLATFORM,
+        externalUserId: input.psid,
+        sessionKey: input.sessionKey,
+      },
     });
 
     if (!existing) {
       const created = manager.create(StudyReminderJobEntity, {
-        psid: input.psid,
+        platform: PLATFORM,
+        externalUserId: input.psid,
         userId: input.userId ?? null,
         sessionKey: input.sessionKey,
         scheduledAt: input.scheduledAt,
@@ -105,7 +113,8 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
       .createQueryBuilder()
       .update(StudyReminderJobEntity)
       .set({ status: 'cancelled' })
-      .where('psid = :psid', { psid })
+      .where('platform = :platform', { platform: PLATFORM })
+      .andWhere('external_user_id = :psid', { psid })
       .andWhere('status IN (:...statuses)', {
         statuses: ['pending', 'failed', 'processing'],
       })
@@ -349,7 +358,7 @@ export class StudyReminderJobRepository implements StudyReminderJobRepositoryPor
   private mapEntity(entity: StudyReminderJobEntity): StudyReminderJob {
     return {
       id: entity.id,
-      psid: entity.psid,
+      psid: entity.externalUserId,
       userId: entity.userId ?? undefined,
       sessionKey: entity.sessionKey,
       scheduledAt: entity.scheduledAt,

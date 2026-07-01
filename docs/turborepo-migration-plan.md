@@ -35,19 +35,19 @@ Repo NestJS đơn lẻ, `src/` ở root, 1 app duy nhất (Messenger bot), 1 Pos
 
 ---
 
-## Phase 2 — Generalize khóa DB: `psid` → `(platform, external_user_id)` (CHƯA LÀM)
+## Phase 2 — Generalize khóa DB: `psid` → `(platform, external_user_id)` (ĐÃ XONG — code, chưa chạy migration trên VPS)
 
 **Mục tiêu:** cho phép Discord/Zalo bot dùng chung DB mà không đụng độ khóa với Messenger.
 
-**Việc cần làm:**
-- Migration đổi `psid` (hoặc thêm cột) → `platform` (`'messenger' | 'discord' | 'zalo'`) + `external_user_id`, unique theo `(platform, external_user_id)`, trên các bảng: `user_messenger_mapping`, `messenger_chat_event`, `messenger_chat_daily_usage`, `messenger_chat_idempotency`, `study_reminder_job`, `report_send_job`, `messenger_scheduled_report_claim`. Dữ liệu cũ: set `platform='messenger'`, `external_user_id=psid`.
-- Đổi port tương ứng: `MessengerRepositoryPort.findByPsid()` → `findByExternalId(platform, externalUserId)` (và các method liên quan).
-- **Quota/rate-limit giữ tính riêng theo từng bot** (đã chốt) — nghĩa là điều kiện tính quota chỉ cần thêm `platform` vào key, KHÔNG cần bảng map "1 học viên ↔ nhiều external id".
-- Không cần bảng map xuyên platform (student_id ↔ nhiều tài khoản) — ngoài phạm vi (rate limit không gộp).
+**Đã làm:**
+- Migration `1751029200001-GeneralizePlatformIdentifiers.ts` — với 11 bảng: thêm cột `platform varchar(16) DEFAULT 'messenger'`, đổi cột `psid` → `external_user_id`, đổi mọi unique/partial index liên quan để bao gồm `platform`. Đổi tên 7 bảng bỏ prefix `messenger_` (vì giờ dùng chung nhiều platform): `user_messenger_mappings→user_platform_mappings`, `messenger_chat_daily_usage→chat_daily_usage`, `messenger_chat_idempotency→chat_idempotency`, `messenger_message_logs→message_logs`, `messenger_scheduled_report_claims→scheduled_report_claims`, `messenger_webhook_dead_letters→webhook_dead_letters`, `messenger_chat_events→chat_quota_events`. Giữ nguyên tên `study_reminder_jobs`, `report_send_jobs`, `llm_usage_events`, `llm_safety_events`, `users` (đã đủ generic).
+- **Không đổi public port method signature** (`MessengerRepositoryPort.findActiveMappingByPsid(psid)` vẫn giữ nguyên) — vì `apps/messenger-bot` là implementation duy nhất hiện có và luôn ghi `platform='messenger'`. Discord/Zalo (Phase 3/4) sẽ có repository implementation riêng của chính họ, không import từ `apps/messenger-bot`. Chỉ 7 file entity + 10 file repository implementation (persistence layer) bị đổi — application services/controllers/domain types hoàn toàn không đổi.
+- **Quota/rate-limit vẫn tính riêng theo từng bot** (đã chốt trước đó) — chỉ cần thêm `platform` vào index/query key, không cần bảng map xuyên platform.
 
-**Rủi ro:** đụng 7+ bảng, cần chạy migration cẩn thận trên `ai_chat_bot_db` (đang production). Nên làm ở 1 nhánh riêng, test kỹ trên staging trước.
+**Chưa làm (cố ý, theo quyết định an toàn):**
+- **Chưa chạy `migration:run` trên VPS production** — migration đã merge vào code nhưng cần chạy như 1 bước riêng, có xác nhận rõ ràng, vì đổi tên bảng/cột trên DB đang chạy thật (dù data hiện tại rất ít, đã verify qua SSH).
 
-**Verify:** chạy lại toàn bộ Messenger bot sau migration (không được đổi hành vi/quota hiện có do đây chỉ là đổi khóa, không đổi logic).
+**Verify đã làm:** `npx turbo run format:check lint typecheck test build --filter=@wispace/messenger-bot...` pass toàn bộ (321 test, không đổi hành vi runtime nào — chỉ đổi tầng persistence).
 
 ---
 
@@ -92,7 +92,7 @@ Tương tự Phase 3, dùng Zalo OA API thay Discord REST API. Ưu tiên làm sa
 |-------|----------|-----------|
 | 0 | Hiện trạng ban đầu | Tham chiếu |
 | 1 | Turborepo scaffold + tách `packages/llm-agent` + placeholder discord/zalo | ✅ Đã xong |
-| 2 | Generalize khóa DB `(platform, external_user_id)` | ⏳ Chưa làm |
+| 2 | Generalize khóa DB `(platform, external_user_id)` | ✅ Code xong — chờ chạy `migration:run` trên VPS |
 | 3 | Triển khai Discord bot | ⏳ Chưa làm |
 | 4 | Triển khai Zalo bot | ⏳ Chưa làm |
 | 5 | CI/CD độc lập hoàn toàn | ⏳ Chưa làm |

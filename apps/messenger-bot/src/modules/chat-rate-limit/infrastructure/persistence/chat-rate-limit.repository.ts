@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { MessengerChatDailyUsageEntity } from '../../../../infrastructure/database/entities/messenger-chat-daily-usage.entity';
-import { MessengerChatIdempotencyEntity } from '../../../../infrastructure/database/entities/messenger-chat-idempotency.entity';
+import { ChatDailyUsageEntity } from '../../../../infrastructure/database/entities/chat-daily-usage.entity';
+import { ChatIdempotencyEntity } from '../../../../infrastructure/database/entities/chat-idempotency.entity';
 import type { IncrementDailyUsageInput } from '../../domain/entities/chat-daily-usage.types';
 import type {
   ChatIdempotencyRecord,
@@ -14,6 +14,9 @@ import type {
 } from '../../domain/entities/chat-idempotency.types';
 import { ChatQuotaEventRecorderService } from '../../application/services/chat-quota-event-recorder.service';
 import { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate-limit.repository.port';
+
+/** This repository only ever writes rows for the Messenger bot. */
+const PLATFORM = 'messenger' as const;
 
 class DailyLimitExceededError extends Error {
   constructor() {
@@ -27,16 +30,16 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
   private readonly logger = new Logger(ChatRateLimitRepository.name);
 
   constructor(
-    @InjectRepository(MessengerChatDailyUsageEntity)
-    private readonly dailyUsageRepo: Repository<MessengerChatDailyUsageEntity>,
-    @InjectRepository(MessengerChatIdempotencyEntity)
-    private readonly idempotencyRepo: Repository<MessengerChatIdempotencyEntity>,
+    @InjectRepository(ChatDailyUsageEntity)
+    private readonly dailyUsageRepo: Repository<ChatDailyUsageEntity>,
+    @InjectRepository(ChatIdempotencyEntity)
+    private readonly idempotencyRepo: Repository<ChatIdempotencyEntity>,
     private readonly quotaEventRecorder: ChatQuotaEventRecorderService,
   ) {}
 
   async getDailyUsageCount(psid: string, usageDate: string): Promise<number> {
     const row = await this.dailyUsageRepo.findOne({
-      where: { psid, usageDate },
+      where: { platform: PLATFORM, externalUserId: psid, usageDate },
       select: { freeFormCount: true },
     });
 
@@ -47,16 +50,16 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
     const rows: Array<{ free_form_count: number }> =
       await this.dailyUsageRepo.manager.query(
         `
-          INSERT INTO messenger_chat_daily_usage (psid, user_id, usage_date, free_form_count)
-          VALUES ($1, $2, $3::date, 1)
-          ON CONFLICT (psid, usage_date)
+          INSERT INTO chat_daily_usage (platform, external_user_id, user_id, usage_date, free_form_count)
+          VALUES ($1, $2, $3, $4::date, 1)
+          ON CONFLICT (platform, external_user_id, usage_date)
           DO UPDATE SET
-            free_form_count = messenger_chat_daily_usage.free_form_count + 1,
-            user_id = COALESCE(EXCLUDED.user_id, messenger_chat_daily_usage.user_id),
+            free_form_count = chat_daily_usage.free_form_count + 1,
+            user_id = COALESCE(EXCLUDED.user_id, chat_daily_usage.user_id),
             updated_at = now()
           RETURNING free_form_count
         `,
-        [input.psid, input.userId ?? null, input.usageDate],
+        [PLATFORM, input.psid, input.userId ?? null, input.usageDate],
       );
 
     return rows[0]?.free_form_count ?? 0;
@@ -69,14 +72,14 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
     const rows: Array<{ free_form_count: number }> =
       await this.dailyUsageRepo.manager.query(
         `
-          UPDATE messenger_chat_daily_usage
+          UPDATE chat_daily_usage
           SET
             free_form_count = GREATEST(free_form_count - 1, 0),
             updated_at = now()
-          WHERE psid = $1 AND usage_date = $2::date
+          WHERE platform = $1 AND external_user_id = $2 AND usage_date = $3::date
           RETURNING free_form_count
         `,
-        [psid, usageDate],
+        [PLATFORM, psid, usageDate],
       );
 
     return rows[0]?.free_form_count ?? null;
@@ -95,24 +98,31 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
       reserved_at: Date;
     }> = await manager.query(
       `
-        INSERT INTO messenger_chat_idempotency (
+        INSERT INTO chat_idempotency (
           idempotency_key,
-          psid,
+          platform,
+          external_user_id,
           user_id,
           usage_date,
           status
         )
-        VALUES ($1, $2, $3, $4::date, 'reserved')
+        VALUES ($1, $2, $3, $4, $5::date, 'reserved')
         ON CONFLICT (idempotency_key) DO NOTHING
         RETURNING
           idempotency_key,
-          psid,
+          external_user_id AS psid,
           user_id,
           usage_date,
           status,
           reserved_at
       `,
-      [input.idempotencyKey, input.psid, input.userId ?? null, input.usageDate],
+      [
+        input.idempotencyKey,
+        PLATFORM,
+        input.psid,
+        input.userId ?? null,
+        input.usageDate,
+      ],
     );
 
     const row = rows[0];
@@ -135,17 +145,23 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
 
         const rows: Array<{ free_form_count: number }> = await manager.query(
           `
-            INSERT INTO messenger_chat_daily_usage (psid, user_id, usage_date, free_form_count)
-            VALUES ($1, $2, $3::date, 1)
-            ON CONFLICT (psid, usage_date)
+            INSERT INTO chat_daily_usage (platform, external_user_id, user_id, usage_date, free_form_count)
+            VALUES ($1, $2, $3, $4::date, 1)
+            ON CONFLICT (platform, external_user_id, usage_date)
             DO UPDATE SET
-              free_form_count = messenger_chat_daily_usage.free_form_count + 1,
-              user_id = COALESCE(EXCLUDED.user_id, messenger_chat_daily_usage.user_id),
+              free_form_count = chat_daily_usage.free_form_count + 1,
+              user_id = COALESCE(EXCLUDED.user_id, chat_daily_usage.user_id),
               updated_at = now()
-            WHERE messenger_chat_daily_usage.free_form_count < $4
+            WHERE chat_daily_usage.free_form_count < $5
             RETURNING free_form_count
           `,
-          [input.psid, input.userId ?? null, input.usageDate, input.dailyLimit],
+          [
+            PLATFORM,
+            input.psid,
+            input.userId ?? null,
+            input.usageDate,
+            input.dailyLimit,
+          ],
         );
 
         if (!rows[0]) {
@@ -196,7 +212,7 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
       const refundedRows: Array<{ idempotency_key: string }> =
         await manager.query(
           `
-            UPDATE messenger_chat_idempotency
+            UPDATE chat_idempotency
             SET status = 'refunded'
             WHERE idempotency_key = $1 AND status = 'reserved'
             RETURNING idempotency_key
@@ -210,14 +226,14 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
 
       const usageRows: Array<{ free_form_count: number }> = await manager.query(
         `
-          UPDATE messenger_chat_daily_usage
+          UPDATE chat_daily_usage
           SET
             free_form_count = GREATEST(free_form_count - 1, 0),
             updated_at = now()
-          WHERE psid = $1 AND usage_date = $2::date
+          WHERE platform = $1 AND external_user_id = $2 AND usage_date = $3::date
           RETURNING free_form_count
         `,
-        [params.psid, params.usageDate],
+        [PLATFORM, params.psid, params.usageDate],
       );
 
       const usedAfter = usageRows[0]?.free_form_count ?? 0;
@@ -241,7 +257,7 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
     const rows: Array<{ idempotency_key: string }> =
       await this.idempotencyRepo.manager.query(
         `
-          UPDATE messenger_chat_idempotency
+          UPDATE chat_idempotency
           SET status = 'completed'
           WHERE idempotency_key = $1 AND status = 'reserved'
           RETURNING idempotency_key
@@ -266,10 +282,10 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
       await this.idempotencyRepo.manager.query(
         `
         SELECT COUNT(*)::text AS count
-        FROM messenger_chat_idempotency
-        WHERE psid = $1 AND reserved_at > $2${statusFilter}
+        FROM chat_idempotency
+        WHERE platform = $1 AND external_user_id = $2 AND reserved_at > $3${statusFilter}
       `,
-        [psid, since],
+        [PLATFORM, psid, since],
       );
 
     return Number(rows[0]?.count ?? 0);
@@ -300,7 +316,7 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
 
     return {
       idempotencyKey: row.idempotencyKey,
-      psid: row.psid,
+      psid: row.externalUserId,
       userId: row.userId ?? undefined,
       usageDate: row.usageDate,
       status: row.status,
@@ -320,12 +336,12 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
       `
         SELECT
           idempotency_key,
-          psid,
+          external_user_id AS psid,
           user_id,
           usage_date,
           status,
           reserved_at
-        FROM messenger_chat_idempotency
+        FROM chat_idempotency
         WHERE status = 'reserved' AND reserved_at < $1
         ORDER BY reserved_at ASC
       `,
@@ -351,12 +367,12 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
         `
           SELECT
             idempotency_key,
-            psid,
+            external_user_id AS psid,
             user_id,
             usage_date,
             status,
             reserved_at
-          FROM messenger_chat_idempotency
+          FROM chat_idempotency
           WHERE idempotency_key = $1
           FOR UPDATE
         `,
@@ -381,7 +397,7 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
         const refundedRows: Array<{ idempotency_key: string }> =
           await manager.query(
             `
-              UPDATE messenger_chat_idempotency
+              UPDATE chat_idempotency
               SET status = 'refunded'
               WHERE idempotency_key = $1 AND status = 'reserved'
               RETURNING idempotency_key
@@ -396,14 +412,14 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
         const usageRows: Array<{ free_form_count: number }> =
           await manager.query(
             `
-            UPDATE messenger_chat_daily_usage
+            UPDATE chat_daily_usage
             SET
               free_form_count = GREATEST(free_form_count - 1, 0),
               updated_at = now()
-            WHERE psid = $1 AND usage_date = $2::date
+            WHERE platform = $1 AND external_user_id = $2 AND usage_date = $3::date
             RETURNING free_form_count
           `,
-            [row.psid, row.usage_date],
+            [PLATFORM, row.psid, row.usage_date],
           );
 
         const usedAfter = usageRows[0]?.free_form_count ?? 0;
@@ -418,7 +434,7 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
 
         await manager.query(
           `
-            DELETE FROM messenger_chat_idempotency
+            DELETE FROM chat_idempotency
             WHERE idempotency_key = $1
           `,
           [idempotencyKey],
@@ -430,7 +446,7 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
       if (row.status === 'refunded') {
         await manager.query(
           `
-            DELETE FROM messenger_chat_idempotency
+            DELETE FROM chat_idempotency
             WHERE idempotency_key = $1
           `,
           [idempotencyKey],

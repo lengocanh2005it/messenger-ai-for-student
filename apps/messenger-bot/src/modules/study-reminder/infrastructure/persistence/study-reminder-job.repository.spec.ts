@@ -27,7 +27,8 @@ describe('StudyReminderJobRepository', () => {
     const input = baseInput();
     const job: StudyReminderJobEntity = {
       id: nextId++,
-      psid: input.psid,
+      platform: 'messenger',
+      externalUserId: input.psid,
       userId: input.userId ?? null,
       sessionKey: input.sessionKey,
       scheduledAt: input.scheduledAt,
@@ -44,7 +45,7 @@ describe('StudyReminderJobRepository', () => {
       ...overrides,
     };
 
-    store.set(`${job.psid}:${job.sessionKey}`, job);
+    store.set(`${job.externalUserId}:${job.sessionKey}`, job);
     return job;
   };
 
@@ -60,7 +61,7 @@ describe('StudyReminderJobRepository', () => {
           { where }: { where: Record<string, string> },
         ) =>
           Promise.resolve(
-            store.get(`${where.psid}:${where.sessionKey}`) ?? null,
+            store.get(`${where.externalUserId}:${where.sessionKey}`) ?? null,
           ),
       ),
       create: jest.fn(
@@ -81,7 +82,7 @@ describe('StudyReminderJobRepository', () => {
           entity: StudyReminderJobEntity,
         ) => {
           const saved = { ...entity, updatedAt: new Date() };
-          store.set(`${saved.psid}:${saved.sessionKey}`, saved);
+          store.set(`${saved.externalUserId}:${saved.sessionKey}`, saved);
           return Promise.resolve(saved);
         },
       ),

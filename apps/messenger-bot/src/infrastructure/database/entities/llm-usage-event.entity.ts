@@ -4,9 +4,11 @@ import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 @Index('idx_llm_usage_user_date', ['userId', 'usageDate'], {
   where: '"user_id" IS NOT NULL',
 })
-@Index('idx_llm_usage_psid_date', ['psid', 'usageDate'], {
-  where: '"psid" IS NOT NULL',
-})
+@Index(
+  'idx_llm_usage_platform_external_date',
+  ['platform', 'externalUserId', 'usageDate'],
+  { where: '"external_user_id" IS NOT NULL' },
+)
 @Index('idx_llm_usage_feature_date', ['feature', 'usageDate'])
 export class LlmUsageEventEntity {
   @PrimaryGeneratedColumn({ type: 'bigint' })
@@ -25,8 +27,16 @@ export class LlmUsageEventEntity {
   @Column({ type: 'varchar', length: 32 })
   feature: string;
 
-  @Column({ type: 'varchar', length: 64, nullable: true })
-  psid: string | null;
+  @Column({ type: 'varchar', length: 16, default: 'messenger' })
+  platform: string;
+
+  @Column({
+    name: 'external_user_id',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  externalUserId: string | null;
 
   @Column({ name: 'user_id', type: 'int', nullable: true })
   userId: number | null;

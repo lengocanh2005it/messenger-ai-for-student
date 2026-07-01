@@ -2,7 +2,9 @@ import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity('llm_safety_events')
 @Index('idx_llm_safety_created_at', ['createdAt'])
-@Index('idx_llm_safety_psid', ['psid'], { where: '"psid" IS NOT NULL' })
+@Index('idx_llm_safety_platform_external', ['platform', 'externalUserId'], {
+  where: '"external_user_id" IS NOT NULL',
+})
 export class LlmSafetyEventEntity {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id: string;
@@ -16,8 +18,16 @@ export class LlmSafetyEventEntity {
   @Column({ type: 'varchar', length: 100, nullable: true })
   reason: string | null;
 
-  @Column({ type: 'varchar', length: 64, nullable: true })
-  psid: string | null;
+  @Column({ type: 'varchar', length: 16, default: 'messenger' })
+  platform: string;
+
+  @Column({
+    name: 'external_user_id',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  externalUserId: string | null;
 
   @Column({ name: 'user_id', type: 'int', nullable: true })
   userId: number | null;

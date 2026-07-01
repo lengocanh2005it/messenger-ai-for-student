@@ -7,16 +7,24 @@ import {
 } from 'typeorm';
 import { NotificationCadence } from '../../../modules/messenger/domain/entities/messenger.types';
 
-@Entity('user_messenger_mappings')
-export class UserMessengerMappingEntity {
+@Entity('user_platform_mappings')
+export class UserPlatformMappingEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
   @Column({ name: 'user_id', type: 'int', nullable: true })
   userId: number | null;
 
-  @Column({ type: 'varchar', length: 64, nullable: true })
-  psid: string | null;
+  @Column({ type: 'varchar', length: 16, default: 'messenger' })
+  platform: string;
+
+  @Column({
+    name: 'external_user_id',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  externalUserId: string | null;
 
   @Column({ name: 'notification_messages_token', type: 'text', unique: true })
   notificationMessagesToken: string;

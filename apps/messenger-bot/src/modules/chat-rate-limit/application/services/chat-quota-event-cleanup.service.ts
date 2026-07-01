@@ -40,11 +40,11 @@ export class ChatQuotaEventCleanupService {
 
     if (deleted > 0) {
       this.logger.log(
-        `Purged ${deleted} messenger_chat_events row(s) older than ${retentionDays} day(s) (before ${cutoff.toISOString()})`,
+        `Purged ${deleted} chat_quota_events row(s) older than ${retentionDays} day(s) (before ${cutoff.toISOString()})`,
       );
     } else {
       this.logger.log(
-        `messenger_chat_events cleanup: 0 rows older than ${retentionDays} day(s)`,
+        `chat_quota_events cleanup: 0 rows older than ${retentionDays} day(s)`,
       );
     }
 

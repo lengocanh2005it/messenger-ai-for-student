@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
-  MessengerMessageLogEntity,
-  MessengerScheduledReportClaimEntity,
-  UserMessengerMappingEntity,
+  MessageLogEntity,
+  ScheduledReportClaimEntity,
+  UserPlatformMappingEntity,
 } from '../../infrastructure/database/entities';
 import { MESSAGE_SENDER } from './application/ports/message-sender.port';
 import { MessengerOutboundService } from './application/services/messenger-outbound.service';
@@ -14,9 +14,9 @@ import { MessengerRepository } from './infrastructure/persistence/messenger.repo
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      UserMessengerMappingEntity,
-      MessengerMessageLogEntity,
-      MessengerScheduledReportClaimEntity,
+      UserPlatformMappingEntity,
+      MessageLogEntity,
+      ScheduledReportClaimEntity,
     ]),
   ],
   providers: [

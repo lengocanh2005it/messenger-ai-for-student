@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { MessengerWebhookDeadLetterEntity } from '../../../../infrastructure/database/entities/messenger-webhook-dead-letter.entity';
+import { WebhookDeadLetterEntity } from '../../../../infrastructure/database/entities/webhook-dead-letter.entity';
 import type {
   ListPendingForRetryOptions,
   MessengerWebhookDeadLetterRepositoryPort,
@@ -9,16 +9,19 @@ import type {
   WebhookDeadLetterRecord,
 } from '../../domain/repositories/messenger-webhook-dead-letter.repository.port';
 
+const PLATFORM = 'messenger' as const;
+
 @Injectable()
 export class MessengerWebhookDeadLetterRepository implements MessengerWebhookDeadLetterRepositoryPort {
   constructor(
-    @InjectRepository(MessengerWebhookDeadLetterEntity)
-    private readonly repo: Repository<MessengerWebhookDeadLetterEntity>,
+    @InjectRepository(WebhookDeadLetterEntity)
+    private readonly repo: Repository<WebhookDeadLetterEntity>,
   ) {}
 
   async save(input: SaveDeadLetterInput): Promise<WebhookDeadLetterRecord> {
     const entity = this.repo.create({
-      psid: input.psid,
+      platform: PLATFORM,
+      externalUserId: input.psid,
       messageMid: input.messageMid,
       rawPayload: input.rawPayload,
       errorMessage: input.errorMessage,
@@ -45,17 +48,16 @@ export class MessengerWebhookDeadLetterRepository implements MessengerWebhookDea
     // updated_at < olderThan acts as a natural cooldown between retries:
     // after incrementRetry bumps updated_at, the entry won't be picked up
     // again until at least minRetryAgeMs has passed.
-    const rows: MessengerWebhookDeadLetterEntity[] =
-      await this.repo.manager.query(
-        `SELECT *
-         FROM messenger_webhook_dead_letters
+    const rows: WebhookDeadLetterEntity[] = await this.repo.manager.query(
+      `SELECT *
+         FROM webhook_dead_letters
          WHERE status = 'pending'
            AND retry_count < $1
            AND updated_at < $2
          ORDER BY created_at ASC
          LIMIT $3`,
-        [opts.maxRetries, opts.olderThan, opts.limit],
-      );
+      [opts.maxRetries, opts.olderThan, opts.limit],
+    );
     return rows.map((r) => this.map(r));
   }
 
@@ -75,7 +77,7 @@ export class MessengerWebhookDeadLetterRepository implements MessengerWebhookDea
 
   async incrementRetry(id: number, errorMessage: string): Promise<void> {
     await this.repo.manager.query(
-      `UPDATE messenger_webhook_dead_letters
+      `UPDATE webhook_dead_letters
        SET retry_count = retry_count + 1,
            error_message = $2,
            updated_at = now()
@@ -95,10 +97,10 @@ export class MessengerWebhookDeadLetterRepository implements MessengerWebhookDea
     return Object.fromEntries(rows.map((r) => [r.status, r.count]));
   }
 
-  private map(e: MessengerWebhookDeadLetterEntity): WebhookDeadLetterRecord {
+  private map(e: WebhookDeadLetterEntity): WebhookDeadLetterRecord {
     return {
       id: e.id,
-      psid: e.psid,
+      psid: e.externalUserId,
       messageMid: e.messageMid,
       rawPayload: e.rawPayload,
       errorMessage: e.errorMessage,

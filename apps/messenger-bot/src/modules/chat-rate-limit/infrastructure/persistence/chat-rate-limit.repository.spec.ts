@@ -1,6 +1,6 @@
 import { EntityManager, Repository } from 'typeorm';
-import { MessengerChatDailyUsageEntity } from '../../../../infrastructure/database/entities/messenger-chat-daily-usage.entity';
-import { MessengerChatIdempotencyEntity } from '../../../../infrastructure/database/entities/messenger-chat-idempotency.entity';
+import { ChatDailyUsageEntity } from '../../../../infrastructure/database/entities/chat-daily-usage.entity';
+import { ChatIdempotencyEntity } from '../../../../infrastructure/database/entities/chat-idempotency.entity';
 import { ChatRateLimitRepository } from './chat-rate-limit.repository';
 import type { ChatQuotaEventRecorderService } from '../../application/services/chat-quota-event-recorder.service';
 
@@ -40,13 +40,13 @@ describe('ChatRateLimitRepository', () => {
 
         if (
           normalized.startsWith(
-            'INSERT INTO messenger_chat_daily_usage (psid, user_id, usage_date, free_form_count)',
+            'INSERT INTO chat_daily_usage (platform, external_user_id, user_id, usage_date, free_form_count)',
           )
         ) {
-          const psid = params[0] as string;
-          const userId = params[1] as number | null;
-          const usageDate = params[2] as string;
-          const dailyLimit = params[3] as number | undefined;
+          const psid = params[1] as string;
+          const userId = params[2] as number | null;
+          const usageDate = params[3] as string;
+          const dailyLimit = params[4] as number | undefined;
           const key = usageKey(psid, usageDate);
           const existing = dailyUsageStore.get(key);
           const hasHardCap =
@@ -74,10 +74,10 @@ describe('ChatRateLimitRepository', () => {
 
         if (
           normalized.startsWith(
-            'UPDATE messenger_chat_daily_usage SET free_form_count = GREATEST(free_form_count - 1, 0)',
+            'UPDATE chat_daily_usage SET free_form_count = GREATEST(free_form_count - 1, 0)',
           )
         ) {
-          const [psid, usageDate] = params as [string, string];
+          const [, psid, usageDate] = params as [string, string, string];
           const existing = dailyUsageStore.get(usageKey(psid, usageDate));
           if (!existing) {
             return [];
@@ -89,10 +89,10 @@ describe('ChatRateLimitRepository', () => {
 
         if (
           normalized.startsWith(
-            'SELECT COUNT(*)::text AS count FROM messenger_chat_idempotency',
+            'SELECT COUNT(*)::text AS count FROM chat_idempotency',
           )
         ) {
-          const [psid, since] = params as [string, Date];
+          const [, psid, since] = params as [string, string, Date];
           const includeRefunded = !normalized.includes(
             "status IN ('reserved', 'completed')",
           );
@@ -110,11 +110,7 @@ describe('ChatRateLimitRepository', () => {
           return [{ count: String(count) }];
         }
 
-        if (
-          normalized.startsWith(
-            'UPDATE messenger_chat_idempotency SET status = ',
-          )
-        ) {
+        if (normalized.startsWith('UPDATE chat_idempotency SET status = ')) {
           const [idempotencyKey] = params as [string];
           const row = idempotencyStore.get(idempotencyKey);
           if (!row) {
@@ -140,10 +136,11 @@ describe('ChatRateLimitRepository', () => {
 
         if (
           normalized.startsWith(
-            'INSERT INTO messenger_chat_idempotency ( idempotency_key, psid, user_id, usage_date, status )',
+            'INSERT INTO chat_idempotency ( idempotency_key, platform, external_user_id, user_id, usage_date, status )',
           )
         ) {
-          const [idempotencyKey, psid, userId, usageDate] = params as [
+          const [idempotencyKey, , psid, userId, usageDate] = params as [
+            string,
             string,
             string,
             number | null,
@@ -177,7 +174,7 @@ describe('ChatRateLimitRepository', () => {
         }
 
         if (
-          normalized.includes('FROM messenger_chat_idempotency') &&
+          normalized.includes('FROM chat_idempotency') &&
           normalized.includes('FOR UPDATE')
         ) {
           const [idempotencyKey] = params as [string];
@@ -200,7 +197,7 @@ describe('ChatRateLimitRepository', () => {
 
         if (
           normalized.startsWith(
-            'DELETE FROM messenger_chat_idempotency WHERE idempotency_key = $1',
+            'DELETE FROM chat_idempotency WHERE idempotency_key = $1',
           )
         ) {
           const [idempotencyKey] = params as [string];
@@ -260,9 +257,17 @@ describe('ChatRateLimitRepository', () => {
     const manager = createManager();
     const dailyUsageRepo = {
       findOne: jest.fn(
-        ({ where }: { where: { psid: string; usageDate: string } }) => {
+        ({
+          where,
+        }: {
+          where: {
+            platform: string;
+            externalUserId: string;
+            usageDate: string;
+          };
+        }) => {
           const row = dailyUsageStore.get(
-            usageKey(where.psid, where.usageDate),
+            usageKey(where.externalUserId, where.usageDate),
           );
           if (!row) {
             return Promise.resolve(null);
@@ -274,7 +279,7 @@ describe('ChatRateLimitRepository', () => {
         },
       ),
       manager,
-    } as unknown as Repository<MessengerChatDailyUsageEntity>;
+    } as unknown as Repository<ChatDailyUsageEntity>;
 
     const idempotencyRepo = {
       findOne: jest.fn(({ where }: { where: { idempotencyKey: string } }) => {
@@ -285,7 +290,7 @@ describe('ChatRateLimitRepository', () => {
 
         return Promise.resolve({
           idempotencyKey: row.idempotencyKey,
-          psid: row.psid,
+          externalUserId: row.psid,
           userId: row.userId,
           usageDate: row.usageDate,
           status: row.status,
@@ -307,7 +312,7 @@ describe('ChatRateLimitRepository', () => {
         },
       ),
       manager,
-    } as unknown as Repository<MessengerChatIdempotencyEntity>;
+    } as unknown as Repository<ChatIdempotencyEntity>;
 
     quotaEventRecorder = {
       recordReservedInTransaction: jest.fn(() => Promise.resolve()),

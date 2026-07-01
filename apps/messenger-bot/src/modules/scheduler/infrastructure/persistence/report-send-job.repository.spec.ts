@@ -15,7 +15,9 @@ describe('ReportSendJobRepository (R5)', () => {
 
     const jobRepo = {
       findOne: jest.fn(({ where }: { where: Record<string, string> }) =>
-        Promise.resolve(store.get(key(where.psid, where.examDate)) ?? null),
+        Promise.resolve(
+          store.get(key(where.externalUserId, where.examDate)) ?? null,
+        ),
       ),
       create: jest.fn(
         (data: Partial<ReportSendJobEntity>) =>
@@ -28,7 +30,7 @@ describe('ReportSendJobRepository (R5)', () => {
       ),
       save: jest.fn((entity: ReportSendJobEntity) => {
         const saved = { ...entity, updatedAt: new Date() };
-        store.set(key(saved.psid, saved.examDate), saved);
+        store.set(key(saved.externalUserId, saved.examDate), saved);
         return Promise.resolve(saved);
       }),
       update: jest.fn(
@@ -98,7 +100,8 @@ describe('ReportSendJobRepository (R5)', () => {
   it('marks terminal when retry_count reaches max_retries', async () => {
     store.set(key('psid-1', '2026-06-15'), {
       id: 1,
-      psid: 'psid-1',
+      platform: 'messenger',
+      externalUserId: 'psid-1',
       userId: null,
       examDate: '2026-06-15',
       firstAttemptDate: '2026-06-12',
