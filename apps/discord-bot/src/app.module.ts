@@ -22,6 +22,7 @@ import { DiscordChatModule } from './modules/discord-chat/discord-chat.module';
         token: configService.getOrThrow<string>('DISCORD_BOT_TOKEN'),
         intents: [
           IntentsBitField.Flags.Guilds,
+          IntentsBitField.Flags.GuildMembers,
           IntentsBitField.Flags.DirectMessages,
           IntentsBitField.Flags.MessageContent,
         ],

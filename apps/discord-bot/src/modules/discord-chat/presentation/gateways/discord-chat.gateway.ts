@@ -54,28 +54,46 @@ export class DiscordChatGateway {
     this.logger.log(`Discord bot online as ${client.user.tag}`);
   }
 
+  @On('guildMemberAdd')
+  async onGuildMemberAdd(@Context() [member]: ContextOf<'guildMemberAdd'>) {
+    const displayName = member.displayName;
+    const discordUserId = member.id;
+    const welcome =
+      `Chào mừng ${displayName} đến với server WISPACE! 👋\n\n` +
+      `Mình là trợ lý AI của WISPACE — mình có thể giúp bạn xem lịch học, tiến độ IELTS Writing và trả lời các câu hỏi luyện thi.\n\n` +
+      `Để dùng đầy đủ tính năng, bạn cần liên kết tài khoản WISPACE với Discord trước nhé. Vào WISPACE và chọn "Kết nối Discord" để bắt đầu! 🎓`;
+
+    await this.outboundService.sendText(discordUserId, welcome);
+    this.logger.log(
+      `Welcome DM sent to new member discordUserId=${discordUserId} displayName=${displayName}`,
+    );
+  }
+
   @On('messageCreate')
   async onMessageCreate(@Context() [message]: ContextOf<'messageCreate'>) {
-    if (message.author.bot || message.channel.type !== ChannelType.DM) {
-      return;
-    }
+    if (message.author.bot) return;
+
+    const isDM = message.channel.type === ChannelType.DM;
+    const isServerChannel = !isDM;
 
     const userText = message.content.trim();
-    if (!userText) {
-      return;
-    }
+    if (!userText) return;
 
     const discordUserId = message.author.id;
-
-    if (userText.toLowerCase() === 'menu') {
-      await this.outboundService.sendMenuButtons(discordUserId);
-      return;
-    }
 
     // Detect @mention → strip mention tags, use neutral trigger if bare ping
     const botUser = message.client.user;
     const isMentioned =
       botUser != null && message.mentions.users.has(botUser.id);
+
+    // In server channels: only respond when @mentioned to avoid replying to everyone
+    if (isServerChannel && !isMentioned) return;
+
+    if (isDM && userText.toLowerCase() === 'menu') {
+      await this.outboundService.sendMenuButtons(discordUserId);
+      return;
+    }
+
     let resolvedText = userText;
     if (isMentioned) {
       resolvedText = userText.replace(/<@!?\d+>/g, '').trim();
@@ -86,7 +104,7 @@ export class DiscordChatGateway {
 
     // Check before agent runs — history is empty on the very first message
     const history = await this.chatHistoryService.getHistory(discordUserId);
-    const sendMenuAfter = isMentioned || history.length === 0;
+    const sendMenuAfter = isDM && (isMentioned || history.length === 0);
 
     const idempotencyKey = `discord:${message.id}`;
     const quotaEnabled = this.rateLimitService.isEnabled();
@@ -101,10 +119,12 @@ export class DiscordChatGateway {
 
       if (!quota.allowed) {
         if (quota.reason && quota.reason !== 'IDEMPOTENCY_CONFLICT') {
-          await this.outboundService.sendText(
-            discordUserId,
-            buildChatQuotaDenyMessage(quota.reason, quota.limit),
-          );
+          const denyMsg = buildChatQuotaDenyMessage(quota.reason, quota.limit);
+          if (isServerChannel) {
+            await message.reply(denyMsg);
+          } else {
+            await this.outboundService.sendText(discordUserId, denyMsg);
+          }
         }
         return;
       }
@@ -119,8 +139,20 @@ export class DiscordChatGateway {
         userId,
         userText: resolvedText,
         correlationId: message.id,
+        isServerChannel,
       });
-      await this.outboundService.sendText(discordUserId, reply.text);
+
+      if (isServerChannel && reply.privateDataFetched) {
+        // Private data: send full reply to DM, notify in channel
+        await this.outboundService.sendText(discordUserId, reply.text);
+        await message.reply(
+          'Mình đã gửi thông tin vào tin nhắn riêng (DM) của bạn rồi nhé! 📩',
+        );
+      } else if (isServerChannel) {
+        await message.reply(reply.text);
+      } else {
+        await this.outboundService.sendText(discordUserId, reply.text);
+      }
 
       if (sendMenuAfter) {
         await this.outboundService.sendMenuButtons(discordUserId);
@@ -143,10 +175,12 @@ export class DiscordChatGateway {
         );
       }
 
-      await this.outboundService.sendText(
-        discordUserId,
-        FALLBACK_ERROR_MESSAGE,
-      );
+      const fallback = FALLBACK_ERROR_MESSAGE;
+      if (isServerChannel) {
+        await message.reply(fallback);
+      } else {
+        await this.outboundService.sendText(discordUserId, fallback);
+      }
     }
   }
 

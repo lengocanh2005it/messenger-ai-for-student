@@ -78,11 +78,13 @@ export class DiscordAgentToolsService {
   ): Promise<unknown> {
     switch (toolName) {
       case 'get_user_goals':
-        return this.withLinkedAccount(ctx, () =>
-          this.goalsService.getUserGoals(ctx.discordUserId),
-        );
+        return this.withLinkedAccount(ctx, () => {
+          ctx.privateDataFetched = true;
+          return this.goalsService.getUserGoals(ctx.discordUserId);
+        });
       case 'get_learning_progress_report':
         return this.withLinkedAccount(ctx, async () => {
+          ctx.privateDataFetched = true;
           const [goals, taskScores] = await Promise.all([
             this.goalsService.getUserGoals(ctx.discordUserId),
             this.goalsService.getTaskScoreAverages(ctx.discordUserId),
@@ -91,6 +93,7 @@ export class DiscordAgentToolsService {
         });
       case 'get_upcoming_study_sessions':
         return this.withLinkedAccount(ctx, async () => {
+          ctx.privateDataFetched = true;
           const limit = this.readPositiveLimit(args.limit, 5);
           const sessions = await this.calendarService.getCalendarSessions(
             ctx.discordUserId,
@@ -103,6 +106,7 @@ export class DiscordAgentToolsService {
         });
       case 'list_study_calendar_entries':
         return this.withLinkedAccount(ctx, async () => {
+          ctx.privateDataFetched = true;
           const timeRange =
             this.readCalendarTimeRange(args.timeRange) ?? 'upcoming';
           const sessions = await this.calendarService.getCalendarSessions(
@@ -117,6 +121,7 @@ export class DiscordAgentToolsService {
         });
       case 'preview_next_study_reminder':
         return this.withLinkedAccount(ctx, async () => {
+          ctx.privateDataFetched = true;
           const sessions = await this.calendarService.getCalendarSessions(
             ctx.discordUserId,
             { timeRange: 'upcoming', limit: 1 },

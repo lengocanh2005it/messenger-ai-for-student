@@ -28,6 +28,53 @@
     font-size: 13px; color: #6b7280; text-decoration: none;
   }
   .back-link:hover { text-decoration: underline; }
+
+  /* Pending / waiting screen */
+  .pending-box { padding: 8px 0 40px; }
+  .pending-box h1 { margin-bottom: 6px; }
+  .steps { display: flex; flex-direction: column; gap: 0; margin: 28px 0 32px; }
+  .step {
+    display: flex; gap: 16px; position: relative; padding-bottom: 32px;
+  }
+  .step:last-child { padding-bottom: 0; }
+  .step:not(:last-child)::after {
+    content: ''; position: absolute; left: 19px; top: 44px; bottom: 0;
+    width: 2px; background: #e5e7eb;
+  }
+  .step-number {
+    width: 40px; height: 40px; border-radius: 50%; background: #5865F2;
+    color: #fff; font-weight: 700; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; position: relative; z-index: 1; transition: background 0.3s;
+  }
+  .step.done .step-number { background: #22c55e; }
+  .step.waiting .step-number { background: #f59e0b; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+  .step-content { padding-top: 8px; }
+  .step-title { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+  .step-desc { font-size: 13px; color: #6b7280; margin-bottom: 14px; line-height: 1.5; }
+  .step-btn {
+    display: inline-flex; align-items: center; text-decoration: none;
+    padding: 10px 18px; border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    background: #5865F2; color: #fff; transition: opacity 0.15s;
+  }
+  .step-btn:hover:not(:disabled) { opacity: 0.88; }
+  .step-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .step.done .step-btn.join-btn { background: #22c55e; }
+  .poll-status {
+    font-size: 12px; color: #9ca3af; margin-top: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .poll-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: #9ca3af;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .btn-ghost {
+    background: none; color: #6b7280; font-size: 13px; padding: 6px 0;
+    border: none; cursor: pointer;
+  }
+  .btn-ghost:hover { color: #374151; }
 </style>
 </head>
 <body>
@@ -45,6 +92,52 @@
         </div>
       </section>
 
+      <!-- Pending: user chưa trong guild, cần tham gia server trước -->
+      <section id="screen-pending" class="screen">
+        <div class="pending-box">
+          <h1>Một bước nữa thôi!</h1>
+          <p class="subtitle">Tài khoản Discord của bạn đã được xác thực. Bây giờ hãy tham gia server WISPACE để hoàn tất liên kết.</p>
+
+          <div class="steps">
+            <div class="step" id="pending-step-1">
+              <div class="step-number">1</div>
+              <div class="step-content">
+                <div class="step-title">Tham gia server Discord WISPACE</div>
+                <div class="step-desc">Nhấn vào nút bên dưới để vào server — bot đang hoạt động trong đó.</div>
+                <a id="btn-join-server" class="step-btn join-btn" href="#" target="_blank" rel="noopener noreferrer">
+                  Tham gia server →
+                </a>
+              </div>
+            </div>
+
+            <div class="step" id="pending-step-2">
+              <div class="step-number">2</div>
+              <div class="step-content">
+                <div class="step-title">Chờ xác nhận tham gia</div>
+                <div class="step-desc">Hệ thống sẽ tự động phát hiện khi bạn vào server.</div>
+                <div class="poll-status" id="poll-status" style="display:none;">
+                  <div class="poll-dot"></div>
+                  <span id="poll-label">Đang chờ bạn tham gia server...</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="step" id="pending-step-3">
+              <div class="step-number">3</div>
+              <div class="step-content">
+                <div class="step-title">Hoàn tất liên kết</div>
+                <div class="step-desc">Sau khi tham gia server, nhấn nút bên dưới để hoàn tất.</div>
+                <button class="step-btn" id="btn-complete-link" disabled>
+                  Hoàn tất liên kết →
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn-ghost" onclick="window.location.href='index.html'">← Quay lại</button>
+        </div>
+      </section>
+
       <!-- Thành công -->
       <section id="screen-success" class="screen">
         <div class="success-box">
@@ -52,9 +145,8 @@
           <h1>Liên kết thành công!</h1>
           <p class="subtitle" id="success-subtitle"></p>
 
-          <!-- Trường hợp có DM channel (bot & user chung server) -->
           <div id="actions-has-dm" class="discord-actions" style="display:none;">
-            <a href="https://discord.com/@me" target="_blank" rel="noopener" class="btn-discord-web">
+            <a id="btn-open-web" href="https://discord.com/@me" target="_blank" rel="noopener" class="btn-discord-web">
               <svg viewBox="0 0 127.14 96.36" width="20" height="20"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"/></svg>
               Xem tin nhắn trong Discord Web
             </a>
@@ -65,16 +157,10 @@
             <p class="hint" id="app-hint" style="display:none;">Đã phát hiện Discord App trên máy bạn</p>
           </div>
 
-          <!-- Trường hợp không có DM channel (chưa chung server với bot) -->
           <div id="actions-no-dm" class="discord-actions" style="display:none;">
             <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;font-size:13px;color:#92400e;text-align:left;line-height:1.6;">
-              ⚠️ Bot chưa gửi được tin nhắn chào mừng vì bạn và bot chưa có server chung trên Discord.<br/><br/>
-              <strong>Cách khắc phục:</strong> Join server Discord của WISPACE, sau đó nhắn tin trực tiếp cho bot là có thể bắt đầu ngay.
+              ⚠️ Bot chưa gửi được tin nhắn chào mừng. Hãy nhắn tin trực tiếp cho bot trong server để bắt đầu.
             </div>
-            <a id="btn-join-server" href="#" target="_blank" rel="noopener" class="btn-discord-web" style="display:none;">
-              <svg viewBox="0 0 127.14 96.36" width="20" height="20"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"/></svg>
-              Join server WISPACE
-            </a>
           </div>
 
           <a href="index.html" class="back-link">← Quay lại cài đặt</a>
@@ -87,7 +173,7 @@
           <div class="success-icon" style="background:#ef4444;">✕</div>
           <h1>Liên kết thất bại</h1>
           <p class="subtitle" id="error-msg">Đã xảy ra lỗi trong quá trình liên kết.</p>
-          <a href="index.html" class="btn btn-primary"
+          <a id="btn-retry" href="index.html" class="btn btn-primary"
             style="display:block;text-decoration:none;text-align:center;margin-top:24px;padding:12px;">
             Thử lại
           </a>
@@ -97,91 +183,165 @@
   </div>
 
   <script>
+    const BACKEND_URL = 'http://localhost:3001';
+    const POLL_INTERVAL_MS = 3000;
+
     function showScreen(id) {
       document.querySelectorAll('.screen').forEach((el) => el.classList.remove('active'));
       document.getElementById(id).classList.add('active');
     }
 
+    function showSuccess({ discordUsername, botUserId, dmChannelId }) {
+      const usernameLabel = discordUsername
+        ? `Tài khoản Discord "<strong>${discordUsername}</strong>"`
+        : 'Tài khoản Discord của bạn';
+
+      if (dmChannelId) {
+        document.getElementById('success-subtitle').innerHTML =
+          `${usernameLabel} đã được kết nối với WISPACE.<br/>Bot đã gửi tin nhắn chào mừng vào Discord DM của bạn 🎉`;
+        const webUrl = `https://discord.com/channels/@me/${dmChannelId}`;
+        const appUrl = `discord://discord.com/channels/@me/${dmChannelId}`;
+        document.getElementById('btn-open-web').href = webUrl;
+        document.getElementById('actions-has-dm').style.display = 'flex';
+        detectDiscordApp(appUrl);
+      } else {
+        document.getElementById('success-subtitle').innerHTML =
+          `${usernameLabel} đã được kết nối với WISPACE.`;
+        document.getElementById('actions-no-dm').style.display = 'flex';
+      }
+
+      showScreen('screen-success');
+    }
+
+    // ── Pending flow ────────────────────────────────────────────────────────
+
+    function startPendingFlow(pendingToken, discordUsername, inviteUrl) {
+      // Wire join-server button
+      const btnJoin = document.getElementById('btn-join-server');
+      btnJoin.href = inviteUrl || 'https://discord.gg/R3CS2WEu';
+
+      // When user clicks join → show poll indicator on step 2 + start polling
+      btnJoin.addEventListener('click', () => {
+        document.getElementById('pending-step-1').classList.add('done');
+        document.getElementById('pending-step-1').querySelector('.step-number').textContent = '✓';
+        document.getElementById('pending-step-2').classList.add('waiting');
+        document.getElementById('poll-status').style.display = 'flex';
+        startPolling(pendingToken, discordUsername);
+      }, { once: true });
+
+      showScreen('screen-pending');
+    }
+
+    function startPolling(pendingToken, discordUsername) {
+      const pollLabel = document.getElementById('poll-label');
+      const btnComplete = document.getElementById('btn-complete-link');
+
+      const intervalId = setInterval(async () => {
+        try {
+          const res = await fetch(
+            `${BACKEND_URL}/discord/guild/join-status?token=${encodeURIComponent(pendingToken)}`
+          );
+          const data = await res.json();
+
+          if (data.expired) {
+            clearInterval(intervalId);
+            document.getElementById('error-msg').textContent =
+              'Phiên liên kết đã hết hạn. Vui lòng thử lại.';
+            showScreen('screen-error');
+            return;
+          }
+
+          if (data.joined) {
+            clearInterval(intervalId);
+            // Mark step 2 done, enable step 3
+            document.getElementById('pending-step-2').classList.remove('waiting');
+            document.getElementById('pending-step-2').classList.add('done');
+            document.getElementById('pending-step-2').querySelector('.step-number').textContent = '✓';
+            pollLabel.textContent = 'Đã tham gia server! ✓';
+            document.getElementById('poll-dot') && document.getElementById('poll-dot').remove();
+            btnComplete.disabled = false;
+            document.getElementById('pending-step-3').classList.add('waiting');
+          }
+        } catch {
+          pollLabel.textContent = 'Đang thử lại...';
+        }
+      }, POLL_INTERVAL_MS);
+
+      // Wire complete button
+      btnComplete.addEventListener('click', async () => {
+        btnComplete.disabled = true;
+        btnComplete.textContent = 'Đang liên kết...';
+        try {
+          const res = await fetch(`${BACKEND_URL}/discord/guild/complete-link`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: pendingToken }),
+          });
+          const data = await res.json();
+          if (!data.success) {
+            document.getElementById('error-msg').textContent =
+              data.error === 'NOT_IN_GUILD'
+                ? 'Bot vẫn chưa thấy bạn trong server. Đợi thêm vài giây rồi thử lại.'
+                : (data.error ?? 'Có lỗi xảy ra.');
+            showScreen('screen-error');
+            return;
+          }
+          showSuccess({
+            discordUsername,
+            botUserId: data.botUserId,
+            dmChannelId: data.dmChannelId,
+          });
+        } catch {
+          document.getElementById('error-msg').textContent =
+            'Không thể kết nối backend. Thử lại sau.';
+          showScreen('screen-error');
+        }
+      });
+    }
+
+    // ── Bootstrap ────────────────────────────────────────────────────────────
+
     const params = new URLSearchParams(window.location.search);
-
-    const botUserId = params.get('botUserId') || '';
-    const dmChannelId = params.get('dmChannelId') || '';
-    const discordUsername = params.get('discordUsername') || '';
-
-    const usernameLabel = discordUsername
-      ? `Tài khoản Discord "${discordUsername}"`
-      : 'Tài khoản Discord của bạn';
 
     if (params.has('error')) {
       document.getElementById('error-msg').textContent = params.get('error');
       showScreen('screen-error');
+    } else if (params.has('pendingToken')) {
+      startPendingFlow(
+        params.get('pendingToken'),
+        params.get('discordUsername') || '',
+        params.get('inviteUrl') || '',
+      );
     } else {
-      showScreen('screen-success');
-
-      if (dmChannelId) {
-        // Bot gửi DM được → chung server → hiện nút mở Discord
-        document.getElementById('success-subtitle').innerHTML =
-          `<strong>${usernameLabel}</strong> đã được kết nối với WISPACE.<br/>Bot đã gửi tin nhắn chào mừng vào Discord DM của bạn 🎉`;
-
-        const WEB_URL = `https://discord.com/channels/@me/${dmChannelId}`;
-        const APP_URL = `discord://discord.com/channels/@me/${dmChannelId}`;
-        document.querySelector('#actions-has-dm .btn-discord-web').href = WEB_URL;
-        document.getElementById('actions-has-dm').style.display = 'flex';
-        detectDiscordApp(APP_URL);
-      } else {
-        // Bot không gửi được DM → chưa chung server
-        document.getElementById('success-subtitle').innerHTML =
-          `<strong>${usernameLabel}</strong> đã được kết nối với WISPACE.`;
-
-        // Hiện nút Join server nếu có DISCORD_SERVER_INVITE_URL nhúng sẵn
-        const inviteUrl = document.body.dataset.serverInvite || '';
-        if (inviteUrl) {
-          const btnJoin = document.getElementById('btn-join-server');
-          btnJoin.href = inviteUrl;
-          btnJoin.style.display = 'flex';
-        }
-        document.getElementById('actions-no-dm').style.display = 'flex';
-      }
+      showSuccess({
+        discordUsername: params.get('discordUsername') || '',
+        botUserId: params.get('botUserId') || '',
+        dmChannelId: params.get('dmChannelId') || '',
+      });
     }
 
-    /**
-     * Thử navigate đến discord:// protocol bằng hidden iframe.
-     * Nếu browser handle được (app đã cài) → hiện nút "Mở Discord App".
-     * Nếu không → chỉ hiện nút Discord Web (mặc định).
-     */
+    // ── Discord App detection ────────────────────────────────────────────────
+
     function detectDiscordApp(appUrl) {
       const btn = document.getElementById('btn-open-app');
       const hint = document.getElementById('app-hint');
-
       let appDetected = false;
       const iframe = document.createElement('iframe');
       iframe.style.display = 'none';
       document.body.appendChild(iframe);
-
-      const timeout = setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 1500);
-
+      const timeout = setTimeout(() => document.body.removeChild(iframe), 1500);
       const onBlur = () => {
         appDetected = true;
         clearTimeout(timeout);
         document.body.removeChild(iframe);
         window.removeEventListener('blur', onBlur);
-
         btn.href = appUrl;
         btn.classList.add('visible');
         hint.style.display = 'block';
       };
-
       window.addEventListener('blur', onBlur);
-
-      setTimeout(() => {
-        try { iframe.src = appUrl; } catch (_) { /* ignore */ }
-      }, 300);
-
-      setTimeout(() => {
-        if (!appDetected) window.removeEventListener('blur', onBlur);
-      }, 2000);
+      setTimeout(() => { try { iframe.src = appUrl; } catch (_) {} }, 300);
+      setTimeout(() => { if (!appDetected) window.removeEventListener('blur', onBlur); }, 2000);
     }
   </script>
 </body>

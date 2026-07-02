@@ -16,8 +16,8 @@
     {
       "name": "mock-fe-discord-link",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["serve", "-l", "4321", "mock-fe-discord-link"],
-      "port": 4321
+      "runtimeArgs": ["serve", "-l", "4322", "mock-fe-discord-link"],
+      "port": 4322
     }
   ]
 }

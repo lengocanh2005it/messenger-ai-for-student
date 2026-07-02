@@ -55,6 +55,8 @@ export class DiscordAgentService {
     const toolContext: DiscordAgentToolContext = {
       discordUserId: input.discordUserId,
       userId: input.userId,
+      isServerChannel: input.isServerChannel,
+      privateDataFetched: false,
     };
 
     const history = await this.historyService.getHistory(input.discordUserId);
@@ -77,7 +79,10 @@ export class DiscordAgentService {
       result.text,
     );
 
-    return { text: result.text };
+    return {
+      text: result.text,
+      privateDataFetched: toolContext.privateDataFetched,
+    };
   }
 
   private buildAgent(): LlmAgentService<DiscordAgentToolContext> {

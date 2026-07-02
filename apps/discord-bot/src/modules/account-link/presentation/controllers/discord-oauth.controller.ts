@@ -5,6 +5,8 @@ import { DiscordAccountLinkService } from '../../application/services/discord-ac
 import { WispaceDiscordTokenVerifyService } from '../../infrastructure/wispace/wispace-discord-token-verify.service';
 import { DiscordOutboundService } from '../../../discord-chat/application/services/discord-outbound.service';
 import { buildDiscordLinkWelcomeMessage } from '../../application/messages/account-link.messages';
+import { DiscordGuildMembershipService } from '../../application/services/discord-guild-membership.service';
+import { DiscordPendingJoinService } from '../../application/services/discord-pending-join.service';
 
 @Controller('discord/oauth')
 export class DiscordOauthController {
@@ -15,6 +17,8 @@ export class DiscordOauthController {
     private readonly tokenVerifyService: WispaceDiscordTokenVerifyService,
     private readonly accountLinkService: DiscordAccountLinkService,
     private readonly outboundService: DiscordOutboundService,
+    private readonly guildMembershipService: DiscordGuildMembershipService,
+    private readonly pendingJoinService: DiscordPendingJoinService,
   ) {}
 
   /**
@@ -54,7 +58,10 @@ export class DiscordOauthController {
     @Res() res: Response,
   ): Promise<void> {
     if (!code || !token) {
-      this.sendResultPage(res, false, 'Thiếu code hoặc token.');
+      this.sendResult(res, {
+        type: 'error',
+        message: 'Thiếu code hoặc token.',
+      });
       return;
     }
 
@@ -63,7 +70,7 @@ export class DiscordOauthController {
         await this.accountLinkService.exchangeCodeForDiscordUser(code);
       const { id: discordUserId, username: discordUsername } = discordUser;
 
-      // Dev bypass: skip WISPACE verify when DISCORD_DEV_LINK_TOKEN matches
+      // Dev bypass: skip WISPACE verify + guild check when DISCORD_DEV_LINK_TOKEN matches
       const devToken = this.configService.get<string>('DISCORD_DEV_LINK_TOKEN');
       const devUserId = this.configService.get<string>(
         'DISCORD_DEV_LINK_USER_ID',
@@ -71,7 +78,7 @@ export class DiscordOauthController {
 
       if (devToken && devUserId && token === devToken) {
         this.logger.warn(
-          `Dev bypass: skipping WISPACE verify for token=${token.slice(0, 8)}…`,
+          `Dev bypass: skipping guild check + WISPACE verify for token=${token.slice(0, 8)}…`,
         );
         await this.accountLinkService.upsertLink(
           Number(devUserId),
@@ -81,16 +88,14 @@ export class DiscordOauthController {
           discordUserId,
           buildDiscordLinkWelcomeMessage(discordUsername),
         );
-        const botId =
+        const botUserId =
           this.configService.getOrThrow<string>('DISCORD_CLIENT_ID');
-        this.sendResultPage(
-          res,
-          true,
-          undefined,
-          botId,
+        this.sendResult(res, {
+          type: 'success',
+          botUserId,
           dmChannelId,
           discordUsername,
-        );
+        });
         return;
       }
 
@@ -100,7 +105,29 @@ export class DiscordOauthController {
       );
 
       if (!verifyResult.valid) {
-        this.sendResultPage(res, false, 'Link đã hết hạn hoặc không hợp lệ.');
+        this.sendResult(res, {
+          type: 'error',
+          message: 'Link đã hết hạn hoặc không hợp lệ.',
+        });
+        return;
+      }
+
+      // Guild membership check — must join server before account can be linked
+      const inGuild = await this.guildMembershipService.isMember(discordUserId);
+      if (!inGuild) {
+        this.logger.warn(
+          `Guild check failed: discordUserId=${discordUserId} not in guild — issuing pending token`,
+        );
+        const pendingToken = this.pendingJoinService.create(
+          discordUserId,
+          verifyResult.userId,
+          discordUsername,
+        );
+        this.sendResult(res, {
+          type: 'pending',
+          pendingToken,
+          discordUsername,
+        });
         return;
       }
 
@@ -115,65 +142,91 @@ export class DiscordOauthController {
       );
       const botUserId =
         this.configService.getOrThrow<string>('DISCORD_CLIENT_ID');
-      this.sendResultPage(
-        res,
-        true,
-        undefined,
+      this.sendResult(res, {
+        type: 'success',
         botUserId,
         dmChannelId,
         discordUsername,
-      );
+      });
     } catch (error) {
       this.logger.error(
         `Discord OAuth callback failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      this.sendResultPage(res, false, 'Có lỗi xảy ra, vui lòng thử lại.');
+      this.sendResult(res, {
+        type: 'error',
+        message: 'Có lỗi xảy ra, vui lòng thử lại.',
+      });
     }
   }
 
-  /**
-   * Redirects to DISCORD_OAUTH_FRONTEND_CALLBACK_URL if set (dev/prod FE),
-   * otherwise falls back to a minimal inline HTML page.
-   */
-  private sendResultPage(
+  private sendResult(
     res: Response,
-    success: boolean,
-    message?: string,
-    botUserId?: string,
-    dmChannelId?: string,
-    discordUsername?: string,
+    result:
+      | {
+          type: 'success';
+          botUserId: string;
+          dmChannelId?: string;
+          discordUsername: string;
+        }
+      | { type: 'pending'; pendingToken: string; discordUsername: string }
+      | { type: 'error'; message: string },
   ): void {
     const frontendUrl = this.configService.get<string>(
       'DISCORD_OAUTH_FRONTEND_CALLBACK_URL',
     );
+    const inviteUrl =
+      this.configService.get<string>('DISCORD_INVITE_URL') ?? '';
 
     if (frontendUrl) {
       const url = new URL(frontendUrl);
-      if (!success) url.searchParams.set('error', message ?? 'Có lỗi xảy ra.');
-      if (botUserId) url.searchParams.set('botUserId', botUserId);
-      if (dmChannelId) url.searchParams.set('dmChannelId', dmChannelId);
-      if (discordUsername)
-        url.searchParams.set('discordUsername', discordUsername);
+      if (result.type === 'error') {
+        url.searchParams.set('error', result.message);
+      } else if (result.type === 'pending') {
+        url.searchParams.set('pendingToken', result.pendingToken);
+        url.searchParams.set('discordUsername', result.discordUsername);
+        if (inviteUrl) url.searchParams.set('inviteUrl', inviteUrl);
+      } else {
+        if (result.botUserId)
+          url.searchParams.set('botUserId', result.botUserId);
+        if (result.dmChannelId)
+          url.searchParams.set('dmChannelId', result.dmChannelId);
+        if (result.discordUsername)
+          url.searchParams.set('discordUsername', result.discordUsername);
+      }
       res.redirect(url.toString());
       return;
     }
 
-    const title = success ? 'Kết nối thành công' : 'Kết nối thất bại';
-    const body = success
-      ? 'Bạn đã kết nối Discord với WISPACE thành công. Có thể đóng tab này và quay lại Discord.'
-      : (message ?? 'Có lỗi xảy ra.');
-
-    res.status(success ? 200 : 400).type('html').send(`
-      <!doctype html>
-      <html lang="vi">
-        <head><meta charset="utf-8"><title>${title}</title></head>
-        <body style="font-family: sans-serif; text-align: center; padding-top: 3rem;">
-          <h2>${title}</h2>
-          <p>${body}</p>
-        </body>
-      </html>
-    `);
+    // Inline fallback HTML (no frontend URL configured)
+    if (result.type === 'success') {
+      res.status(200).type('html').send(`
+        <!doctype html><html lang="vi"><head><meta charset="utf-8">
+        <title>Kết nối thành công</title></head>
+        <body style="font-family:sans-serif;text-align:center;padding-top:3rem;">
+          <h2>Kết nối thành công</h2>
+          <p>Tài khoản Discord <strong>${result.discordUsername}</strong> đã liên kết với WISPACE.</p>
+        </body></html>
+      `);
+    } else if (result.type === 'pending') {
+      res.status(200).type('html').send(`
+        <!doctype html><html lang="vi"><head><meta charset="utf-8">
+        <title>Tham gia server trước</title></head>
+        <body style="font-family:sans-serif;text-align:center;padding-top:3rem;">
+          <h2>Bạn chưa trong server WISPACE</h2>
+          <p>Tham gia server rồi quay lại để hoàn tất liên kết.</p>
+          ${inviteUrl ? `<a href="${inviteUrl}">Tham gia server →</a>` : ''}
+        </body></html>
+      `);
+    } else {
+      res.status(400).type('html').send(`
+        <!doctype html><html lang="vi"><head><meta charset="utf-8">
+        <title>Kết nối thất bại</title></head>
+        <body style="font-family:sans-serif;text-align:center;padding-top:3rem;">
+          <h2>Kết nối thất bại</h2><p>${result.message}</p>
+        </body></html>
+      `);
+    }
   }
 }
