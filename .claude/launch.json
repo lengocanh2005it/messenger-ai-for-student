@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "messenger-bot",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start:dev", "--workspace=apps/messenger-bot"],
+      "port": 3000
+    },
+    {
+      "name": "discord-bot",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start:dev", "--workspace=apps/discord-bot"],
+      "port": 3001
+    },
+    {
+      "name": "mock-fe-discord-link",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "4321", "mock-fe-discord-link"],
+      "port": 4321
+    }
+  ]
+}

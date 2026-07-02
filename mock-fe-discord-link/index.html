@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WISPACE — Liên kết Discord (Mock)</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="logo">WISPACE</div>
+      <div class="user-chip">
+        <img src="https://api.dicebear.com/7.x/initials/svg?seed=Anh" alt="avatar" />
+        <span>Ngọc Anh</span>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- STEP 1: Trang cài đặt liên kết -->
+      <section id="screen-settings" class="screen active">
+        <h1>Liên kết tài khoản</h1>
+        <p class="subtitle">Kết nối WISPACE với các nền tảng chat để nhận báo cáo học tập &amp; nhắc lịch học tự động.</p>
+
+        <div class="link-card">
+          <div class="link-card-left">
+            <div class="platform-icon messenger">M</div>
+            <div>
+              <div class="platform-name">Messenger</div>
+              <div class="platform-status linked">
+                <span class="dot"></span> Đã liên kết
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-outline" disabled>Đã kết nối</button>
+        </div>
+
+        <div class="link-card">
+          <div class="link-card-left">
+            <div class="platform-icon discord">
+              <svg viewBox="0 0 127.14 96.36" width="22" height="22"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"/></svg>
+            </div>
+            <div>
+              <div class="platform-name">Discord</div>
+              <div class="platform-status unlinked" id="discord-status">
+                <span class="dot"></span> Chưa liên kết
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-discord" id="btn-link-discord">Liên kết với Discord</button>
+        </div>
+
+        <div class="link-card disabled">
+          <div class="link-card-left">
+            <div class="platform-icon zalo">Z</div>
+            <div>
+              <div class="platform-name">Zalo</div>
+              <div class="platform-status unlinked"><span class="dot"></span> Sắp ra mắt</div>
+            </div>
+          </div>
+          <button class="btn btn-outline" disabled>Sắp ra mắt</button>
+        </div>
+      </section>
+
+      <!-- STEP 2: Loading redirect -->
+      <section id="screen-loading" class="screen">
+        <div class="loading-box">
+          <div class="spinner"></div>
+          <p>Đang chuyển đến Discord để xác thực...</p>
+        </div>
+      </section>
+
+      <!-- STEP 3: Discord OAuth consent (mock) -->
+      <section id="screen-oauth" class="screen">
+        <div class="oauth-card">
+          <div class="oauth-header">
+            <svg viewBox="0 0 127.14 96.36" width="40" height="40"><path fill="#5865F2" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"/></svg>
+            <h2>WISPACE Bot muốn truy cập tài khoản của bạn</h2>
+          </div>
+          <div class="oauth-user">
+            <img src="https://api.dicebear.com/7.x/bottts/svg?seed=discorduser" alt="discord avatar" />
+            <div>
+              <div class="oauth-username">ngocanh#0420</div>
+              <div class="oauth-sub">Đăng nhập với Discord</div>
+            </div>
+          </div>
+          <div class="oauth-perms">
+            <div class="perm-item">✓ Xem tên người dùng &amp; avatar Discord của bạn</div>
+            <div class="perm-item">✓ Gửi tin nhắn nhắc lịch học qua Discord DM</div>
+          </div>
+          <div class="oauth-actions">
+            <button class="btn btn-outline" id="btn-oauth-cancel">Hủy</button>
+            <button class="btn btn-discord" id="btn-oauth-authorize">Ủy quyền</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 4: Success -->
+      <section id="screen-success" class="screen">
+        <div class="success-box">
+          <div class="success-icon">✓</div>
+          <h1>Liên kết thành công!</h1>
+          <p class="subtitle">Tài khoản Discord của bạn đã được kết nối với WISPACE.</p>
+
+          <div class="linked-account-card">
+            <img src="https://api.dicebear.com/7.x/bottts/svg?seed=discorduser" alt="discord avatar" />
+            <div>
+              <div class="platform-name">ngocanh#0420</div>
+              <div class="platform-status linked"><span class="dot"></span> Đã liên kết lúc 14:32, 02/07/2026</div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="btn-back-settings">Quay lại cài đặt</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

@@ -3,8 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { WispaceDiscordTokenVerifyService } from './wispace-discord-token-verify.service';
 
 const CONFIG_VALUES: Record<string, string> = {
-  WISPACE_API_VERIFY_DISCORD_TOKEN_URL:
-    'https://backend.example.com/api/User/verify-discord-token',
+  WISPACE_API_VERIFY_TOKEN_URL:
+    'https://backend.example.com/api/User/verify-token-url',
   WISPACE_INTERNAL_KEY: 'internal-key',
 };
 
@@ -34,7 +34,7 @@ describe('WispaceDiscordTokenVerifyService', () => {
 
     expect(result).toEqual({ valid: true, userId: 143 });
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://backend.example.com/api/User/verify-discord-token',
+      'https://backend.example.com/api/User/verify-token-url',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({ 'X-Internal-Key': 'internal-key' }),
@@ -70,6 +70,6 @@ describe('WispaceDiscordTokenVerifyService', () => {
 
     await expect(
       service.verifyToken('token', 'discord-user-1'),
-    ).rejects.toThrow('WISPACE_API_VERIFY_DISCORD_TOKEN_URL must be set');
+    ).rejects.toThrow('WISPACE_API_VERIFY_TOKEN_URL must be set');
   });
 });

@@ -6,6 +6,22 @@ Liên quan: [project-overview.md](./project-overview.md) § deploy, `.github/wor
 
 ---
 
+## 0. Biến dùng chung nhiều bot — Doppler secret reference
+
+`messenger-bot` + `discord-bot` (và `zalo-bot` sau này) dùng chung một số biến (`WISPACE_INTERNAL_KEY`, `OPENAI_*`, `DB_*`, `STUDY_REMINDER_TIMEZONE`/`SYNC_HORIZON_HOURS`/`MIN_LEAD_MINUTES`, `LLM_USAGE_*`, `LLM_COST_USD_PER_1M_*`, `CHAT_USAGE_TIMEZONE` — danh sách đầy đủ + giá trị mẫu ở [`.env.shared.example`](../../../.env.shared.example) tại root repo). Local dev đọc file này qua `envFilePath: ['.env', '../../.env.shared']` (mỗi app's `.env` override nếu trùng key). Production **không** có file `.env.shared` trong container (Doppler flatten hết thành 1 file `.env` khi deploy), nên phải giải quyết trùng lặp ở tầng Doppler:
+
+1. Tạo project mới **`wispace-shared`** trên Doppler (config `prd` + `dev`), nhập các biến trong `.env.shared.example` với giá trị thật.
+2. Ở project riêng của từng bot (`messenger-bot`, `discord-bot`, ...), với mỗi biến trùng, **xoá giá trị gõ tay** và thay bằng secret reference:
+   ```
+   ${{wispace-shared.prd.WISPACE_INTERNAL_KEY}}
+   ```
+   (đổi `prd` → `dev` cho config dev). Doppler tự inline giá trị thật lúc `doppler secrets download`.
+3. Sửa 1 lần ở `wispace-shared`, mọi bot tham chiếu tới đều cập nhật theo — không cần sửa từng project.
+
+`discord-bot` hiện **chưa có** Doppler project riêng (mới chỉ dùng `.env` tay) — khi setup, làm theo mục 1 dưới đây với `project: discord-bot`, rồi áp bước 2 ở trên cho các biến chung.
+
+---
+
 ## 1. Tạo project trên Doppler (một lần)
 
 1. Đăng ký [Doppler](https://dashboard.doppler.com/) → **Create Project** (vd. `messenger-bot`).

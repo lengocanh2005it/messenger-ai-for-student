@@ -25,14 +25,12 @@ export function isStrictProductionRuntime(
   return enforce === 'true' || enforce === '1' || enforce === 'yes';
 }
 
-export function readMessengerTokenVerifyUrl(
+/** Shared verify-token URL — same endpoint for all 3 bots (payload: { token, value, platform }). */
+export function readWispaceVerifyTokenUrl(
   configService: ConfigService,
 ): string | undefined {
   return (
-    configService
-      .get<string>('WISPACE_API_VERIFY_MESSENGER_TOKEN_URL')
-      ?.trim() ||
-    configService.get<string>('WISPACE_API_VERIFY_MESSENGER_TOKEN')?.trim() ||
+    configService.get<string>('WISPACE_API_VERIFY_TOKEN_URL')?.trim() ||
     undefined
   );
 }

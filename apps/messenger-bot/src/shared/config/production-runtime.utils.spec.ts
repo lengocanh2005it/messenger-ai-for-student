@@ -1,7 +1,7 @@
 import {
   isStrictProductionRuntime,
   isTestRuntime,
-  readMessengerTokenVerifyUrl,
+  readWispaceVerifyTokenUrl,
 } from './production-runtime.utils';
 import { ConfigService } from '@nestjs/config';
 
@@ -11,26 +11,18 @@ describe('production-runtime.utils', () => {
       get: (key: string) => env[key],
     }) as ConfigService;
 
-  it('reads legacy WISPACE_API_VERIFY_MESSENGER_TOKEN alias', () => {
+  it('reads WISPACE_API_VERIFY_TOKEN_URL (shared across all 3 bots)', () => {
     expect(
-      readMessengerTokenVerifyUrl(
+      readWispaceVerifyTokenUrl(
         config({
-          WISPACE_API_VERIFY_MESSENGER_TOKEN:
-            'https://example.com/verify-messenger-token',
+          WISPACE_API_VERIFY_TOKEN_URL: 'https://example.com/verify-token-url',
         }),
       ),
-    ).toBe('https://example.com/verify-messenger-token');
+    ).toBe('https://example.com/verify-token-url');
   });
 
-  it('prefers WISPACE_API_VERIFY_MESSENGER_TOKEN_URL', () => {
-    expect(
-      readMessengerTokenVerifyUrl(
-        config({
-          WISPACE_API_VERIFY_MESSENGER_TOKEN_URL: 'https://example.com/url',
-          WISPACE_API_VERIFY_MESSENGER_TOKEN: 'https://example.com/legacy',
-        }),
-      ),
-    ).toBe('https://example.com/url');
+  it('returns undefined when WISPACE_API_VERIFY_TOKEN_URL is unset', () => {
+    expect(readWispaceVerifyTokenUrl(config({}))).toBeUndefined();
   });
 
   it('detects strict production via ENFORCE_PROD_CHAT_QUOTA', () => {

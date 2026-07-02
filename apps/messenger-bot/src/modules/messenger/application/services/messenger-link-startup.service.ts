@@ -6,7 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   isTestRuntime,
-  readMessengerTokenVerifyUrl,
+  readWispaceVerifyTokenUrl,
 } from '../../../../shared/config/production-runtime.utils';
 
 @Injectable()
@@ -25,10 +25,10 @@ export class MessengerLinkStartupService implements OnModuleInit {
       );
     }
 
-    const verifyUrl = readMessengerTokenVerifyUrl(this.configService);
+    const verifyUrl = readWispaceVerifyTokenUrl(this.configService);
     if (!verifyUrl) {
       throw new InternalServerErrorException(
-        'WISPACE_API_VERIFY_MESSENGER_TOKEN_URL must be set — Messenger account linking requires WISPACE token verify',
+        'WISPACE_API_VERIFY_TOKEN_URL must be set — Messenger account linking requires WISPACE token verify',
       );
     }
 

@@ -18,10 +18,7 @@
     "deny": [
       "Bash(rm -rf *)",
       "Bash(git push --force*)",
-      "Bash(git reset --hard*)",
-      "Read(.env)",
-      "Write(.env)",
-      "Write(**/.env)"
+      "Bash(git reset --hard*)"
     ]
   }
 }

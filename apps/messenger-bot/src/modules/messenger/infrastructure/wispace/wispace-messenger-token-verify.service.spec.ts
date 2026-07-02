@@ -3,13 +3,13 @@ import { WispaceMessengerTokenVerifyService } from './wispace-messenger-token-ve
 
 describe('WispaceMessengerTokenVerifyService', () => {
   const verifyUrl =
-    'https://backend.aihubproduction.com/api/User/verify-messenger-token';
+    'https://backend.aihubproduction.com/api/User/verify-token-url';
 
   const createService = (env: Record<string, string | undefined> = {}) => {
     const configService = {
       get: (key: string) =>
         ({
-          WISPACE_API_VERIFY_MESSENGER_TOKEN_URL: verifyUrl,
+          WISPACE_API_VERIFY_TOKEN_URL: verifyUrl,
           WISPACE_INTERNAL_KEY: 'internal-secret',
           ...env,
         })[key],

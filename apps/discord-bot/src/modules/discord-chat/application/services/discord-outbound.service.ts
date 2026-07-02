@@ -23,15 +23,25 @@ export class DiscordOutboundService {
   constructor(private readonly client: Client) {}
 
   async sendText(discordUserId: string, text: string): Promise<void> {
+    await this.sendTextAndGetChannelId(discordUserId, text);
+  }
+
+  /** Sends a DM and returns the DM channel id (used to build deep links). */
+  async sendTextAndGetChannelId(
+    discordUserId: string,
+    text: string,
+  ): Promise<string | undefined> {
     try {
       const user = await this.client.users.fetch(discordUserId);
-      await user.send(text);
+      const msg = await user.send(text);
+      return msg.channelId;
     } catch (error) {
       this.logger.warn(
         `Failed to send DM to discordUserId=${discordUserId}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
+      return undefined;
     }
   }
 
