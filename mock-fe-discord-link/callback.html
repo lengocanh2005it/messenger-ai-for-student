@@ -104,22 +104,14 @@
             <div class="step" id="pending-step-2">
               <div class="step-number">2</div>
               <div class="step-content">
-                <div class="step-title">Chờ xác nhận tham gia</div>
-                <div class="step-desc">Hệ thống sẽ tự động phát hiện khi bạn vào server.</div>
+                <div class="step-title">Hệ thống tự động hoàn tất</div>
+                <div class="step-desc">Sau khi bạn vào server, bot sẽ tự động liên kết tài khoản — không cần làm thêm gì.</div>
                 <div class="poll-status" id="poll-status" style="display:none;">
-                  <div class="poll-dot"></div>
+                  <div class="poll-dot" id="poll-dot"></div>
                   <span id="poll-label">Đang chờ bạn tham gia server...</span>
                 </div>
-              </div>
-            </div>
-
-            <div class="step" id="pending-step-3">
-              <div class="step-number">3</div>
-              <div class="step-content">
-                <div class="step-title">Hoàn tất liên kết</div>
-                <div class="step-desc">Sau khi tham gia server, nhấn nút bên dưới để hoàn tất.</div>
-                <button class="step-btn" id="btn-complete-link" disabled>
-                  Hoàn tất liên kết →
+                <button class="step-btn" id="btn-complete-link" style="display:none;margin-top:10px;">
+                  Thử lại →
                 </button>
               </div>
             </div>
@@ -213,19 +205,19 @@
     // ── Pending flow ────────────────────────────────────────────────────────
 
     function startPendingFlow(pendingToken, discordUsername, inviteUrl) {
-      // Wire join-server button
       const btnJoin = document.getElementById('btn-join-server');
       btnJoin.href = inviteUrl || 'https://discord.gg/R3CS2WEu';
 
-      // When user clicks join → show poll indicator on step 2 + start polling
+      // Mark step 1 done as soon as user clicks join (they opened the invite)
       btnJoin.addEventListener('click', () => {
         document.getElementById('pending-step-1').classList.add('done');
         document.getElementById('pending-step-1').querySelector('.step-number').textContent = '✓';
         document.getElementById('pending-step-2').classList.add('waiting');
         document.getElementById('poll-status').style.display = 'flex';
-        startPolling(pendingToken, discordUsername);
       }, { once: true });
 
+      // Start polling immediately — bot detects guildMemberAdd automatically
+      startPolling(pendingToken, discordUsername);
       showScreen('screen-pending');
     }
 
@@ -259,9 +251,8 @@
 
     function startPolling(pendingToken, discordUsername) {
       const pollLabel = document.getElementById('poll-label');
-      const btnComplete = document.getElementById('btn-complete-link');
+      const btnRetry = document.getElementById('btn-complete-link');
       let joinedDetected = false;
-      let buttonWired = false;
 
       const intervalId = setInterval(async () => {
         try {
@@ -280,37 +271,37 @@
 
           if (data.joined && !joinedDetected) {
             joinedDetected = true;
-            // Mark step 2 done visually
+            // Ensure step 1 marked done (in case user joined without clicking button)
+            document.getElementById('pending-step-1').classList.add('done');
+            document.getElementById('pending-step-1').querySelector('.step-number').textContent = '✓';
+            document.getElementById('pending-step-2').classList.add('waiting');
+            document.getElementById('poll-status').style.display = 'flex';
+            pollLabel.textContent = 'Đã vào server — đang hoàn tất liên kết...';
+
+            // Show retry button after 30s in case bot is slow
+            setTimeout(() => {
+              if (document.getElementById('screen-pending').classList.contains('active')) {
+                btnRetry.style.display = 'inline-flex';
+                btnRetry.addEventListener('click', async () => {
+                  clearInterval(intervalId);
+                  btnRetry.style.display = 'none';
+                  pollLabel.textContent = 'Đang liên kết...';
+                  await doCompleteLink(pendingToken, discordUsername);
+                }, { once: true });
+              }
+            }, 30000);
+          }
+
+          // Auto-complete when bot signals done
+          if (data.joined && data.completed) {
+            clearInterval(intervalId);
             document.getElementById('pending-step-2').classList.remove('waiting');
             document.getElementById('pending-step-2').classList.add('done');
             document.getElementById('pending-step-2').querySelector('.step-number').textContent = '✓';
-            pollLabel.textContent = 'Đã tham gia server! ✓';
-            const dot = document.getElementById('poll-dot');
-            if (dot) dot.remove();
-            // Enable button immediately as fallback (user can click while bot is processing)
-            btnComplete.disabled = false;
-            document.getElementById('pending-step-3').classList.add('waiting');
-            if (!buttonWired) {
-              buttonWired = true;
-              btnComplete.addEventListener('click', async () => {
-                clearInterval(intervalId);
-                btnComplete.disabled = true;
-                btnComplete.textContent = 'Đang liên kết...';
-                await doCompleteLink(pendingToken, discordUsername);
-              });
-            }
-          }
-
-          // Keep polling until completed:true — handles race with guildMemberAdd handler
-          if (data.joined && data.completed) {
-            clearInterval(intervalId);
-            document.getElementById('pending-step-3').classList.remove('waiting');
-            document.getElementById('pending-step-3').classList.add('done');
-            document.getElementById('pending-step-3').querySelector('.step-number').textContent = '✓';
             await doCompleteLink(pendingToken, discordUsername);
           }
         } catch {
-          pollLabel.textContent = 'Đang thử lại...';
+          if (pollLabel) pollLabel.textContent = 'Đang thử lại...';
         }
       }, POLL_INTERVAL_MS);
     }
