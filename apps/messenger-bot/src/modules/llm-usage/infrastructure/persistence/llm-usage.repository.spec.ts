@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { LlmUsageEventEntity } from '../../../../infrastructure/database/entities/llm-usage-event.entity';
+import { LlmUsageEventEntity } from '@wispace/chat-metering';
 import { LlmUsageRepository } from './llm-usage.repository';
 
 describe('LlmUsageRepository', () => {

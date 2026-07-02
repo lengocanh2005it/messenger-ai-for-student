@@ -43,9 +43,9 @@ describe('MemoryChatHistoryStore', () => {
 
     const state = (
       store as unknown as {
-        store: Map<string, { updatedAt: number }>;
+        core: { store: Map<string, { updatedAt: number }> };
       }
-    ).store.get('psid-1');
+    ).core.store.get('psid-1');
     if (state) {
       state.updatedAt = Date.now() - 2_000;
     }

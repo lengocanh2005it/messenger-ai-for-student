@@ -7,6 +7,8 @@ paths: apps/messenger-bot/src/modules/chat-rate-limit/**
 
 Quota FREE_FORM cho chat AI hai chiều. V1 + hardening **H1–H7 ✓**.
 
+**Core reserve/refund/daily-limit** (SQL atomic, `chat_daily_usage`/`chat_idempotency`) đã tách vào `packages/chat-metering` (`ChatRateLimitCore` + `ChatRateLimitRepository`), dùng chung với `apps/discord-bot` (platform='discord'). File trong module này (`ChatRateLimitRepository` infra) giờ là **thin wrapper** quanh package core (platform='messenger') — whitelist, quota-event audit (`chat_quota_events`), burst Redis, ops recovery/CLI **vẫn ở lại messenger-bot**, không có ở Discord. Xem `.claude/rules/clean-architecture.md` mục `packages/chat-metering`.
+
 ## Luồng (hook reserve)
 
 ```

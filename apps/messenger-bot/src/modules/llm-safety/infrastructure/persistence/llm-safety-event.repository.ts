@@ -1,45 +1,36 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { LlmSafetyEventEntity } from '../../../../infrastructure/database/entities/llm-safety-event.entity';
+import {
+  LlmSafetyEventEntity,
+  LlmSafetyEventRepository as ChatMeteringLlmSafetyEventRepository,
+} from '@wispace/chat-metering';
 import type { InsertLlmSafetyEvent } from '../../domain/entities/llm-safety-event.types';
 import type { LlmSafetyEventRepositoryPort } from '../../domain/repositories/llm-safety-event.repository.port';
 
+/** This repository only ever writes rows for the Messenger bot. */
+const PLATFORM = 'messenger' as const;
+
 @Injectable()
 export class LlmSafetyEventRepository implements LlmSafetyEventRepositoryPort {
+  private readonly core: ChatMeteringLlmSafetyEventRepository;
+
   constructor(
     @InjectRepository(LlmSafetyEventEntity)
-    private readonly repo: Repository<LlmSafetyEventEntity>,
-  ) {}
-
-  async insert(event: InsertLlmSafetyEvent): Promise<void> {
-    const entity = this.repo.create({
-      feature: event.feature,
-      eventType: event.eventType,
-      reason: event.reason ?? null,
-      platform: 'messenger',
-      externalUserId: event.psid ?? null,
-      userId: event.userId ?? null,
-      correlationId: event.correlationId ?? null,
-      payload: event.payload ?? null,
-    });
-    await this.repo.save(entity);
+    repo: Repository<LlmSafetyEventEntity>,
+  ) {
+    this.core = new ChatMeteringLlmSafetyEventRepository(repo, PLATFORM);
   }
 
-  async countSince(since: Date): Promise<number> {
-    return this.repo
-      .createQueryBuilder('e')
-      .where('e.createdAt >= :since', { since })
-      .getCount();
+  insert(event: InsertLlmSafetyEvent): Promise<void> {
+    return this.core.insert({ ...event, externalUserId: event.psid });
   }
 
-  async deleteOlderThan(before: Date): Promise<number> {
-    const result = await this.repo
-      .createQueryBuilder()
-      .delete()
-      .where('"created_at" < :before', { before })
-      .execute();
+  countSince(since: Date): Promise<number> {
+    return this.core.countSince(since);
+  }
 
-    return result.affected ?? 0;
+  deleteOlderThan(before: Date): Promise<number> {
+    return this.core.deleteOlderThan(before);
   }
 }

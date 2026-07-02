@@ -1,8 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ChatDailyUsageEntity } from '../../../../infrastructure/database/entities/chat-daily-usage.entity';
-import { ChatIdempotencyEntity } from '../../../../infrastructure/database/entities/chat-idempotency.entity';
+import {
+  ChatDailyUsageEntity,
+  ChatIdempotencyEntity,
+  ChatRateLimitRepository as ChatMeteringRepository,
+} from '@wispace/chat-metering';
 import type { IncrementDailyUsageInput } from '../../domain/entities/chat-daily-usage.types';
 import type {
   ChatIdempotencyRecord,
@@ -18,16 +21,9 @@ import { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate
 /** This repository only ever writes rows for the Messenger bot. */
 const PLATFORM = 'messenger' as const;
 
-class DailyLimitExceededError extends Error {
-  constructor() {
-    super('Daily limit exceeded during reserve transaction');
-    this.name = 'DailyLimitExceededError';
-  }
-}
-
 @Injectable()
 export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
-  private readonly logger = new Logger(ChatRateLimitRepository.name);
+  private readonly core: ChatMeteringRepository;
 
   constructor(
     @InjectRepository(ChatDailyUsageEntity)
@@ -35,15 +31,36 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
     @InjectRepository(ChatIdempotencyEntity)
     private readonly idempotencyRepo: Repository<ChatIdempotencyEntity>,
     private readonly quotaEventRecorder: ChatQuotaEventRecorderService,
-  ) {}
+  ) {
+    this.core = new ChatMeteringRepository(
+      dailyUsageRepo,
+      idempotencyRepo,
+      PLATFORM,
+      {
+        onReserved: (manager, params) =>
+          this.quotaEventRecorder.recordReservedInTransaction(manager, {
+            psid: params.externalUserId,
+            userId: params.userId,
+            usageDate: params.usageDate,
+            idempotencyKey: params.idempotencyKey,
+            limit: params.limit,
+            usedAfter: params.usedAfter,
+          }),
+        onReleased: (manager, params) =>
+          this.quotaEventRecorder.recordReleasedInTransaction(manager, {
+            psid: params.externalUserId,
+            userId: params.userId,
+            usageDate: params.usageDate,
+            idempotencyKey: params.idempotencyKey,
+            reason: params.reason,
+            usedAfter: params.usedAfter,
+          }),
+      },
+    );
+  }
 
-  async getDailyUsageCount(psid: string, usageDate: string): Promise<number> {
-    const row = await this.dailyUsageRepo.findOne({
-      where: { platform: PLATFORM, externalUserId: psid, usageDate },
-      select: { freeFormCount: true },
-    });
-
-    return row?.freeFormCount ?? 0;
+  getDailyUsageCount(psid: string, usageDate: string): Promise<number> {
+    return this.core.getDailyUsageCount(psid, usageDate);
   }
 
   async incrementDailyUsage(input: IncrementDailyUsageInput): Promise<number> {
@@ -87,208 +104,55 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
 
   async tryReserveIdempotency(
     input: ReserveIdempotencyInput,
-    manager = this.idempotencyRepo.manager,
   ): Promise<ChatIdempotencyRecord | null> {
-    const rows: Array<{
-      idempotency_key: string;
-      psid: string;
-      user_id: number | null;
-      usage_date: string;
-      status: ChatIdempotencyStatus;
-      reserved_at: Date;
-    }> = await manager.query(
-      `
-        INSERT INTO chat_idempotency (
-          idempotency_key,
-          platform,
-          external_user_id,
-          user_id,
-          usage_date,
-          status
-        )
-        VALUES ($1, $2, $3, $4, $5::date, 'reserved')
-        ON CONFLICT (idempotency_key) DO NOTHING
-        RETURNING
-          idempotency_key,
-          external_user_id AS psid,
-          user_id,
-          usage_date,
-          status,
-          reserved_at
-      `,
-      [
-        input.idempotencyKey,
-        PLATFORM,
-        input.psid,
-        input.userId ?? null,
-        input.usageDate,
-      ],
-    );
+    const record = await this.core.tryReserveIdempotency({
+      idempotencyKey: input.idempotencyKey,
+      externalUserId: input.psid,
+      userId: input.userId,
+      usageDate: input.usageDate,
+    });
 
-    const row = rows[0];
-    if (!row) {
-      return null;
-    }
-
-    return this.mapIdempotency(row);
+    return record ? this.toLegacyRecord(record) : null;
   }
 
-  async reserveFreeFormSlotInTransaction(
+  reserveFreeFormSlotInTransaction(
     input: ReserveFreeFormSlotInput,
   ): Promise<ReserveFreeFormSlotOutcome> {
-    try {
-      return await this.dailyUsageRepo.manager.transaction(async (manager) => {
-        const idempotency = await this.tryReserveIdempotency(input, manager);
-        if (!idempotency) {
-          return { status: 'idempotency_conflict' };
-        }
-
-        const rows: Array<{ free_form_count: number }> = await manager.query(
-          `
-            INSERT INTO chat_daily_usage (platform, external_user_id, user_id, usage_date, free_form_count)
-            VALUES ($1, $2, $3, $4::date, 1)
-            ON CONFLICT (platform, external_user_id, usage_date)
-            DO UPDATE SET
-              free_form_count = chat_daily_usage.free_form_count + 1,
-              user_id = COALESCE(EXCLUDED.user_id, chat_daily_usage.user_id),
-              updated_at = now()
-            WHERE chat_daily_usage.free_form_count < $5
-            RETURNING free_form_count
-          `,
-          [
-            PLATFORM,
-            input.psid,
-            input.userId ?? null,
-            input.usageDate,
-            input.dailyLimit,
-          ],
-        );
-
-        if (!rows[0]) {
-          throw new DailyLimitExceededError();
-        }
-
-        const freeFormCount = rows[0]?.free_form_count ?? 0;
-        await this.quotaEventRecorder.recordReservedInTransaction(manager, {
-          psid: input.psid,
-          userId: input.userId,
-          usageDate: input.usageDate,
-          idempotencyKey: input.idempotencyKey,
-          limit: input.dailyLimit,
-          usedAfter: freeFormCount,
-        });
-
-        return {
-          status: 'reserved',
-          freeFormCount,
-        };
-      });
-    } catch (error) {
-      if (error instanceof DailyLimitExceededError) {
-        this.logger.debug(
-          `CHAT_QUOTA_DB_LIMIT psid=${input.psid} date=${input.usageDate} limit=${input.dailyLimit}`,
-        );
-        return { status: 'daily_limit_exceeded' };
-      }
-
-      this.logger.error(
-        `reserveFreeFormSlotInTransaction failed psid=${input.psid} mid=${input.idempotencyKey}`,
-        error,
-      );
-      throw error;
-    }
+    return this.core.reserveFreeFormSlotInTransaction({
+      externalUserId: input.psid,
+      userId: input.userId,
+      usageDate: input.usageDate,
+      idempotencyKey: input.idempotencyKey,
+      dailyLimit: input.dailyLimit,
+    });
   }
 
-  async refundReservedSlot(params: {
+  refundReservedSlot(params: {
     psid: string;
     usageDate: string;
     idempotencyKey: string;
     releaseReason?: 'send_failed' | 'stuck_recover';
     userId?: number;
   }): Promise<boolean> {
-    const releaseReason = params.releaseReason ?? 'send_failed';
-
-    return this.dailyUsageRepo.manager.transaction(async (manager) => {
-      const refundedRows: Array<{ idempotency_key: string }> =
-        await manager.query(
-          `
-            UPDATE chat_idempotency
-            SET status = 'refunded'
-            WHERE idempotency_key = $1 AND status = 'reserved'
-            RETURNING idempotency_key
-          `,
-          [params.idempotencyKey],
-        );
-
-      if (!refundedRows[0]) {
-        return false;
-      }
-
-      const usageRows: Array<{ free_form_count: number }> = await manager.query(
-        `
-          UPDATE chat_daily_usage
-          SET
-            free_form_count = GREATEST(free_form_count - 1, 0),
-            updated_at = now()
-          WHERE platform = $1 AND external_user_id = $2 AND usage_date = $3::date
-          RETURNING free_form_count
-        `,
-        [PLATFORM, params.psid, params.usageDate],
-      );
-
-      const usedAfter = usageRows[0]?.free_form_count ?? 0;
-      await this.quotaEventRecorder.recordReleasedInTransaction(manager, {
-        psid: params.psid,
-        userId: params.userId,
-        usageDate: params.usageDate,
-        idempotencyKey: params.idempotencyKey,
-        reason: releaseReason,
-        usedAfter,
-      });
-
-      this.logger.debug(
-        `CHAT_QUOTA_REFUND_DB psid=${params.psid} mid=${params.idempotencyKey} reason=${releaseReason} usedAfter=${usedAfter}`,
-      );
-      return true;
+    return this.core.refundReservedSlot({
+      externalUserId: params.psid,
+      usageDate: params.usageDate,
+      idempotencyKey: params.idempotencyKey,
+      releaseReason: params.releaseReason,
+      userId: params.userId,
     });
   }
 
-  async completeReservedSlot(idempotencyKey: string): Promise<boolean> {
-    const rows: Array<{ idempotency_key: string }> =
-      await this.idempotencyRepo.manager.query(
-        `
-          UPDATE chat_idempotency
-          SET status = 'completed'
-          WHERE idempotency_key = $1 AND status = 'reserved'
-          RETURNING idempotency_key
-        `,
-        [idempotencyKey],
-      );
-
-    return rows.length > 0;
+  completeReservedSlot(idempotencyKey: string): Promise<boolean> {
+    return this.core.completeReservedSlot(idempotencyKey);
   }
 
-  async countRecentReservations(
+  countRecentReservations(
     psid: string,
     since: Date,
     options: { includeRefunded?: boolean } = {},
   ): Promise<number> {
-    const includeRefunded = options.includeRefunded ?? false;
-    const statusFilter = includeRefunded
-      ? ''
-      : ` AND status IN ('reserved', 'completed')`;
-
-    const rows: Array<{ count: string }> =
-      await this.idempotencyRepo.manager.query(
-        `
-        SELECT COUNT(*)::text AS count
-        FROM chat_idempotency
-        WHERE platform = $1 AND external_user_id = $2 AND reserved_at > $3${statusFilter}
-      `,
-        [PLATFORM, psid, since],
-      );
-
-    return Number(rows[0]?.count ?? 0);
+    return this.core.countRecentReservations(psid, since, options);
   }
 
   async updateIdempotencyStatus(
@@ -325,155 +189,19 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
   }
 
   async listStuckReserved(stuckBefore: Date): Promise<ChatIdempotencyRecord[]> {
-    const rows: Array<{
-      idempotency_key: string;
-      psid: string;
-      user_id: number | null;
-      usage_date: string;
-      status: ChatIdempotencyStatus;
-      reserved_at: Date;
-    }> = await this.idempotencyRepo.manager.query(
-      `
-        SELECT
-          idempotency_key,
-          external_user_id AS psid,
-          user_id,
-          usage_date,
-          status,
-          reserved_at
-        FROM chat_idempotency
-        WHERE status = 'reserved' AND reserved_at < $1
-        ORDER BY reserved_at ASC
-      `,
-      [stuckBefore],
-    );
-
-    return rows.map((row) => this.mapIdempotency(row));
+    const records = await this.core.listStuckReserved(stuckBefore);
+    return records.map((record) => this.toLegacyRecord(record));
   }
 
-  async recoverIdempotencyForRetry(
+  recoverIdempotencyForRetry(
     idempotencyKey: string,
     stuckBefore: Date,
   ): Promise<RecoverIdempotencyOutcome> {
-    return this.idempotencyRepo.manager.transaction(async (manager) => {
-      const rows: Array<{
-        idempotency_key: string;
-        psid: string;
-        user_id: number | null;
-        usage_date: string;
-        status: ChatIdempotencyStatus;
-        reserved_at: Date;
-      }> = await manager.query(
-        `
-          SELECT
-            idempotency_key,
-            external_user_id AS psid,
-            user_id,
-            usage_date,
-            status,
-            reserved_at
-          FROM chat_idempotency
-          WHERE idempotency_key = $1
-          FOR UPDATE
-        `,
-        [idempotencyKey],
-      );
-
-      const row = rows[0];
-      if (!row) {
-        return 'not_found';
-      }
-
-      if (row.status === 'completed') {
-        return 'completed';
-      }
-
-      if (row.status === 'reserved') {
-        const reservedAt = new Date(row.reserved_at);
-        if (reservedAt >= stuckBefore) {
-          return 'in_flight';
-        }
-
-        const refundedRows: Array<{ idempotency_key: string }> =
-          await manager.query(
-            `
-              UPDATE chat_idempotency
-              SET status = 'refunded'
-              WHERE idempotency_key = $1 AND status = 'reserved'
-              RETURNING idempotency_key
-            `,
-            [idempotencyKey],
-          );
-
-        if (!refundedRows[0]) {
-          return 'not_found';
-        }
-
-        const usageRows: Array<{ free_form_count: number }> =
-          await manager.query(
-            `
-            UPDATE chat_daily_usage
-            SET
-              free_form_count = GREATEST(free_form_count - 1, 0),
-              updated_at = now()
-            WHERE platform = $1 AND external_user_id = $2 AND usage_date = $3::date
-            RETURNING free_form_count
-          `,
-            [PLATFORM, row.psid, row.usage_date],
-          );
-
-        const usedAfter = usageRows[0]?.free_form_count ?? 0;
-        await this.quotaEventRecorder.recordReleasedInTransaction(manager, {
-          psid: row.psid,
-          userId: row.user_id ?? undefined,
-          usageDate: row.usage_date,
-          idempotencyKey,
-          reason: 'stuck_recover',
-          usedAfter,
-        });
-
-        await manager.query(
-          `
-            DELETE FROM chat_idempotency
-            WHERE idempotency_key = $1
-          `,
-          [idempotencyKey],
-        );
-
-        return 'reopened';
-      }
-
-      if (row.status === 'refunded') {
-        await manager.query(
-          `
-            DELETE FROM chat_idempotency
-            WHERE idempotency_key = $1
-          `,
-          [idempotencyKey],
-        );
-
-        return 'reopened';
-      }
-
-      return 'not_found';
-    });
+    return this.core.recoverIdempotencyForRetry(idempotencyKey, stuckBefore);
   }
 
-  async recoverAllStuckReserved(stuckBefore: Date): Promise<string[]> {
-    const stuck = await this.listStuckReserved(stuckBefore);
-    const recovered: string[] = [];
-
-    for (const row of stuck) {
-      const outcome = await this.recoverIdempotencyForRetry(
-        row.idempotencyKey,
-        stuckBefore,
-      );
-      if (outcome === 'reopened') {
-        recovered.push(row.idempotencyKey);
-      }
-    }
-
-    return recovered;
+  recoverAllStuckReserved(stuckBefore: Date): Promise<string[]> {
+    return this.core.recoverAllStuckReserved(stuckBefore);
   }
 
   async countStuckReserved(stuckBefore: Date): Promise<number> {
@@ -512,21 +240,21 @@ export class ChatRateLimitRepository implements ChatRateLimitRepositoryPort {
     return row?.count ?? 0;
   }
 
-  private mapIdempotency(row: {
-    idempotency_key: string;
-    psid: string;
-    user_id: number | null;
-    usage_date: string;
+  private toLegacyRecord(record: {
+    idempotencyKey: string;
+    externalUserId: string;
+    userId?: number;
+    usageDate: string;
     status: ChatIdempotencyStatus;
-    reserved_at: Date;
+    reservedAt: Date;
   }): ChatIdempotencyRecord {
     return {
-      idempotencyKey: row.idempotency_key,
-      psid: row.psid,
-      userId: row.user_id ?? undefined,
-      usageDate: row.usage_date,
-      status: row.status,
-      reservedAt: row.reserved_at,
+      idempotencyKey: record.idempotencyKey,
+      psid: record.externalUserId,
+      userId: record.userId,
+      usageDate: record.usageDate,
+      status: record.status,
+      reservedAt: record.reservedAt,
     };
   }
 }

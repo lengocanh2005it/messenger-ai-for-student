@@ -27,7 +27,7 @@ Biến `STUDY_REMINDER_*` trong `.env` — dùng `readRequiredPositiveNumber`, *
 |------|------|---------|
 | `application/services/study-reminder-sync.service.ts` | application | Sync lịch → jobs |
 | `application/services/study-reminder-dispatch.service.ts` | application | Claim + gửi (qua `MESSAGE_SENDER`) |
-| `application/services/study-reminder-schedule.service.ts` | application | Tính `remind_at` |
+| `application/services/study-reminder-schedule.service.ts` | application | Đọc `STUDY_REMINDER_*` từ `.env`, delegate tính toán thuần (`remind_at`, session-started, time label) cho `@wispace/study-reminder-core` |
 | `application/services/study-reminder-worker.service.ts` | application | Cron sync/dispatch/rollover |
 | `infrastructure/wispace/user-calendar-api.service.ts` | infrastructure | GET UserCalendar (x-psid) |
 | `infrastructure/persistence/study-reminder-job.repository.ts` | infrastructure | CRUD jobs |

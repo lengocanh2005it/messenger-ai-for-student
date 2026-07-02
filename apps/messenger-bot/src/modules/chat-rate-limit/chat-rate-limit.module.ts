@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonModule } from '../../shared/common/common.module';
-import { ChatDailyUsageEntity } from '../../infrastructure/database/entities/chat-daily-usage.entity';
+import {
+  ChatDailyUsageEntity,
+  ChatIdempotencyEntity,
+} from '@wispace/chat-metering';
 import { ChatQuotaEventEntity } from '../../infrastructure/database/entities/chat-quota-event.entity';
-import { ChatIdempotencyEntity } from '../../infrastructure/database/entities/chat-idempotency.entity';
 import { ChatBurstCounterStartupService } from './application/services/chat-burst-counter-startup.service';
 import { ChatQuotaEventCleanupCronService } from './application/services/chat-quota-event-cleanup-cron.service';
 import { ChatQuotaEventCleanupService } from './application/services/chat-quota-event-cleanup.service';

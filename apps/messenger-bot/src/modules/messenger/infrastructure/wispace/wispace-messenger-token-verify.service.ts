@@ -42,7 +42,8 @@ export class WispaceMessengerTokenVerifyService {
       },
       body: JSON.stringify({
         token: token.trim(),
-        psid: psid.trim(),
+        value: psid.trim(),
+        platform: 'messenger',
       }),
     });
 

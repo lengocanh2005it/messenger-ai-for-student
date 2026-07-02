@@ -3,9 +3,9 @@ import {
   buildInputCostEnvKey,
   estimateCostUsd,
   normalizeModelForEnvKey,
-} from './llm-usage-cost.util';
+} from './cost.utils';
 
-describe('llm-usage-cost.util', () => {
+describe('llm-usage cost.utils', () => {
   it('normalizes model names for env keys', () => {
     expect(normalizeModelForEnvKey('gpt-5.4')).toBe('GPT_5_4');
     expect(buildInputCostEnvKey('gpt-5.4')).toBe(

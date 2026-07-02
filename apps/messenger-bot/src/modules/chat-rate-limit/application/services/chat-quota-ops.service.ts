@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { todayUsageDate } from '@wispace/chat-metering';
 import { ChatQuotaOpsSummary } from '../../domain/entities/chat-quota-ops.types';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
 import { ChatRateLimitRepository } from '../../infrastructure/persistence/chat-rate-limit.repository';
@@ -13,7 +14,7 @@ export class ChatQuotaOpsService {
   async getSummary(): Promise<ChatQuotaOpsSummary> {
     const settings = this.chatRateLimitConfigService.getSettings();
     const stuckBefore = new Date(Date.now() - settings.stuckReservedMs);
-    const usageDate = this.todayUsageDate(settings.timezone);
+    const usageDate = todayUsageDate(settings.timezone);
 
     const [stuckReserved, idempotencyByStatus, usersAtDailyLimit] =
       await Promise.all([
@@ -41,14 +42,5 @@ export class ChatQuotaOpsService {
         'CHAT_QUOTA_RECOVERED',
       ],
     };
-  }
-
-  private todayUsageDate(timezone: string, now = new Date()): string {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(now);
   }
 }

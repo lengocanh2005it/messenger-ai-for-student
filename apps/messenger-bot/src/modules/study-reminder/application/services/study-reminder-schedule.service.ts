@@ -1,9 +1,11 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-  formatLocalDate,
-  getTomorrowLocalDate,
-} from '../utils/study-calendar.utils';
+  computeRemindAt,
+  formatScheduledTimeLabel,
+  getMinutesUntilSession,
+  isSessionStarted,
+} from '@wispace/study-reminder-core';
 
 @Injectable()
 export class StudyReminderScheduleService {
@@ -34,56 +36,19 @@ export class StudyReminderScheduleService {
   }
 
   computeRemindAt(scheduledAt: Date): Date {
-    const minutesBefore = this.getMinutesBefore();
-    return new Date(scheduledAt.getTime() - minutesBefore * 60 * 1000);
+    return computeRemindAt(scheduledAt, this.getMinutesBefore());
   }
 
   getMinutesUntilSession(scheduledAt: Date, now = new Date()): number {
-    return (scheduledAt.getTime() - now.getTime()) / (1000 * 60);
+    return getMinutesUntilSession(scheduledAt, now);
   }
 
   isSessionStarted(scheduledAt: Date, now = new Date()): boolean {
-    return (
-      this.getMinutesUntilSession(scheduledAt, now) <= this.getMinLeadMinutes()
-    );
+    return isSessionStarted(scheduledAt, this.getMinLeadMinutes(), now);
   }
 
   formatScheduledTimeLabel(scheduledAt: Date, now = new Date()): string {
-    const timezone = this.getTimezone();
-    const todayParts = this.getDatePartsInTimezone(now, timezone);
-    const sessionParts = this.getDatePartsInTimezone(scheduledAt, timezone);
-
-    const isToday =
-      todayParts.year === sessionParts.year &&
-      todayParts.month === sessionParts.month &&
-      todayParts.day === sessionParts.day;
-
-    const sessionLocalDate = formatLocalDate(sessionParts);
-    const isTomorrow = sessionLocalDate === getTomorrowLocalDate(timezone, now);
-
-    const timeText = new Intl.DateTimeFormat('vi-VN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZone: timezone,
-    }).format(scheduledAt);
-
-    if (isToday) {
-      return `Hôm nay lúc ${timeText}`;
-    }
-
-    if (isTomorrow) {
-      return `Ngày mai lúc ${timeText}`;
-    }
-
-    const dateText = new Intl.DateTimeFormat('vi-VN', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      timeZone: timezone,
-    }).format(scheduledAt);
-
-    return `${dateText} lúc ${timeText}`;
+    return formatScheduledTimeLabel(scheduledAt, this.getTimezone(), now);
   }
 
   private getMinutesBefore(): number {
@@ -179,20 +144,5 @@ export class StudyReminderScheduleService {
     }
 
     return value;
-  }
-
-  private getDatePartsInTimezone(
-    date: Date,
-    timezone: string,
-  ): { year: number; month: number; day: number } {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const [year, month, day] = formatter.format(date).split('-').map(Number);
-
-    return { year, month, day };
   }
 }
