@@ -245,6 +245,34 @@
       showScreen('screen-pending');
     }
 
+    async function doCompleteLink(pendingToken, discordUsername) {
+      try {
+        const res = await fetch(`${BACKEND_URL}/discord/guild/complete-link`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: pendingToken }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          document.getElementById('error-msg').textContent =
+            data.error === 'NOT_IN_GUILD'
+              ? 'Bot vẫn chưa thấy bạn trong server. Đợi thêm vài giây rồi thử lại.'
+              : (data.error ?? 'Có lỗi xảy ra.');
+          showScreen('screen-error');
+          return;
+        }
+        showSuccess({
+          discordUsername,
+          botUserId: data.botUserId,
+          dmChannelId: data.dmChannelId,
+        });
+      } catch {
+        document.getElementById('error-msg').textContent =
+          'Không thể kết nối backend. Thử lại sau.';
+        showScreen('screen-error');
+      }
+    }
+
     function startPolling(pendingToken, discordUsername) {
       const pollLabel = document.getElementById('poll-label');
       const btnComplete = document.getElementById('btn-complete-link');
@@ -266,50 +294,35 @@
 
           if (data.joined) {
             clearInterval(intervalId);
-            // Mark step 2 done, enable step 3
+            // Mark steps done visually
             document.getElementById('pending-step-2').classList.remove('waiting');
             document.getElementById('pending-step-2').classList.add('done');
             document.getElementById('pending-step-2').querySelector('.step-number').textContent = '✓';
             pollLabel.textContent = 'Đã tham gia server! ✓';
-            document.getElementById('poll-dot') && document.getElementById('poll-dot').remove();
-            btnComplete.disabled = false;
-            document.getElementById('pending-step-3').classList.add('waiting');
+            const dot = document.getElementById('poll-dot');
+            if (dot) dot.remove();
+
+            if (data.completed) {
+              // Auto-completed by bot on guildMemberAdd — finish without button click
+              document.getElementById('pending-step-3').classList.add('done');
+              document.getElementById('pending-step-3').querySelector('.step-number').textContent = '✓';
+              await doCompleteLink(pendingToken, discordUsername);
+            } else {
+              // Joined but not yet linked — enable manual button as fallback
+              btnComplete.disabled = false;
+              document.getElementById('pending-step-3').classList.add('waiting');
+
+              btnComplete.addEventListener('click', async () => {
+                btnComplete.disabled = true;
+                btnComplete.textContent = 'Đang liên kết...';
+                await doCompleteLink(pendingToken, discordUsername);
+              });
+            }
           }
         } catch {
           pollLabel.textContent = 'Đang thử lại...';
         }
       }, POLL_INTERVAL_MS);
-
-      // Wire complete button
-      btnComplete.addEventListener('click', async () => {
-        btnComplete.disabled = true;
-        btnComplete.textContent = 'Đang liên kết...';
-        try {
-          const res = await fetch(`${BACKEND_URL}/discord/guild/complete-link`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: pendingToken }),
-          });
-          const data = await res.json();
-          if (!data.success) {
-            document.getElementById('error-msg').textContent =
-              data.error === 'NOT_IN_GUILD'
-                ? 'Bot vẫn chưa thấy bạn trong server. Đợi thêm vài giây rồi thử lại.'
-                : (data.error ?? 'Có lỗi xảy ra.');
-            showScreen('screen-error');
-            return;
-          }
-          showSuccess({
-            discordUsername,
-            botUserId: data.botUserId,
-            dmChannelId: data.dmChannelId,
-          });
-        } catch {
-          document.getElementById('error-msg').textContent =
-            'Không thể kết nối backend. Thử lại sau.';
-          showScreen('screen-error');
-        }
-      });
     }
 
     // ── Bootstrap ────────────────────────────────────────────────────────────

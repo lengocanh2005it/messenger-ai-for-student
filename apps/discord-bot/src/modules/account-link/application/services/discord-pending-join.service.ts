@@ -6,6 +6,7 @@ interface PendingJoinEntry {
   wispaceUserId: number;
   discordUsername: string;
   expiresAt: number;
+  completed?: boolean;
 }
 
 const TTL_MS = 15 * 60 * 1000; // 15 minutes
@@ -32,11 +33,33 @@ export class DiscordPendingJoinService {
   get(token: string): PendingJoinEntry | undefined {
     const entry = this.store.get(token);
     if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) {
+    if (!entry.completed && Date.now() > entry.expiresAt) {
       this.store.delete(token);
       return undefined;
     }
     return entry;
+  }
+
+  /** Find pending entry by Discord user ID (used by guildMemberAdd to auto-complete). */
+  findByDiscordUserId(
+    discordUserId: string,
+  ): { token: string; entry: PendingJoinEntry } | undefined {
+    for (const [token, entry] of this.store.entries()) {
+      if (entry.discordUserId === discordUserId && !entry.completed) {
+        if (Date.now() > entry.expiresAt) {
+          this.store.delete(token);
+          continue;
+        }
+        return { token, entry };
+      }
+    }
+    return undefined;
+  }
+
+  /** Mark token as completed so the frontend poll can detect success. */
+  markCompleted(token: string): void {
+    const entry = this.store.get(token);
+    if (entry) entry.completed = true;
   }
 
   delete(token: string): void {

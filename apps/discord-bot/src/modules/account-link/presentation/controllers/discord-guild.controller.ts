@@ -44,14 +44,19 @@ export class DiscordGuildController {
 
     const entry = this.pendingJoinService.get(token);
     if (!entry) {
-      res.json({ expired: true, joined: false });
+      res.json({ expired: true, joined: false, completed: false });
+      return;
+    }
+
+    if (entry.completed) {
+      res.json({ joined: true, completed: true, expired: false });
       return;
     }
 
     const joined = await this.guildMembershipService.isMember(
       entry.discordUserId,
     );
-    res.json({ joined, expired: false });
+    res.json({ joined, completed: false, expired: false });
   }
 
   /**
@@ -71,6 +76,19 @@ export class DiscordGuildController {
     const entry = this.pendingJoinService.get(token);
     if (!entry) {
       res.status(400).json({ error: 'TOKEN_EXPIRED' });
+      return;
+    }
+
+    // Already auto-completed by guildMemberAdd — return success directly
+    if (entry.completed) {
+      const botUserId =
+        this.configService.getOrThrow<string>('DISCORD_CLIENT_ID');
+      this.pendingJoinService.delete(token);
+      res.json({
+        success: true,
+        botUserId,
+        discordUsername: entry.discordUsername,
+      });
       return;
     }
 

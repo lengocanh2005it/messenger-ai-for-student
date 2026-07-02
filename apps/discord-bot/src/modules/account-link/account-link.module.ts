@@ -21,6 +21,6 @@ import { DiscordGuildController } from './presentation/controllers/discord-guild
     DiscordGuildMembershipService,
     DiscordPendingJoinService,
   ],
-  exports: [DiscordAccountLinkService],
+  exports: [DiscordAccountLinkService, DiscordPendingJoinService],
 })
 export class AccountLinkModule {}

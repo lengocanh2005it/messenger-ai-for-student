@@ -19,6 +19,8 @@ import { buildChatQuotaDenyMessage } from '../../../chat-metering/application/me
 import { DiscordAccountLinkService } from '../../../account-link/application/services/discord-account-link.service';
 import { DiscordMenuService } from '../../application/services/discord-menu.service';
 import { DiscordChatHistoryService } from '../../application/services/discord-chat-history.service';
+import { DiscordPendingJoinService } from '../../../account-link/application/services/discord-pending-join.service';
+import { buildDiscordLinkWelcomeMessage } from '../../../account-link/application/messages/account-link.messages';
 import { WispaceApiError } from '@wispace/wispace-client';
 
 const FALLBACK_ERROR_MESSAGE =
@@ -49,6 +51,7 @@ export class DiscordChatGateway {
     private readonly rescheduleConfirmationService: DiscordRescheduleConfirmationService,
     private readonly menuService: DiscordMenuService,
     private readonly chatHistoryService: DiscordChatHistoryService,
+    private readonly pendingJoinService: DiscordPendingJoinService,
   ) {}
 
   @Once('clientReady')
@@ -60,6 +63,27 @@ export class DiscordChatGateway {
   async onGuildMemberAdd(@Context() [member]: ContextOf<'guildMemberAdd'>) {
     const displayName = member.displayName;
     const discordUserId = member.id;
+
+    // Auto-complete pending account link if user came through OAuth flow
+    const pending = this.pendingJoinService.findByDiscordUserId(discordUserId);
+    if (pending) {
+      try {
+        await this.accountLinkService.upsertLink(
+          pending.entry.wispaceUserId,
+          discordUserId,
+        );
+        this.pendingJoinService.markCompleted(pending.token);
+        this.logger.log(
+          `Auto-completed account link for discordUserId=${discordUserId} wispaceUserId=${pending.entry.wispaceUserId}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Auto-complete link failed for discordUserId=${discordUserId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
 
     // Public welcome in server channel (if DISCORD_WELCOME_CHANNEL_ID is set)
     const welcomeChannelId = this.configService.get<string>(
@@ -73,11 +97,18 @@ export class DiscordChatGateway {
       await this.outboundService.sendToChannel(welcomeChannelId, serverMsg);
     }
 
-    // Private DM — shorter, personal greeting
-    const dmMsg =
-      `Chào ${displayName}! Mình là trợ lý WISPACE. ` +
-      `Bạn có thể hỏi về tiến độ học, lịch học sắp tới, hoặc mục tiêu band — cứ nhắn tự nhiên nhé 🎓`;
-    await this.outboundService.sendText(discordUserId, dmMsg);
+    // Private DM — if link just completed, send account-link confirmation; otherwise generic greeting
+    if (pending) {
+      await this.outboundService.sendText(
+        discordUserId,
+        buildDiscordLinkWelcomeMessage(pending.entry.discordUsername),
+      );
+    } else {
+      const dmMsg =
+        `Chào ${displayName}! Mình là trợ lý WISPACE. ` +
+        `Bạn có thể hỏi về tiến độ học, lịch học sắp tới, hoặc mục tiêu band — cứ nhắn tự nhiên nhé 🎓`;
+      await this.outboundService.sendText(discordUserId, dmMsg);
+    }
 
     this.logger.log(
       `Welcome sent to new member discordUserId=${discordUserId} displayName=${displayName} channelId=${welcomeChannelId ?? 'none'}`,
