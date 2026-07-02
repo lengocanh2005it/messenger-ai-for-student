@@ -108,9 +108,7 @@
     const dmChannelId = params.get('dmChannelId') || '';
     const discordUsername = params.get('discordUsername') || '';
 
-    // Điền tên username
-    const usernameEl = document.getElementById('discord-username-display');
-    usernameEl.textContent = discordUsername
+    const usernameLabel = discordUsername
       ? `Tài khoản Discord "${discordUsername}"`
       : 'Tài khoản Discord của bạn';
 
@@ -123,7 +121,7 @@
       if (dmChannelId) {
         // Bot gửi DM được → chung server → hiện nút mở Discord
         document.getElementById('success-subtitle').innerHTML =
-          `<strong>${usernameEl.textContent}</strong> đã được kết nối với WISPACE.<br/>Bot đã gửi tin nhắn chào mừng vào Discord DM của bạn 🎉`;
+          `<strong>${usernameLabel}</strong> đã được kết nối với WISPACE.<br/>Bot đã gửi tin nhắn chào mừng vào Discord DM của bạn 🎉`;
 
         const WEB_URL = `https://discord.com/channels/@me/${dmChannelId}`;
         const APP_URL = `discord://discord.com/channels/@me/${dmChannelId}`;
@@ -133,7 +131,7 @@
       } else {
         // Bot không gửi được DM → chưa chung server
         document.getElementById('success-subtitle').innerHTML =
-          `<strong>${usernameEl.textContent}</strong> đã được kết nối với WISPACE.`;
+          `<strong>${usernameLabel}</strong> đã được kết nối với WISPACE.`;
 
         // Hiện nút Join server nếu có DISCORD_SERVER_INVITE_URL nhúng sẵn
         const inviteUrl = document.body.dataset.serverInvite || '';
