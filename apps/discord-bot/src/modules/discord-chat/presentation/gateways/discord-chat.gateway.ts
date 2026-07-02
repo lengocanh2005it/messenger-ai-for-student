@@ -191,10 +191,18 @@ export class DiscordChatGateway {
 
       if (isServerChannel) {
         // Always reply via DM when mentioned in a server channel
-        await this.outboundService.sendText(discordUserId, reply.text);
-        await message.reply(
-          'Mình đã trả lời trong tin nhắn riêng (DM) của bạn rồi nhé! 📩',
+        const dmChannelId = await this.outboundService.sendTextAndGetChannelId(
+          discordUserId,
+          reply.text,
         );
+        if (dmChannelId) {
+          await message.reply(
+            'Mình đã trả lời trong tin nhắn riêng (DM) của bạn rồi nhé! 📩',
+          );
+        } else {
+          // DM failed (e.g. privacy settings) — fallback to channel reply
+          await message.reply(reply.text);
+        }
       } else {
         await this.outboundService.sendText(discordUserId, reply.text);
       }
