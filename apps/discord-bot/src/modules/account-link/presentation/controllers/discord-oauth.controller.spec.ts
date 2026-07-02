@@ -73,7 +73,7 @@ describe('DiscordOauthController', () => {
     );
     const res = buildResponse();
 
-    await controller.callback(undefined, 'token', res);
+    await controller.callback(undefined, 'token', undefined, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(
@@ -106,7 +106,7 @@ describe('DiscordOauthController', () => {
     );
     const res = buildResponse();
 
-    await controller.callback('code', 'bad-token', res);
+    await controller.callback('code', 'bad-token', undefined, res);
 
     expect(tokenVerifyService.verifyToken).toHaveBeenCalledWith(
       'bad-token',
@@ -139,7 +139,7 @@ describe('DiscordOauthController', () => {
     );
     const res = buildResponse();
 
-    await controller.callback('code', 'good-token', res);
+    await controller.callback('code', 'good-token', undefined, res);
 
     expect(accountLinkService.exchangeCodeForDiscordUser).toHaveBeenCalledWith(
       'code',
@@ -179,7 +179,7 @@ describe('DiscordOauthController', () => {
     );
     const res = buildResponse();
 
-    await controller.callback('code', 'good-token', res);
+    await controller.callback('code', 'good-token', undefined, res);
 
     expect(pendingJoinService.create).toHaveBeenCalledWith(
       'discord-user-1',
@@ -217,7 +217,7 @@ describe('DiscordOauthController', () => {
     );
     const res = buildResponse();
 
-    await controller.callback('code', 'good-token', res);
+    await controller.callback('code', 'good-token', undefined, res);
 
     expect(res.redirect).toHaveBeenCalledWith(
       expect.stringContaining('localhost:4321/callback.html'),
@@ -244,7 +244,7 @@ describe('DiscordOauthController', () => {
     );
     const res = buildResponse();
 
-    await controller.callback('code', 'good-token', res);
+    await controller.callback('code', 'good-token', undefined, res);
 
     expect(tokenVerifyService.verifyToken).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
