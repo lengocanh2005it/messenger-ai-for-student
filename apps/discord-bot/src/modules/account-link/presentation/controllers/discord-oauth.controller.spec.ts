@@ -5,6 +5,8 @@ import type { ConfigService } from '@nestjs/config';
 import type { DiscordAccountLinkService } from '../../application/services/discord-account-link.service';
 import type { WispaceDiscordTokenVerifyService } from '../../infrastructure/wispace/wispace-discord-token-verify.service';
 import type { DiscordOutboundService } from '../../../discord-chat/application/services/discord-outbound.service';
+import type { DiscordGuildMembershipService } from '../../application/services/discord-guild-membership.service';
+import type { DiscordPendingJoinService } from '../../application/services/discord-pending-join.service';
 
 function buildConfigService(
   overrides: Record<string, string> = {},
@@ -35,6 +37,23 @@ function buildResponse(): Response {
   return res as Response;
 }
 
+/** Default mock: user is already in the guild (happy path). */
+function buildGuildMembershipService(
+  inGuild = true,
+): DiscordGuildMembershipService {
+  return {
+    isMember: jest.fn().mockResolvedValue(inGuild),
+  } as unknown as DiscordGuildMembershipService;
+}
+
+function buildPendingJoinService(): DiscordPendingJoinService {
+  return {
+    create: jest.fn().mockReturnValue('pending-token-123'),
+    get: jest.fn(),
+    delete: jest.fn(),
+  } as unknown as DiscordPendingJoinService;
+}
+
 describe('DiscordOauthController', () => {
   it('returns 400 when code or state is missing', async () => {
     const tokenVerifyService = {
@@ -49,6 +68,8 @@ describe('DiscordOauthController', () => {
       tokenVerifyService,
       accountLinkService,
       outboundService,
+      buildGuildMembershipService(),
+      buildPendingJoinService(),
     );
     const res = buildResponse();
 
@@ -80,6 +101,8 @@ describe('DiscordOauthController', () => {
       tokenVerifyService,
       accountLinkService,
       outboundService,
+      buildGuildMembershipService(),
+      buildPendingJoinService(),
     );
     const res = buildResponse();
 
@@ -111,6 +134,8 @@ describe('DiscordOauthController', () => {
       tokenVerifyService,
       accountLinkService,
       outboundService,
+      buildGuildMembershipService(true),
+      buildPendingJoinService(),
     );
     const res = buildResponse();
 
@@ -127,6 +152,42 @@ describe('DiscordOauthController', () => {
       'discord-user-1',
       expect.any(String),
     );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('issues a pending token when user is not in the guild', async () => {
+    const tokenVerifyService = {
+      verifyToken: jest.fn().mockResolvedValue({ valid: true, userId: 143 }),
+    } as unknown as WispaceDiscordTokenVerifyService;
+    const accountLinkService = {
+      exchangeCodeForDiscordUser: jest
+        .fn()
+        .mockResolvedValue({ id: 'discord-user-1', username: 'TestUser' }),
+      upsertLink: jest.fn(),
+    } as unknown as DiscordAccountLinkService;
+    const outboundService = {
+      sendTextAndGetChannelId: jest.fn(),
+    } as unknown as DiscordOutboundService;
+    const pendingJoinService = buildPendingJoinService();
+    const controller = new DiscordOauthController(
+      buildConfigService(),
+      tokenVerifyService,
+      accountLinkService,
+      outboundService,
+      buildGuildMembershipService(false),
+      pendingJoinService,
+    );
+    const res = buildResponse();
+
+    await controller.callback('code', 'good-token', res);
+
+    expect(pendingJoinService.create).toHaveBeenCalledWith(
+      'discord-user-1',
+      143,
+      'TestUser',
+    );
+    expect(accountLinkService.upsertLink).not.toHaveBeenCalled();
+    // Inline fallback: no DISCORD_OAUTH_FRONTEND_CALLBACK_URL set → res.status(200) pending HTML
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
@@ -151,6 +212,8 @@ describe('DiscordOauthController', () => {
       tokenVerifyService,
       accountLinkService,
       outboundService,
+      buildGuildMembershipService(true),
+      buildPendingJoinService(),
     );
     const res = buildResponse();
 
@@ -176,6 +239,8 @@ describe('DiscordOauthController', () => {
       tokenVerifyService,
       accountLinkService,
       outboundService,
+      buildGuildMembershipService(),
+      buildPendingJoinService(),
     );
     const res = buildResponse();
 
