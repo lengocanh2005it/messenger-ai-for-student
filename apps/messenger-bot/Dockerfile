@@ -8,6 +8,12 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY apps/messenger-bot/package.json apps/messenger-bot/package.json
 COPY packages/llm-agent/package.json packages/llm-agent/package.json
+COPY packages/chat-metering/package.json packages/chat-metering/package.json
+COPY packages/chat-history/package.json packages/chat-history/package.json
+COPY packages/chat-queue-core/package.json packages/chat-queue-core/package.json
+COPY packages/wispace-client/package.json packages/wispace-client/package.json
+COPY packages/student-report/package.json packages/student-report/package.json
+COPY packages/study-reminder-core/package.json packages/study-reminder-core/package.json
 RUN npm ci --ignore-scripts
 
 COPY . .
@@ -26,9 +32,15 @@ RUN apk add --no-cache docker-cli docker-cli-compose curl bash gnupg \
 COPY --from=build --chown=app:app /app/apps/messenger-bot/dist ./dist
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/apps/messenger-bot/package.json ./package.json
-# node_modules/@wispace/llm-agent is an npm-workspaces symlink to ../packages/llm-agent —
-# the real package must exist at the same relative path for it to resolve at runtime.
+# node_modules/@wispace/* are npm-workspaces symlinks into packages/ —
+# each package must exist at the same relative path for Node to resolve them at runtime.
 COPY --from=build --chown=app:app /app/packages/llm-agent ./packages/llm-agent
+COPY --from=build --chown=app:app /app/packages/chat-metering ./packages/chat-metering
+COPY --from=build --chown=app:app /app/packages/chat-history ./packages/chat-history
+COPY --from=build --chown=app:app /app/packages/chat-queue-core ./packages/chat-queue-core
+COPY --from=build --chown=app:app /app/packages/wispace-client ./packages/wispace-client
+COPY --from=build --chown=app:app /app/packages/student-report ./packages/student-report
+COPY --from=build --chown=app:app /app/packages/study-reminder-core ./packages/study-reminder-core
 
 USER app
 
