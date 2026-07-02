@@ -167,6 +167,19 @@
         </div>
       </section>
 
+      <!-- Đã hủy -->
+      <section id="screen-cancelled" class="screen">
+        <div class="success-box">
+          <div class="success-icon" style="background:#9ca3af;">✕</div>
+          <h1>Đã hủy</h1>
+          <p class="subtitle">Bạn đã hủy cấp quyền Discord. Có thể thử lại bất cứ lúc nào.</p>
+          <a href="index.html" class="btn btn-primary"
+            style="display:block;text-decoration:none;text-align:center;margin-top:24px;padding:12px;">
+            Quay lại
+          </a>
+        </div>
+      </section>
+
       <!-- Lỗi -->
       <section id="screen-error" class="screen">
         <div class="success-box">
@@ -303,7 +316,9 @@
 
     const params = new URLSearchParams(window.location.search);
 
-    if (params.has('error')) {
+    if (params.has('cancelled')) {
+      showScreen('screen-cancelled');
+    } else if (params.has('error')) {
       document.getElementById('error-msg').textContent = params.get('error');
       showScreen('screen-error');
     } else if (params.has('pendingToken')) {

@@ -55,8 +55,14 @@ export class DiscordOauthController {
   async callback(
     @Query('code') code: string | undefined,
     @Query('state') token: string | undefined,
+    @Query('error') discordError: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
+    if (discordError === 'access_denied') {
+      this.sendResult(res, { type: 'cancelled' });
+      return;
+    }
+
     if (!code || !token) {
       this.sendResult(res, {
         type: 'error',
@@ -154,7 +160,8 @@ export class DiscordOauthController {
           discordUsername: string;
         }
       | { type: 'pending'; pendingToken: string; discordUsername: string }
-      | { type: 'error'; message: string },
+      | { type: 'error'; message: string }
+      | { type: 'cancelled' },
   ): void {
     const frontendUrl = this.configService.get<string>(
       'DISCORD_OAUTH_FRONTEND_CALLBACK_URL',
@@ -164,7 +171,9 @@ export class DiscordOauthController {
 
     if (frontendUrl) {
       const url = new URL(frontendUrl);
-      if (result.type === 'error') {
+      if (result.type === 'cancelled') {
+        url.searchParams.set('cancelled', '1');
+      } else if (result.type === 'error') {
         url.searchParams.set('error', result.message);
       } else if (result.type === 'pending') {
         url.searchParams.set('pendingToken', result.pendingToken);
@@ -183,7 +192,16 @@ export class DiscordOauthController {
     }
 
     // Inline fallback HTML (no frontend URL configured)
-    if (result.type === 'success') {
+    if (result.type === 'cancelled') {
+      res.status(200).type('html').send(`
+        <!doctype html><html lang="vi"><head><meta charset="utf-8">
+        <title>Đã hủy</title></head>
+        <body style="font-family:sans-serif;text-align:center;padding-top:3rem;">
+          <h2>Đã hủy liên kết</h2>
+          <p>Bạn có thể thử lại bất cứ lúc nào.</p>
+        </body></html>
+      `);
+    } else if (result.type === 'success') {
       res.status(200).type('html').send(`
         <!doctype html><html lang="vi"><head><meta charset="utf-8">
         <title>Kết nối thành công</title></head>
