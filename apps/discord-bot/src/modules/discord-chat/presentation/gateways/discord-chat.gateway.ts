@@ -189,14 +189,12 @@ export class DiscordChatGateway {
         isServerChannel,
       });
 
-      if (isServerChannel && reply.privateDataFetched) {
-        // Private data: send full reply to DM, notify in channel
+      if (isServerChannel) {
+        // Always reply via DM when mentioned in a server channel
         await this.outboundService.sendText(discordUserId, reply.text);
         await message.reply(
-          'Mình đã gửi thông tin vào tin nhắn riêng (DM) của bạn rồi nhé! 📩',
+          'Mình đã trả lời trong tin nhắn riêng (DM) của bạn rồi nhé! 📩',
         );
-      } else if (isServerChannel) {
-        await message.reply(reply.text);
       } else {
         await this.outboundService.sendText(discordUserId, reply.text);
       }
