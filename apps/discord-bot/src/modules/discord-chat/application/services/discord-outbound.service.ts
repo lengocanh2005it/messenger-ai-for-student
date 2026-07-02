@@ -4,6 +4,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   Client,
+  TextChannel,
 } from 'discord.js';
 import {
   RESCHEDULE_CANCEL_CUSTOM_ID,
@@ -67,6 +68,26 @@ export class DiscordOutboundService {
     } catch (error) {
       this.logger.warn(
         `Failed to send menu buttons to discordUserId=${discordUserId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /** Sends a text message to a server channel (not a DM). */
+  async sendToChannel(channelId: string, text: string): Promise<void> {
+    try {
+      const channel = await this.client.channels.fetch(channelId);
+      if (channel instanceof TextChannel) {
+        await channel.send(text);
+      } else {
+        this.logger.warn(
+          `Channel ${channelId} is not a TextChannel — skipping server welcome`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send to channelId=${channelId}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );

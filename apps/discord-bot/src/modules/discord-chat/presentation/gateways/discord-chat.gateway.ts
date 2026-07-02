@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ChannelType } from 'discord.js';
 import { Button, Context, On, Once } from 'necord';
 import type { ButtonContext, ContextOf } from 'necord';
@@ -40,6 +41,7 @@ export class DiscordChatGateway {
   private readonly logger = new Logger(DiscordChatGateway.name);
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly agentService: DiscordAgentService,
     private readonly outboundService: DiscordOutboundService,
     private readonly rateLimitService: DiscordChatRateLimitService,
@@ -58,14 +60,27 @@ export class DiscordChatGateway {
   async onGuildMemberAdd(@Context() [member]: ContextOf<'guildMemberAdd'>) {
     const displayName = member.displayName;
     const discordUserId = member.id;
-    const welcome =
-      `Chào mừng ${displayName} đến với server WISPACE! 👋\n\n` +
-      `Mình là trợ lý AI của WISPACE — mình có thể giúp bạn xem lịch học, tiến độ IELTS Writing và trả lời các câu hỏi luyện thi.\n\n` +
-      `Để dùng đầy đủ tính năng, bạn cần liên kết tài khoản WISPACE với Discord trước nhé. Vào WISPACE và chọn "Kết nối Discord" để bắt đầu! 🎓`;
 
-    await this.outboundService.sendText(discordUserId, welcome);
+    // Public welcome in server channel (if DISCORD_WELCOME_CHANNEL_ID is set)
+    const welcomeChannelId = this.configService.get<string>(
+      'DISCORD_WELCOME_CHANNEL_ID',
+    );
+    if (welcomeChannelId) {
+      const serverMsg =
+        `Chào mừng <@${discordUserId}> đến với server WISPACE! 👋\n\n` +
+        `Mình là trợ lý AI của WISPACE — mình có thể giúp bạn xem lịch học, tiến độ IELTS Writing và trả lời các câu hỏi luyện thi.\n\n` +
+        `Để dùng đầy đủ tính năng, bạn cần liên kết tài khoản WISPACE với Discord trước nhé. Vào WISPACE và chọn "Kết nối Discord" để bắt đầu! 🎓`;
+      await this.outboundService.sendToChannel(welcomeChannelId, serverMsg);
+    }
+
+    // Private DM — shorter, personal greeting
+    const dmMsg =
+      `Chào ${displayName}! Mình là trợ lý WISPACE. ` +
+      `Bạn có thể hỏi về tiến độ học, lịch học sắp tới, hoặc mục tiêu band — cứ nhắn tự nhiên nhé 🎓`;
+    await this.outboundService.sendText(discordUserId, dmMsg);
+
     this.logger.log(
-      `Welcome DM sent to new member discordUserId=${discordUserId} displayName=${displayName}`,
+      `Welcome sent to new member discordUserId=${discordUserId} displayName=${displayName} channelId=${welcomeChannelId ?? 'none'}`,
     );
   }
 
