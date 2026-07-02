@@ -90,10 +90,12 @@ export class DiscordChatGateway {
       'DISCORD_WELCOME_CHANNEL_ID',
     );
     if (welcomeChannelId) {
-      const serverMsg =
-        `Chào mừng <@${discordUserId}> đến với server WISPACE! 👋\n\n` +
-        `Mình là trợ lý AI của WISPACE — mình có thể giúp bạn xem lịch học, tiến độ IELTS Writing và trả lời các câu hỏi luyện thi.\n\n` +
-        `Để dùng đầy đủ tính năng, bạn cần liên kết tài khoản WISPACE với Discord trước nhé. Vào WISPACE và chọn "Kết nối Discord" để bắt đầu! 🎓`;
+      const serverMsg = pending
+        ? `Chào mừng <@${discordUserId}> đến với server WISPACE! 👋\n\n` +
+          `Tài khoản WISPACE đã được liên kết. Hỏi mình bất cứ điều gì về lịch học, tiến độ IELTS hoặc mục tiêu band nhé 🎓`
+        : `Chào mừng <@${discordUserId}> đến với server WISPACE! 👋\n\n` +
+          `Mình là trợ lý AI của WISPACE — mình có thể giúp bạn xem lịch học, tiến độ IELTS Writing và trả lời các câu hỏi luyện thi.\n\n` +
+          `Để dùng đầy đủ tính năng, bạn cần liên kết tài khoản WISPACE với Discord trước nhé. Vào WISPACE và chọn "Kết nối Discord" để bắt đầu! 🎓`;
       await this.outboundService.sendToChannel(welcomeChannelId, serverMsg);
     }
 
