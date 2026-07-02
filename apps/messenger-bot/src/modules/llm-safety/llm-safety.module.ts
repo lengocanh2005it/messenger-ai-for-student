@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { LlmSafetyEventEntity } from '../../infrastructure/database/entities/llm-safety-event.entity';
+import { LlmSafetyEventEntity } from '@wispace/chat-metering';
 import { LLM_SAFETY_EVENT_REPOSITORY } from './domain/repositories/llm-safety-event.repository.port';
 import { LlmSafetyEventRepository } from './infrastructure/persistence/llm-safety-event.repository';
 import { LlmSafetyEventService } from './application/services/llm-safety-event.service';

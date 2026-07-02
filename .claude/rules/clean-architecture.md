@@ -11,6 +11,63 @@ Repo dùng **feature modules + 4 tầng** theo chuẩn NestJS Clean Architecture
 - Mỗi app implement các port (`LlmExecutionPort`, `LlmUsageRecorderPort`, `LlmSafetyEventPort`, `AgentMetricsPort`, `ToolExecutorPort<T>`) bằng service NestJS thật, rồi gọi `new LlmAgentService(config, ports)` — xem `apps/messenger-bot/src/modules/messenger/application/agent/messenger-agent.service.ts` làm ví dụ adapter mỏng.
 - Sửa package → phải rebuild + test cả app phụ thuộc (`npx turbo run build test --filter=@wispace/messenger-bot...`).
 
+## Ranh giới monorepo: `packages/chat-metering`
+
+`packages/chat-metering` (`@wispace/chat-metering`) là package framework-agnostic thứ hai, dùng chung quota/rate-limit chat (`chat_daily_usage`, `chat_idempotency`) + LLM usage/safety event tracking (`llm_usage_events`, `llm_safety_events`) — cả 4 bảng đã generalize `(platform, external_user_id)` từ Phase 2, `platform` truyền vào qua constructor thay vì hardcode.
+
+- **Không** import NestJS trong package — chỉ dependency `typeorm` (dùng thẳng `Repository<T>`/`EntityManager`, không qua `@nestjs/typeorm` decorator). Mỗi app tự đăng ký entity qua `TypeOrmModule.forFeature([...])` rồi truyền `Repository<T>` vào constructor của core class (`ChatRateLimitCore`, `LlmUsageRecorderCore`, `LlmSafetyCore`) — same pattern như app implement port của `@wispace/llm-agent`.
+- **Không di chuyển** vào package: whitelist/hint UX, quota-event audit table (`chat_quota_events`), stuck-reserved recovery cron, ops CLI scripts, BullMQ queue wiring, Redis burst counter, `MetricsService`/prom-client — các phần này ở lại từng app (hiện chỉ `apps/messenger-bot` có đủ, `apps/discord-bot` dùng bản rút gọn: `MemoryBurstCounter` + `DirectUsageWriter`, không BullMQ).
+- `apps/messenger-bot`'s `ChatRateLimitRepository`/`LlmUsageRepository`/`LlmSafetyEventRepository` (infrastructure layer) là **thin wrapper** quanh package core (platform='messenger') — giữ nguyên `*RepositoryPort` interface + toàn bộ consumer không đổi. Method ops-only (`incrementDailyUsage`, `countStuckReserved`, ...) không có trong package, ở lại wrapper.
+- `apps/discord-bot` dùng cùng entity/core class, platform='discord' — xem `apps/discord-bot/src/modules/chat-metering/`.
+- Sửa package → rebuild + test cả 2 app (`npx turbo run build test --filter=@wispace/messenger-bot... --filter=@wispace/discord-bot...`).
+
+## Ranh giới monorepo: `packages/wispace-client`
+
+`packages/wispace-client` (`@wispace/wispace-client`) là package framework-agnostic thứ ba — HTTP client gọi Wispace API (User/goals, TaskScoreAverage, UserCalendar) + retry/error (`withRetry`, `WispaceApiError`) + date/timezone utils (`study-calendar.utils.ts`), dùng chung Messenger + Discord.
+
+- **Không** import NestJS — chỉ dùng `fetch` thuần. App tự đọc `ConfigService` (URL, `WISPACE_INTERNAL_KEY`, retry settings) rồi truyền `WispaceApiClientConfig` vào constructor của client (`UserGoalsApiClient`, `TaskScoreAverageApiClient`, `UserCalendarApiClient`, `UserCalendarScheduleClient`).
+- Header xác định học viên tổng quát hoá qua `buildWispaceHeaders(idHeader, externalId, internalKey)` — `idHeader` ∈ `x-psid` \| `x-discordid` \| `x-zaloid` (WISPACE API đã hỗ trợ cả 3, xác nhận từ user — không cần đổi gì bên WISPACE, chỉ gửi đúng header cho platform).
+- **Không di chuyển** vào package: business logic report-generation (`StudentReportService`'s LLM call + capacity mapping), reschedule confirmation UI (Messenger postback button — `MessengerRescheduleConfirmationService`), notification-window subscription (`register_exam_report_notifications`) — các phần này đặc thù platform, ở lại từng app.
+- `apps/messenger-bot`'s `UserGoalsApiService`/`TaskScoreAverageApiService`/`UserCalendarApiService`/`UserCalendarScheduleService` là **thin wrapper** quanh package client (idHeader='x-psid') — giữ nguyên public API, report-specific mapping (`mapToCapacityInput`) vẫn ở lại wrapper.
+- `apps/discord-bot` dùng `modules/wispace/` (`WispaceGoalsService`, `WispaceCalendarService`, idHeader='x-discordid') để wire tool handlers thật trong `DiscordAgentToolsService`.
+- Sửa package → rebuild + test cả 2 app (`npx turbo run build test --filter=@wispace/messenger-bot... --filter=@wispace/discord-bot... --filter=@wispace/wispace-client...`).
+
+## Ranh giới monorepo: `packages/chat-history`
+
+`packages/chat-history` (`@wispace/chat-history`) là package framework-agnostic thứ tư — `MemoryChatHistoryStore` (in-memory, TTL + turn cap) + `ChatHistoryStorePort`/`ChatHistoryMessage` dùng chung mọi bot.
+
+- **Không** import NestJS trong package — plain class, constructor nhận `{ ttlMs, maxMessages }`.
+- App tự quyết định có bọc `MemoryChatHistoryStore` sau một backend phân tán hay không: `apps/messenger-bot`'s `MemoryChatHistoryStore` (infrastructure, Nest `@Injectable`) là **thin wrapper** quanh package core, đọc TTL/maxMessages từ `MessengerChatSharedConfigService`; `ChatHistoryStoreResolver` vẫn chọn Redis khi `CHAT_HISTORY_STORE=redis` (Redis store **không** nằm trong package — đặc thù hạ tầng từng app).
+- `apps/discord-bot`'s `DiscordChatHistoryService` dùng thẳng package core (đọc TTL/maxMessages qua `CHAT_HISTORY_TTL_MS`/`CHAT_HISTORY_MAX_MESSAGES`, mặc định 30 phút / 20 message) — chưa có backend phân tán, xem `docs/turborepo-migration-plan.md` Phase 3.
+- Sửa package → rebuild + test cả 2 app (`npx turbo run build test --filter=@wispace/messenger-bot... --filter=@wispace/discord-bot... --filter=@wispace/chat-history`).
+
+## Ranh giới monorepo: `packages/student-report`
+
+`packages/student-report` (`@wispace/student-report`) là package framework-agnostic thứ năm — `StudentReportCore` (fetch capacity → gọi LLM → parse JSON → fallback → format text báo cáo năng lực học viên), types (`StudentCapacityInput`/`StudentCapacityReport`), errors (`StudentReportNoScoreDataError`, `StudentReportRetryableError`), và messages (R1/R3 guidance) dùng chung mọi bot.
+
+- **Không** import NestJS — chỉ dependency `openai` + `@wispace/llm-agent` (tái dùng `LlmExecutionPort`/`LlmUsageRecorderPort`). App implement `CapacityDataPort` (gọi Wispace API) + ports LLM thật bằng service NestJS, rồi `new StudentReportCore(config, ports)` — xem `apps/messenger-bot/src/modules/student-report/application/services/student-report.service.ts` làm adapter mỏng.
+- Markdown-stripping (Messenger không render Markdown) là **platform-specific** — truyền qua `config.sanitizeText` (optional hook), không hardcode trong package. Discord/Zalo có thể bỏ trống để giữ nguyên Markdown.
+- **Không di chuyển** vào package: `StudentCapacityService`/Wispace API calls thật, cron gửi báo cáo định kỳ (`ReportCronService`), retry/outbox logic (`report-send-retry-dispatch.service.ts`) — các phần này đặc thù app, ở lại `apps/messenger-bot`.
+- App-local domain error classes (`apps/messenger-bot/src/modules/student-report/domain/errors/*.ts`) chỉ **re-export** class của package — bắt buộc để `instanceof` khớp giữa nơi throw (`TaskScoreAverageApiService`) và nơi catch (`MessengerService`, `ReportCronService`, `ReportSendRetryDispatchService`); không tạo class trùng tên riêng.
+- Sửa package → rebuild + test `apps/messenger-bot` (`npx turbo run build test --filter=@wispace/messenger-bot... --filter=@wispace/student-report`).
+
+## Ranh giới monorepo: `packages/chat-queue-core`
+
+`packages/chat-queue-core` (`@wispace/chat-queue-core`) là package framework-agnostic thứ sáu — `DebounceChatQueue<TContext>`, một state machine debounce/merge theo từng user (buffer trong debounce window, gộp tin nhắn đến khi đang xử lý batch trước, evict user rảnh rỗi) dùng chung mọi bot.
+
+- **Không** import NestJS — plain class. Mọi logic nội dung (merge/cap text, reserve quota, gọi LLM, gửi outbound) nằm ở `ChatQueueFlushHandler` do app inject vào, **không** nằm trong core.
+- **Idempotency key**: package export type `IdempotencyKeyPort<TRawMessage>` — đây là **contract**, không phải logic chạy trong core. Idempotency key (Messenger: `message.mid`, Discord: `message.id`) được từng platform tự resolve tại tầng ingestion (webhook/gateway) **trước khi** gọi `enqueue()`; core chỉ mang hộ chuỗi string đó qua `ChatQueueBatch.idempotencyKey`, không tự diễn giải.
+- `apps/messenger-bot`'s `MessengerChatQueueService` dùng `DebounceChatQueue` cho **chế độ memory** (`CHAT_QUEUE_STORE=memory`); chế độ Redis/distributed (`enqueueDistributed`, `flushDistributed`, `ChatQueueStorePort`) **không** nằm trong package — đặc thù hạ tầng, giữ ở app (cùng pattern với `@wispace/chat-history`: chỉ memory backend được tách, Redis ở lại app).
+- Sửa package → rebuild + test `apps/messenger-bot` (`npx turbo run build test --filter=@wispace/messenger-bot... --filter=@wispace/chat-queue-core`). `apps/discord-bot` chưa có debounce/queue — khi thêm, dùng thẳng package này thay vì viết lại state machine.
+
+## Ranh giới monorepo: `packages/study-reminder-core`
+
+`packages/study-reminder-core` (`@wispace/study-reminder-core`) là package framework-agnostic thứ bảy — hàm thuần tính toán lịch nhắc học (`computeRemindAt`, `getMinutesUntilSession`, `isSessionStarted`, `formatScheduledTimeLabel`), không có state, không đọc config/I-O.
+
+- **Không** import gì ngoài `Intl`/`Date` built-in. App tự đọc `STUDY_REMINDER_*` từ `ConfigService` rồi truyền giá trị (minutesBefore, minLeadMinutes, timezone) vào các hàm thuần — xem `apps/messenger-bot/src/modules/study-reminder/application/services/study-reminder-schedule.service.ts` làm adapter mỏng.
+- **Chưa tách** orchestration sync (`StudyReminderSyncService`: query mapping → fetch session → upsert job) và dispatch (`StudyReminderDispatchService`: claim job → gửi qua `MESSAGE_SENDER`) — cả hai đã đứng sau port riêng (`MessengerMappingReaderPort`, `StudyReminderJobRepositoryPort`) nhưng **chưa có bot thứ 2 nào cần** (Discord đọc/ghi lịch trực tiếp qua `DiscordStudyCalendarCommandService`, kể cả `reschedule_study_session`, nhưng chưa có hệ thống job nhắc lịch/outbox sync riêng của nó). Ép tách bây giờ là abstraction sớm không có consumer thật để verify — để dành khi Discord/Zalo thực sự cần job nhắc lịch riêng.
+- Sửa package → rebuild + test `apps/messenger-bot` (`npx turbo run build test --filter=@wispace/messenger-bot... --filter=@wispace/study-reminder-core`).
+
 ## Luồng phụ thuộc trong 1 app (bắt buộc)
 
 ```

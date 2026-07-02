@@ -22,7 +22,7 @@ describe('WispaceMessengerTokenVerifyService', () => {
     jest.restoreAllMocks();
   });
 
-  it('POSTs token and psid with X-Internal-Key', async () => {
+  it('POSTs token, value, platform with X-Internal-Key', async () => {
     const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
       ok: true,
       status: 200,
@@ -55,7 +55,11 @@ describe('WispaceMessengerTokenVerifyService', () => {
           'Content-Type': 'application/json',
           'X-Internal-Key': 'internal-secret',
         },
-        body: JSON.stringify({ token: 'token-abc', psid: 'psid-1' }),
+        body: JSON.stringify({
+          token: 'token-abc',
+          value: 'psid-1',
+          platform: 'messenger',
+        }),
       }),
     );
   });

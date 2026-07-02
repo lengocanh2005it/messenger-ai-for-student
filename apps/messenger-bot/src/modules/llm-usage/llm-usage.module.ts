@@ -3,7 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonModule } from '../../shared/common/common.module';
 import { RedisModule } from '../../infrastructure/redis/redis.module';
 import { MessengerOutboundModule } from '../messenger/messenger-outbound.module';
-import { LlmUsageEventEntity } from '../../infrastructure/database/entities/llm-usage-event.entity';
+import { LlmUsageEventEntity } from '@wispace/chat-metering';
 import { LlmUsageCleanupCronService } from './application/services/llm-usage-cleanup-cron.service';
 import { LlmUsageCleanupService } from './application/services/llm-usage-cleanup.service';
 import { LlmUsageConfigService } from './application/services/llm-usage-config.service';

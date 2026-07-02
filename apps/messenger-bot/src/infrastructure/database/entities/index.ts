@@ -1,8 +1,11 @@
-export { ChatDailyUsageEntity } from './chat-daily-usage.entity';
+export {
+  ChatDailyUsageEntity,
+  ChatIdempotencyEntity,
+  LlmUsageEventEntity,
+  LlmSafetyEventEntity,
+} from '@wispace/chat-metering';
 export { ChatQuotaEventEntity } from './chat-quota-event.entity';
-export { LlmUsageEventEntity } from './llm-usage-event.entity';
 export { WebhookDeadLetterEntity } from './webhook-dead-letter.entity';
-export { ChatIdempotencyEntity } from './chat-idempotency.entity';
 export { MessageLogEntity } from './message-log.entity';
 export { ScheduledReportClaimEntity } from './scheduled-report-claim.entity';
 export { ReportSendJobEntity } from './report-send-job.entity';

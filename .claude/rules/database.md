@@ -7,14 +7,14 @@ paths: apps/messenger-bot/src/infrastructure/database/**
 
 ## Bảng POC (migration trong repo)
 
-- `user_messenger_mappings` — `user_id` ↔ `psid`
-- `messenger_message_logs` — audit tin gửi/nhận; cron `messenger-message-log-cleanup` xóa row cũ hơn `MESSENGER_MESSAGE_LOG_RETENTION_DAYS` (default 90) vào 03:00 ICT mỗi thứ Hai hàng tuần
-- `messenger_chat_daily_usage` — quota chat FREE_FORM theo ngày
-- `messenger_chat_idempotency` — idempotency `message.mid` (reserve/refund)
+- `user_platform_mappings` — `user_id` ↔ `(platform, external_user_id)` (đổi tên từ `user_messenger_mappings` ở Phase 2)
+- `message_logs` — audit tin gửi/nhận; cron `messenger-message-log-cleanup` xóa row cũ hơn `MESSENGER_MESSAGE_LOG_RETENTION_DAYS` (default 90) vào 03:00 ICT mỗi thứ Hai hàng tuần
+- `chat_daily_usage`, `chat_idempotency` — quota chat FREE_FORM + idempotency reserve/refund (đổi tên từ `messenger_chat_*` ở Phase 2) — entity + core logic sở hữu bởi `packages/chat-metering` (dùng chung `apps/discord-bot`), messenger-bot chỉ còn thin wrapper
+- `llm_usage_events`, `llm_safety_events` — token/cost + grounding-warning tracking — cũng sở hữu bởi `packages/chat-metering`
 - `study_reminder_jobs` — outbox nhắc lịch
 - `users` + view `"Users"` — cache display name / exam date; chỉ `user_id` có mapping Messenger
 
-**Prod DB:** `ai_chat_bot_db`. Hub cũ `writing_ai_hub_db` — đã drop bảng POC (ops script).
+**Prod DB:** `ai_chat_bot_db`. Hub cũ `writing_ai_hub_db` — đã drop bảng POC (ops script). Tất cả bảng trên đã generalize `(platform, external_user_id)` từ Phase 2 — xem `docs/turborepo-migration-plan.md`.
 
 Migration H7 tạo `messenger_chat_queue_buffer` + `messenger_chat_history` — **dropped** bởi `1717747200010-DropMessengerChatQueueBufferAndHistoryTables.ts` (queue/history chuyển Redis hoặc memory).
 
@@ -37,7 +37,7 @@ Migration H7 tạo `messenger_chat_queue_buffer` + `messenger_chat_history` — 
 
 CLI generate (nếu cần): `npm run migration:generate -- src/infrastructure/database/migrations/TenMigration` (chạy trong `apps/messenger-bot/`).
 
-DB dùng chung giữa các bot (Messenger nay, Discord/Zalo sau) — khóa `psid` sẽ generalize thành `(platform, external_user_id)` ở Phase 2, xem `docs/turborepo-migration-plan.md`.
+DB dùng chung giữa các bot (Messenger, Discord nay, Zalo sau) — khóa đã generalize thành `(platform, external_user_id)` ở Phase 2, xem `docs/turborepo-migration-plan.md`. Entity của 4 bảng chat-metering (`chat_daily_usage`, `chat_idempotency`, `llm_usage_events`, `llm_safety_events`) sống trong `packages/chat-metering`, **không** thêm entity trùng trong `apps/*/infrastructure/database/entities/` — chỉ migration (do messenger-bot chạy) mới sửa schema các bảng này.
 
 ## Lưu ý
 

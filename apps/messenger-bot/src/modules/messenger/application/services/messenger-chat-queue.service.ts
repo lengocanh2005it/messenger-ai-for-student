@@ -6,6 +6,8 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DebounceChatQueue } from '@wispace/chat-queue-core';
+import type { ChatQueueBatch } from '@wispace/chat-queue-core';
 import { MessengerLinkContext } from '../../../../shared/config/poc.constants';
 import {
   capMergedChatUserText,
@@ -42,16 +44,9 @@ export interface EnqueueChatMessageInput {
   idempotencyKey?: string;
 }
 
-interface PsidChatQueueState {
-  texts: string[];
-  lastIdempotencyKey?: string;
+interface MemoryQueueContext {
   userId?: number;
   linkContext?: MessengerLinkContext;
-  debounceTimer?: ReturnType<typeof setTimeout>;
-  processing: boolean;
-  pendingWhileProcessing: string[];
-  lastPendingIdempotencyKey?: string;
-  lastActivityAt: number;
 }
 
 interface ChatBatchInput {
@@ -65,13 +60,11 @@ interface ChatBatchInput {
 @Injectable()
 export class MessengerChatQueueService implements OnModuleDestroy {
   private readonly logger = new Logger(MessengerChatQueueService.name);
-  private readonly queues = new Map<string, PsidChatQueueState>();
+  private readonly debounceQueue: DebounceChatQueue<MemoryQueueContext>;
   private readonly sharedFlushTimers = new Map<
     string,
     ReturnType<typeof setTimeout>
   >();
-  private readonly staleQueueCleanupTimer: ReturnType<typeof setInterval>;
-  private readonly queueStaleTtlMs: number;
 
   private static readonly DEFAULT_QUEUE_STALE_TTL_MS = 60 * 60 * 1000; // 1 hour
   private static readonly DEFAULT_QUEUE_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 min
@@ -91,48 +84,27 @@ export class MessengerChatQueueService implements OnModuleDestroy {
     @Inject(CHAT_QUEUE_STORE)
     private readonly chatQueueStore?: ChatQueueStorePort,
   ) {
-    this.queueStaleTtlMs =
-      sharedConfig?.getQueueStaleTtlMs() ??
-      MessengerChatQueueService.DEFAULT_QUEUE_STALE_TTL_MS;
-    const cleanupIntervalMs =
-      sharedConfig?.getQueueCleanupIntervalMs() ??
-      MessengerChatQueueService.DEFAULT_QUEUE_CLEANUP_INTERVAL_MS;
-    this.staleQueueCleanupTimer = setInterval(
-      () => this.evictStaleMemoryQueues(),
-      cleanupIntervalMs,
+    this.debounceQueue = new DebounceChatQueue<MemoryQueueContext>(
+      {
+        getDebounceMs: () => this.getDebounceMs(),
+        staleTtlMs:
+          sharedConfig?.getQueueStaleTtlMs() ??
+          MessengerChatQueueService.DEFAULT_QUEUE_STALE_TTL_MS,
+        cleanupIntervalMs:
+          sharedConfig?.getQueueCleanupIntervalMs() ??
+          MessengerChatQueueService.DEFAULT_QUEUE_CLEANUP_INTERVAL_MS,
+      },
+      (batch) => this.handleMemoryFlush(batch),
     );
-    this.staleQueueCleanupTimer.unref?.();
   }
 
   onModuleDestroy(): void {
-    clearInterval(this.staleQueueCleanupTimer);
-    for (const state of this.queues.values()) {
-      if (state.debounceTimer) {
-        clearTimeout(state.debounceTimer);
-        state.debounceTimer = undefined;
-      }
-    }
-    this.queues.clear();
+    this.debounceQueue.destroy();
 
     for (const timer of this.sharedFlushTimers.values()) {
       clearTimeout(timer);
     }
     this.sharedFlushTimers.clear();
-  }
-
-  private evictStaleMemoryQueues(): void {
-    const cutoff = Date.now() - this.queueStaleTtlMs;
-    for (const [psid, state] of this.queues) {
-      if (
-        !state.processing &&
-        state.texts.length === 0 &&
-        state.pendingWhileProcessing.length === 0 &&
-        !state.debounceTimer &&
-        state.lastActivityAt < cutoff
-      ) {
-        this.queues.delete(psid);
-      }
-    }
   }
 
   enqueue(input: EnqueueChatMessageInput): void {
@@ -148,42 +120,30 @@ export class MessengerChatQueueService implements OnModuleDestroy {
       return;
     }
 
-    let state = this.queues.get(input.psid);
-    if (!state) {
-      state = {
-        texts: [],
-        processing: false,
-        pendingWhileProcessing: [],
-        lastActivityAt: Date.now(),
-      };
-      this.queues.set(input.psid, state);
+    const memoryContext: MemoryQueueContext = {};
+    if (input.userId !== undefined) {
+      memoryContext.userId = input.userId;
+    }
+    if (input.linkContext !== undefined) {
+      memoryContext.linkContext = input.linkContext;
     }
 
-    state.lastActivityAt = Date.now();
-    state.userId = input.userId ?? state.userId;
-    state.linkContext = input.linkContext ?? state.linkContext;
-
-    if (state.processing) {
-      state.pendingWhileProcessing.push(text);
-      if (input.idempotencyKey) {
-        state.lastPendingIdempotencyKey = input.idempotencyKey;
-      }
-      this.logger.log(
-        `Queued chat while processing psid=${input.psid} (pending=${state.pendingWhileProcessing.length})`,
-      );
-      return;
-    }
-
-    state.texts.push(text);
-    if (input.idempotencyKey) {
-      state.lastIdempotencyKey = input.idempotencyKey;
-    }
-    this.scheduleFlush(input.psid, state);
+    this.debounceQueue.enqueue({
+      externalUserId: input.psid,
+      text,
+      context: memoryContext,
+      idempotencyKey: input.idempotencyKey,
+    });
   }
 
   /** H7: worker/cron entry for shared queue flush. */
   async flushReady(psid: string): Promise<void> {
-    await this.flush(psid);
+    if (this.isDistributedMode()) {
+      await this.flushDistributed(psid);
+      return;
+    }
+
+    await this.debounceQueue.flushNow(psid);
   }
 
   private async enqueueDistributed(
@@ -209,21 +169,6 @@ export class MessengerChatQueueService implements OnModuleDestroy {
     }
   }
 
-  private scheduleFlush(psid: string, state: PsidChatQueueState): void {
-    if (state.debounceTimer) {
-      clearTimeout(state.debounceTimer);
-    }
-
-    const timer = setTimeout(() => {
-      if (state.debounceTimer === timer) {
-        state.debounceTimer = undefined;
-      }
-      void this.flush(psid);
-    }, this.getDebounceMs());
-    timer.unref?.();
-    state.debounceTimer = timer;
-  }
-
   private scheduleDistributedFlush(psid: string): void {
     const existing = this.sharedFlushTimers.get(psid);
     if (existing) {
@@ -232,20 +177,11 @@ export class MessengerChatQueueService implements OnModuleDestroy {
 
     const timer = setTimeout(() => {
       this.sharedFlushTimers.delete(psid);
-      void this.flush(psid);
+      void this.flushDistributed(psid);
     }, this.getDebounceMs());
     timer.unref?.();
 
     this.sharedFlushTimers.set(psid, timer);
-  }
-
-  private async flush(psid: string): Promise<void> {
-    if (this.isDistributedMode()) {
-      await this.flushDistributed(psid);
-      return;
-    }
-
-    await this.flushMemory(psid);
   }
 
   private async flushDistributed(psid: string): Promise<void> {
@@ -284,49 +220,21 @@ export class MessengerChatQueueService implements OnModuleDestroy {
     }
   }
 
-  private async flushMemory(psid: string): Promise<void> {
-    const state = this.queues.get(psid);
-    if (!state || state.processing || !state.texts.length) {
-      return;
-    }
-
-    state.processing = true;
+  private async handleMemoryFlush(
+    batch: ChatQueueBatch<MemoryQueueContext>,
+  ): Promise<void> {
     const mergedText = capMergedChatUserText(
-      mergeChatUserTexts(state.texts),
+      mergeChatUserTexts(batch.texts),
       this.getMergedTextMaxChars(),
     );
-    state.texts = [];
-    const { userId, linkContext } = state;
-    const idempotencyKey = state.lastIdempotencyKey;
-    state.lastIdempotencyKey = undefined;
 
-    try {
-      await this.processChatBatch({
-        psid,
-        mergedText,
-        userId,
-        linkContext,
-        idempotencyKey,
-      });
-    } finally {
-      state.processing = false;
-
-      if (state.pendingWhileProcessing.length > 0) {
-        state.texts.push(...state.pendingWhileProcessing);
-        state.pendingWhileProcessing = [];
-        state.lastIdempotencyKey = state.lastPendingIdempotencyKey;
-        state.lastPendingIdempotencyKey = undefined;
-      }
-
-      if (state.texts.length > 0) {
-        this.scheduleFlush(psid, state);
-      } else if (
-        !state.debounceTimer &&
-        state.pendingWhileProcessing.length === 0
-      ) {
-        this.queues.delete(psid);
-      }
-    }
+    await this.processChatBatch({
+      psid: batch.externalUserId,
+      mergedText,
+      userId: batch.context?.userId,
+      linkContext: batch.context?.linkContext,
+      idempotencyKey: batch.idempotencyKey,
+    });
   }
 
   private async processChatBatch(input: ChatBatchInput): Promise<void> {

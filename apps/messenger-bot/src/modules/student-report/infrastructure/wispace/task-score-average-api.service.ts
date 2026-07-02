@@ -1,11 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { StudentReportNoScoreDataError } from '../../domain/errors/student-report-no-score-data.error';
-import { WispaceApiError } from '../../domain/errors/wispace-api.error';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  TaskScoreAverageApiClient,
+  type WispaceApiClientConfig,
+} from '@wispace/wispace-client';
+import { StudentReportNoScoreDataError } from '../../domain/errors/student-report-no-score-data.error';
 import { TaskScoreAverageRecord } from '../../domain/types/task-score-average.types';
 import { StudentCapacityInput } from '../../domain/types/student-capacity.types';
 import { UserGoalsApiService } from './user-goals-api.service';
-import { withRetry } from '../../../../shared/common/with-retry';
 import { resolveAppTimezone } from '../../../../shared/config/app-timezone';
 import {
   formatExamDateDisplay,
@@ -13,21 +19,12 @@ import {
 } from '../../../../shared/utils/exam-date.utils';
 import { todayReportDate } from '../../../../shared/utils/report-date.utils';
 
-function isWispaceRetryable(error: unknown): boolean {
-  if (
-    error !== null &&
-    typeof error === 'object' &&
-    'isRetryable' in error &&
-    typeof error.isRetryable === 'function'
-  ) {
-    return (error as { isRetryable: () => boolean }).isRetryable();
-  }
-  return error instanceof TypeError;
-}
+const ID_HEADER = 'x-psid' as const;
 
 @Injectable()
 export class TaskScoreAverageApiService {
   private readonly logger = new Logger(TaskScoreAverageApiService.name);
+  private client?: TaskScoreAverageApiClient;
 
   constructor(
     private readonly configService: ConfigService,
@@ -35,7 +32,10 @@ export class TaskScoreAverageApiService {
   ) {}
 
   async getCapacityData(psid: string): Promise<StudentCapacityInput> {
-    const records = await this.fetchTaskScoreAverages(psid);
+    const records = await this.getClient().getTaskScoreAverages(
+      ID_HEADER,
+      psid,
+    );
 
     if (records.length === 0) {
       throw new StudentReportNoScoreDataError(psid);
@@ -46,53 +46,37 @@ export class TaskScoreAverageApiService {
     return this.mapToCapacityInput(records, goals);
   }
 
-  private async fetchTaskScoreAverages(
-    psid: string,
-  ): Promise<TaskScoreAverageRecord[]> {
-    const url =
-      this.configService.get<string>('WISPACE_API_TASK_SCORE_URL') ??
-      'https://backend.aihubproduction.com/api/TaskScoreAverage';
+  private getClient(): TaskScoreAverageApiClient {
+    if (!this.client) {
+      this.client = new TaskScoreAverageApiClient(this.buildClientConfig(), {
+        warn: (m) => this.logger.warn(m),
+        log: (m) => this.logger.log(m),
+      });
+    }
 
-    const maxRetries = this.readPositiveInt('WISPACE_API_MAX_RETRIES', 3);
-    const baseDelayMs = this.readPositiveInt(
-      'WISPACE_API_RETRY_BASE_DELAY_MS',
-      500,
-    );
-
-    return withRetry(() => this.doFetchTaskScoreAverages(url, psid), {
-      maxRetries,
-      baseDelayMs,
-      shouldRetry: isWispaceRetryable,
-      onRetry: (attempt, max, err) =>
-        this.logger.warn(
-          `TaskScoreAverage retry ${attempt}/${max} (psid=${psid}): ${err instanceof Error ? err.message : String(err)}`,
-        ),
-    });
+    return this.client;
   }
 
-  private async doFetchTaskScoreAverages(
-    url: string,
-    psid: string,
-  ): Promise<TaskScoreAverageRecord[]> {
-    const response = await fetch(url, {
-      headers: this.userGoalsApiService.buildWispaceHeaders(psid),
-    });
+  private buildClientConfig(): WispaceApiClientConfig {
+    return {
+      url:
+        this.configService.get<string>('WISPACE_API_TASK_SCORE_URL') ??
+        'https://backend.aihubproduction.com/api/TaskScoreAverage',
+      internalKey: this.getInternalKey(),
+      maxRetries: this.readPositiveInt('WISPACE_API_MAX_RETRIES', 3),
+      baseDelayMs: this.readPositiveInt('WISPACE_API_RETRY_BASE_DELAY_MS', 500),
+    };
+  }
 
-    if (!response.ok) {
-      const body = await response.text();
-      throw new WispaceApiError(
-        `TaskScoreAverage API failed: HTTP ${response.status} ${response.statusText} - ${body}`,
-        response.status,
-        psid,
-        'TaskScoreAverage',
+  private getInternalKey(): string {
+    const key = this.configService.get<string>('WISPACE_INTERNAL_KEY')?.trim();
+    if (!key) {
+      throw new InternalServerErrorException(
+        'WISPACE_INTERNAL_KEY must be set in .env',
       );
     }
 
-    const data = (await response.json()) as TaskScoreAverageRecord[];
-    this.logger.log(
-      `TaskScoreAverage API returned ${data.length} record(s) (psid=${psid})`,
-    );
-    return data;
+    return key;
   }
 
   private readPositiveInt(key: string, defaultValue: number): number {

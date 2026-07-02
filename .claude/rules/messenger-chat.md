@@ -22,7 +22,7 @@ Legacy: `CHAT_QUEUE_SHARED=true` → `CHAT_QUEUE_STORE=redis` khi không set exp
 
 | Backend | Env | Ghi chú |
 |---------|-----|---------|
-| Memory | `CHAT_QUEUE_STORE=memory` (default) | 1 pod POC — in-process Map |
+| Memory | `CHAT_QUEUE_STORE=memory` (default) | 1 pod POC — wraps `@wispace/chat-queue-core`'s `DebounceChatQueue` (package dùng chung mọi bot, xem `.claude/rules/clean-architecture.md`) |
 | Redis | `CHAT_QUEUE_STORE=redis` + `REDIS_ENABLED=true` | `chat:queue:buffer:{psid}`, set `chat:queue:active-psids`, lock `chat:queue:lock:{psid}` |
 
 Port: `CHAT_QUEUE_STORE` → `ChatQueueStoreResolver` (redis khi distributed).
@@ -31,8 +31,8 @@ Port: `CHAT_QUEUE_STORE` → `ChatQueueStoreResolver` (redis khi distributed).
 
 | Backend | Env | Ghi chú |
 |---------|-----|---------|
-| Memory | `CHAT_HISTORY_STORE=memory` (default) | 1 pod POC |
-| Redis | `CHAT_HISTORY_STORE=redis` + `REDIS_ENABLED=true` | Key `chat:history:{psid}`, TTL `CHAT_HISTORY_TTL_MS` |
+| Memory | `CHAT_HISTORY_STORE=memory` (default) | 1 pod POC — wraps `@wispace/chat-history`'s `MemoryChatHistoryStore` (package dùng chung Discord, xem `.claude/rules/clean-architecture.md`) |
+| Redis | `CHAT_HISTORY_STORE=redis` + `REDIS_ENABLED=true` | Key `chat:history:{psid}`, TTL `CHAT_HISTORY_TTL_MS` — Redis store không nằm trong package (đặc thù hạ tầng từng app) |
 
 `CHAT_HISTORY_STORE=postgres` **đã bỏ** (bảng `messenger_chat_history` dropped).
 

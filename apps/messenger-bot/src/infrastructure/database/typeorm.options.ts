@@ -1,11 +1,13 @@
 import { join } from 'path';
 import { DataSourceOptions } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { LlmSafetyEventEntity } from './entities/llm-safety-event.entity';
-import { ChatDailyUsageEntity } from './entities/chat-daily-usage.entity';
+import {
+  ChatDailyUsageEntity,
+  ChatIdempotencyEntity,
+  LlmSafetyEventEntity,
+  LlmUsageEventEntity,
+} from '@wispace/chat-metering';
 import { ChatQuotaEventEntity } from './entities/chat-quota-event.entity';
-import { LlmUsageEventEntity } from './entities/llm-usage-event.entity';
-import { ChatIdempotencyEntity } from './entities/chat-idempotency.entity';
 import { MessageLogEntity } from './entities/message-log.entity';
 import { ScheduledReportClaimEntity } from './entities/scheduled-report-claim.entity';
 import { WebhookDeadLetterEntity } from './entities/webhook-dead-letter.entity';

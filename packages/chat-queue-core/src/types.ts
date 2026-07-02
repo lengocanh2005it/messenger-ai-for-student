@@ -1,0 +1,43 @@
+/**
+ * Resolves an opaque idempotency key from a platform's raw inbound message
+ * (Messenger: `message.mid`, Discord: `message.id`). Implemented per platform
+ * at the ingestion layer (webhook/gateway) — the queue core itself never
+ * inspects the key, it only carries whatever string it is given through to
+ * `ChatQueueFlushHandler`.
+ */
+export interface IdempotencyKeyPort<TRawMessage> {
+  resolve(raw: TRawMessage): string | undefined;
+}
+
+export interface EnqueueInput<TContext> {
+  externalUserId: string;
+  text: string;
+  context?: Partial<TContext>;
+  /** Idempotency key of this message — the last one in a debounce batch wins. */
+  idempotencyKey?: string;
+}
+
+export interface ChatQueueBatch<TContext> {
+  externalUserId: string;
+  /** Raw texts accumulated during the debounce window, in arrival order. */
+  texts: string[];
+  context?: Partial<TContext>;
+  idempotencyKey?: string;
+}
+
+/**
+ * Platform-specific batch handler — merging/capping text, rate-limit
+ * reserve, LLM call, and outbound delivery all happen here, not in the core.
+ */
+export type ChatQueueFlushHandler<TContext> = (
+  batch: ChatQueueBatch<TContext>,
+) => Promise<void>;
+
+export interface DebounceChatQueueConfig {
+  /** Debounce window before a batch is flushed; may change at runtime (env-driven). */
+  getDebounceMs: () => number;
+  /** A user with no activity for this long is evicted from memory. */
+  staleTtlMs: number;
+  /** How often to sweep for stale users. */
+  cleanupIntervalMs: number;
+}

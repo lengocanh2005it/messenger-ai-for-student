@@ -1,4 +1,4 @@
-/** Env suffix: gpt-5.4 → GPT_5_4 */
+/** Env suffix convention: gpt-5.4 → GPT_5_4 */
 export function normalizeModelForEnvKey(model: string): string {
   return model.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
 }

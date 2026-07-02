@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { CHAT_BURST_WINDOW_MS } from '../../domain/entities/chat-burst.types';
+import { PostgresBurstCounter } from '@wispace/chat-metering';
 import type { ChatBurstCounterPort } from '../../domain/repositories/chat-burst-counter.port';
 import {
   CHAT_RATE_LIMIT_REPOSITORY,
@@ -7,42 +7,41 @@ import {
 } from '../../domain/repositories/chat-rate-limit.repository.port';
 import { ChatRateLimitConfigService } from '../../application/services/chat-rate-limit-config.service';
 
+/** Thin NestJS wrapper around the shared `@wispace/chat-metering` Postgres-derived burst counter. */
 @Injectable()
 export class PostgresChatBurstCounter implements ChatBurstCounterPort {
+  private readonly core: PostgresBurstCounter;
+
   constructor(
     private readonly configService: ChatRateLimitConfigService,
     @Inject(CHAT_RATE_LIMIT_REPOSITORY)
-    private readonly repository: ChatRateLimitRepositoryPort,
-  ) {}
-
-  getBurstCount(psid: string): Promise<number> {
-    return this.repository.countRecentReservations(
-      psid,
-      new Date(Date.now() - CHAT_BURST_WINDOW_MS),
+    repository: ChatRateLimitRepositoryPort,
+  ) {
+    this.core = new PostgresBurstCounter(
       {
-        includeRefunded: this.configService.getBurstCountsRefunded(),
+        countRecentReservations: (psid, since, options) =>
+          repository.countRecentReservations(psid, since, options),
       },
+      this.configService.getBurstCountsRefunded(),
     );
   }
 
-  // Postgres burst is derived from the chat_rate_limit_usage table (already written
-  // atomically by reserveFreeFormSlotInTransaction). No separate increment needed —
-  // just check the current count against the limit.
-  async tryReserveBurst(
+  getBurstCount(psid: string): Promise<number> {
+    return this.core.getBurstCount(psid);
+  }
+
+  tryReserveBurst(
     psid: string,
     limit: number,
   ): Promise<{ allowed: boolean; count: number }> {
-    const count = await this.getBurstCount(psid);
-    return { allowed: count < limit, count };
+    return this.core.tryReserveBurst(psid, limit);
   }
 
-  recordReservation(_psid: string): Promise<void> {
-    void _psid;
-    return Promise.resolve();
+  recordReservation(psid: string): Promise<void> {
+    return this.core.recordReservation(psid);
   }
 
-  releaseReservation(_psid: string): Promise<void> {
-    void _psid;
-    return Promise.resolve();
+  releaseReservation(psid: string): Promise<void> {
+    return this.core.releaseReservation(psid);
   }
 }

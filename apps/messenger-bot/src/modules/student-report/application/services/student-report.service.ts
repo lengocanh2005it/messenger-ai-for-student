@@ -1,36 +1,27 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
-import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
 import {
-  parseJsonObject,
-  readRequiredStringField,
-} from '../../../../shared/utils/llm-json-output.utils';
+  StudentReportCore,
+  type StudentReportPorts,
+} from '@wispace/student-report';
+import { todayUsageDate } from '@wispace/chat-metering';
+import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
+import { sanitizeMessengerText } from '../../../../shared/utils/messenger-text.utils';
+import type { LlmExecutionContext } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
-import { todayUsageDate } from '../../../chat-rate-limit/application/utils/chat-usage-date.utils';
-import { StudentReportNoScoreDataError } from '../../domain/errors/student-report-no-score-data.error';
-import {
-  StudentReportRetryableError,
-  WispaceApiError,
-} from '../../domain/errors/wispace-api.error';
-import {
-  buildStudentReportApiUnavailableMessage,
-  buildStudentReportNoScoreDataMessage,
-} from '../messages/student-report.messages';
 import { StudentCapacityService } from './student-capacity.service';
-import {
-  StudentCapacityInput,
-  StudentCapacityReport,
-} from '../../domain/types/student-capacity.types';
 
+/**
+ * Thin NestJS adapter around the platform-agnostic `@wispace/student-report`
+ * core (capacity fetch → LLM call → fallback → format). Owns: Messenger-
+ * specific ports (LLM execution/usage wiring), system prompt loading, and
+ * Messenger text sanitization (Markdown stripping).
+ */
 @Injectable()
 export class StudentReportService {
   private readonly logger = new Logger(StudentReportService.name);
+  private core?: StudentReportCore;
 
   constructor(
     private readonly configService: ConfigService,
@@ -39,141 +30,56 @@ export class StudentReportService {
     private readonly llmExecution: LlmExecutionService,
   ) {}
 
-  async generateReport(psid: string): Promise<string> {
-    try {
-      const input = await this.studentCapacityService.getCapacityData(psid);
-      const report = await this.generateAiReport(psid, input);
-      return this.formatReport(report);
-    } catch (error) {
-      if (error instanceof StudentReportNoScoreDataError) {
-        this.logger.log(
-          `No score data for report psid=${psid}; sending R1 guidance message`,
-        );
-        return buildStudentReportNoScoreDataMessage();
-      }
-
-      if (error instanceof WispaceApiError) {
-        if (error.isRetryable()) {
-          this.logger.warn(
-            `Wispace API retryable error for report psid=${psid} status=${error.statusCode} endpoint=${error.endpoint}`,
-          );
-          throw new StudentReportRetryableError(psid, error);
-        }
-
-        this.logger.warn(
-          `Wispace API unavailable for report psid=${psid} status=${error.statusCode} endpoint=${error.endpoint}`,
-        );
-        return buildStudentReportApiUnavailableMessage();
-      }
-
-      throw error;
+  generateReport(psid: string): Promise<string> {
+    if (!this.core) {
+      this.core = this.buildCore();
     }
-  }
-
-  private async generateAiReport(
-    psid: string,
-    input: StudentCapacityInput,
-  ): Promise<StudentCapacityReport> {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-
-    if (!apiKey) {
-      this.logger.warn('OPENAI_API_KEY missing, using fallback report content');
-      return this.buildFallbackReport(input);
-    }
-
-    const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
-    const client = new OpenAI({ apiKey });
 
     const timezone =
       this.configService.get<string>('LLM_USAGE_TIMEZONE')?.trim() ??
       this.configService.get<string>('CHAT_USAGE_TIMEZONE')?.trim() ??
       'Asia/Ho_Chi_Minh';
-    const usageDate = todayUsageDate(timezone);
-    const correlationId = `${psid}:${usageDate}`;
+    const correlationId = `${psid}:${todayUsageDate(timezone)}`;
 
-    const response = await this.llmExecution.run(
-      () =>
-        client.chat.completions.create({
-          model,
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content: loadSystemPrompt('studentReport'),
-            },
-            {
-              role: 'user',
-              content: JSON.stringify(input),
-            },
-          ],
-        }),
-      {
-        feature: 'STUDENT_REPORT',
-        correlationId,
+    return this.core.generateReport(psid, { correlationId });
+  }
+
+  private buildCore(): StudentReportCore {
+    const ports: StudentReportPorts = {
+      llmExecution: {
+        run: (fn, meta) =>
+          this.llmExecution.run(fn, meta as LlmExecutionContext),
       },
+      usageRecorder: {
+        recordFromCompletion: (params) =>
+          this.llmUsageRecorder.recordFromCompletion({
+            feature: 'STUDENT_REPORT',
+            psid: params.externalUserId,
+            model: params.model,
+            response: params.response as Parameters<
+              LlmUsageRecorderService['recordFromCompletion']
+            >[0]['response'],
+            correlationId: params.correlationId,
+          }),
+      },
+      capacityData: {
+        getCapacityData: (psid) =>
+          this.studentCapacityService.getCapacityData(psid),
+      },
+      logger: {
+        log: (message) => this.logger.log(message),
+        warn: (message) => this.logger.warn(message),
+      },
+    };
+
+    return new StudentReportCore(
+      {
+        apiKey: this.configService.get<string>('OPENAI_API_KEY'),
+        model: this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4',
+        systemPrompt: loadSystemPrompt('studentReport'),
+        sanitizeText: sanitizeMessengerText,
+      },
+      ports,
     );
-
-    this.llmUsageRecorder.recordFromCompletion({
-      feature: 'STUDENT_REPORT',
-      psid,
-      model,
-      response,
-      correlationId,
-    });
-
-    const content = response.choices[0]?.message?.content;
-
-    if (!content) {
-      throw new InternalServerErrorException('OpenAI returned empty content');
-    }
-
-    try {
-      return this.parseReportOutput(content);
-    } catch (error) {
-      this.logger.warn(
-        `Invalid student report LLM output psid=${psid}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return this.buildFallbackReport(input);
-    }
-  }
-
-  private parseReportOutput(content: string): StudentCapacityReport {
-    const parsed = parseJsonObject(content);
-    return {
-      headline: readRequiredStringField(parsed, 'headline'),
-      streak: readRequiredStringField(parsed, 'streak'),
-      'tình trạng task 2': readRequiredStringField(parsed, 'tình trạng task 2'),
-      'tình trạng task 1': readRequiredStringField(parsed, 'tình trạng task 1'),
-    };
-  }
-
-  private buildFallbackReport(
-    input: StudentCapacityInput,
-  ): StudentCapacityReport {
-    const headline = input.exam_has_passed
-      ? `Kỳ thi ngày ${input.exam_date_display} đã qua. Mục tiêu band ${input.target_band} — hãy xem lại tiến độ và lên kế hoạch tiếp theo.`
-      : input.days_until_exam === 0
-        ? `Hôm nay là ngày thi ${input.exam_date_display}, mục tiêu band ${input.target_band}.`
-        : `Bạn còn ${input.days_until_exam} ngày nữa đến kỳ thi ${input.exam_date_display}, mục tiêu band ${input.target_band}.`;
-
-    return {
-      headline,
-      streak: `Bạn đã làm ${input.total_essays_task1} bài Task 1 và ${input.total_essays_task2} bài Task 2.`,
-      'tình trạng task 2': `Task 2 đang ở band ${input.task2_band} — khả năng lập luận tốt.`,
-      'tình trạng task 1': `Task 1 đang ở band ${input.task1_band}, thấp hơn mục tiêu ${(input.target_band - input.task1_band).toFixed(1)} band — cần luyện mô tả biểu đồ.`,
-    };
-  }
-
-  private formatReport(report: StudentCapacityReport): string {
-    return [
-      report.headline,
-      '',
-      report.streak,
-      '',
-      report['tình trạng task 2'],
-      report['tình trạng task 1'],
-    ].join('\n');
   }
 }
