@@ -97,16 +97,28 @@ describe('DiscordAccountLinkService', () => {
   });
 
   describe('upsertLink / findUserIdByDiscordId', () => {
-    it('upserts via raw SQL with platform=discord', async () => {
+    it('upserts via transaction: deletes old link then inserts', async () => {
       const query = jest.fn().mockResolvedValue([]);
       const repo = {
-        manager: { query },
+        manager: {
+          transaction: jest.fn((fn: (em: unknown) => Promise<void>) =>
+            fn({ query }),
+          ),
+        },
       } as unknown as Repository<DiscordAccountLinkEntity>;
       const service = new DiscordAccountLinkService(buildConfigService(), repo);
 
       await service.upsertLink(143, 'discord-user-1');
 
-      expect(query).toHaveBeenCalledWith(
+      // First call: DELETE old link for userId
+      expect(query).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining('DELETE FROM discord_account_links'),
+        ['discord', 143, 'discord-user-1'],
+      );
+      // Second call: INSERT new link
+      expect(query).toHaveBeenNthCalledWith(
+        2,
         expect.stringContaining('INSERT INTO discord_account_links'),
         ['discord', 'discord-user-1', 143],
       );
