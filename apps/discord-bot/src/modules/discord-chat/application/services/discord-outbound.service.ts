@@ -9,6 +9,10 @@ import {
   RESCHEDULE_CANCEL_CUSTOM_ID,
   RESCHEDULE_CONFIRM_CUSTOM_ID,
 } from '../constants/discord-reschedule.constants';
+import {
+  MENU_LEARNING_PROGRESS_CUSTOM_ID,
+  MENU_UPCOMING_SESSIONS_CUSTOM_ID,
+} from '../constants/discord-menu.constants';
 
 /**
  * Discord counterpart to Messenger's `MessageSenderPort` — sends by fetching
@@ -42,6 +46,30 @@ export class DiscordOutboundService {
         }`,
       );
       return undefined;
+    }
+  }
+
+  /** Sends a persistent quick-action menu with 3 buttons. Safe to click after bot restarts. */
+  async sendMenuButtons(discordUserId: string): Promise<void> {
+    try {
+      const user = await this.client.users.fetch(discordUserId);
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(MENU_UPCOMING_SESSIONS_CUSTOM_ID)
+          .setLabel('📅 Lịch học sắp tới')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(MENU_LEARNING_PROGRESS_CUSTOM_ID)
+          .setLabel('📊 Xem tiến độ')
+          .setStyle(ButtonStyle.Primary),
+      );
+      await user.send({ components: [row] });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send menu buttons to discordUserId=${discordUserId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 

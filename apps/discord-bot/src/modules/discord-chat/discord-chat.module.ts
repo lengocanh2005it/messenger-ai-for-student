@@ -6,6 +6,7 @@ import { DiscordAgentService } from './application/agent/discord-agent.service';
 import { DiscordAgentToolsService } from './application/agent/discord-agent-tools.service';
 import { DiscordChatHistoryService } from './application/services/discord-chat-history.service';
 import { DiscordRescheduleConfirmationService } from './application/services/discord-reschedule-confirmation.service';
+import { DiscordMenuService } from './application/services/discord-menu.service';
 import { DiscordOutboundModule } from './discord-outbound.module';
 import { DiscordChatGateway } from './presentation/gateways/discord-chat.gateway';
 
@@ -22,6 +23,7 @@ import { DiscordChatGateway } from './presentation/gateways/discord-chat.gateway
     DiscordAgentToolsService,
     DiscordChatHistoryService,
     DiscordRescheduleConfirmationService,
+    DiscordMenuService,
   ],
 })
 export class DiscordChatModule {}

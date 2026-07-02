@@ -9,12 +9,31 @@ import {
   RESCHEDULE_CANCEL_CUSTOM_ID,
   RESCHEDULE_CONFIRM_CUSTOM_ID,
 } from '../../application/constants/discord-reschedule.constants';
+import {
+  MENU_LEARNING_PROGRESS_CUSTOM_ID,
+  MENU_UPCOMING_SESSIONS_CUSTOM_ID,
+} from '../../application/constants/discord-menu.constants';
 import { DiscordChatRateLimitService } from '../../../chat-metering/application/services/discord-chat-rate-limit.service';
 import { buildChatQuotaDenyMessage } from '../../../chat-metering/application/messages/chat-quota.messages';
 import { DiscordAccountLinkService } from '../../../account-link/application/services/discord-account-link.service';
+import { DiscordMenuService } from '../../application/services/discord-menu.service';
+import { DiscordChatHistoryService } from '../../application/services/discord-chat-history.service';
+import { WispaceApiError } from '@wispace/wispace-client';
 
 const FALLBACK_ERROR_MESSAGE =
   'Xin lỗi, mình gặp sự cố khi xử lý tin nhắn. Bạn thử lại sau ít phút nhé.';
+
+function formatError(error: unknown): string {
+  if (error instanceof WispaceApiError) {
+    return (
+      `WispaceApiError: statusCode=${error.statusCode} endpoint=${error.endpoint} externalId=${error.externalId}\n` +
+      (error.stack ?? error.message)
+    );
+  }
+  return error instanceof Error
+    ? (error.stack ?? error.message)
+    : String(error);
+}
 
 @Injectable()
 export class DiscordChatGateway {
@@ -26,10 +45,12 @@ export class DiscordChatGateway {
     private readonly rateLimitService: DiscordChatRateLimitService,
     private readonly accountLinkService: DiscordAccountLinkService,
     private readonly rescheduleConfirmationService: DiscordRescheduleConfirmationService,
+    private readonly menuService: DiscordMenuService,
+    private readonly chatHistoryService: DiscordChatHistoryService,
   ) {}
 
-  @Once('ready')
-  onReady(@Context() [client]: ContextOf<'ready'>) {
+  @Once('clientReady')
+  onReady(@Context() [client]: ContextOf<'clientReady'>) {
     this.logger.log(`Discord bot online as ${client.user.tag}`);
   }
 
@@ -45,6 +66,28 @@ export class DiscordChatGateway {
     }
 
     const discordUserId = message.author.id;
+
+    if (userText.toLowerCase() === 'menu') {
+      await this.outboundService.sendMenuButtons(discordUserId);
+      return;
+    }
+
+    // Detect @mention → strip mention tags, use neutral trigger if bare ping
+    const botUser = message.client.user;
+    const isMentioned =
+      botUser != null && message.mentions.users.has(botUser.id);
+    let resolvedText = userText;
+    if (isMentioned) {
+      resolvedText = userText.replace(/<@!?\d+>/g, '').trim();
+      if (!resolvedText) {
+        resolvedText = 'Bạn gọi mình?';
+      }
+    }
+
+    // Check before agent runs — history is empty on the very first message
+    const history = await this.chatHistoryService.getHistory(discordUserId);
+    const sendMenuAfter = isMentioned || history.length === 0;
+
     const idempotencyKey = `discord:${message.id}`;
     const quotaEnabled = this.rateLimitService.isEnabled();
 
@@ -74,19 +117,22 @@ export class DiscordChatGateway {
       const reply = await this.agentService.reply({
         discordUserId,
         userId,
-        userText,
+        userText: resolvedText,
         correlationId: message.id,
       });
       await this.outboundService.sendText(discordUserId, reply.text);
+
+      if (sendMenuAfter) {
+        await this.outboundService.sendMenuButtons(discordUserId);
+      }
 
       if (quotaEnabled) {
         await this.rateLimitService.markCompleted(idempotencyKey);
       }
     } catch (error) {
       this.logger.error(
-        `Chat reply failed for discordUserId=${discordUserId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `Chat reply failed for discordUserId=${discordUserId}`,
+        formatError(error),
       );
 
       if (quotaEnabled && usageDate) {
@@ -128,5 +174,41 @@ export class DiscordChatGateway {
     const message = this.rescheduleConfirmationService.cancel(discordUserId);
 
     await interaction.update({ content: message, components: [] });
+  }
+
+  @Button(MENU_UPCOMING_SESSIONS_CUSTOM_ID)
+  async onMenuUpcomingSessions(@Context() [interaction]: ButtonContext) {
+    await interaction.deferReply();
+    try {
+      const discordUserId = interaction.user.id;
+      const userId =
+        await this.accountLinkService.findUserIdByDiscordId(discordUserId);
+      const text = await this.menuService.getUpcomingSessions(
+        discordUserId,
+        userId,
+      );
+      await interaction.editReply(text);
+    } catch (error) {
+      this.logger.error(`menu_upcoming failed`, formatError(error));
+      await interaction.editReply(FALLBACK_ERROR_MESSAGE);
+    }
+  }
+
+  @Button(MENU_LEARNING_PROGRESS_CUSTOM_ID)
+  async onMenuLearningProgress(@Context() [interaction]: ButtonContext) {
+    await interaction.deferReply();
+    try {
+      const discordUserId = interaction.user.id;
+      const userId =
+        await this.accountLinkService.findUserIdByDiscordId(discordUserId);
+      const text = await this.menuService.getLearningProgress(
+        discordUserId,
+        userId,
+      );
+      await interaction.editReply(text);
+    } catch (error) {
+      this.logger.error(`menu_progress failed`, formatError(error));
+      await interaction.editReply(FALLBACK_ERROR_MESSAGE);
+    }
   }
 }
