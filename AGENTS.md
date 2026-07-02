@@ -28,7 +28,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **wispace-bots** — 
 - Sau lần deploy đầu: gọi `POST /messenger/profile/setup` (header `X-Internal-Api-Key`) — menu prod chỉ **Đăng ký báo cáo** (báo cáo/nhắc lịch bot gửi tự động).
 - Sửa file trong `apps/messenger-bot/src/shared/prompts/*.system.txt` → **bắt buộc** `npm run build` (Nest copy assets sang `dist/shared/prompts/`).
 - Study reminder: biến `STUDY_REMINDER_*` **bắt buộc** — dùng `readRequiredPositiveNumber`, không hardcode fallback trong code.
-- Wispace API auth: header **`x-psid`** (PSID Messenger) + **`X-Internal-Key`** (`WISPACE_INTERNAL_KEY`); liên kết mapping **bắt buộc** verify token qua **`POST WISPACE_API_VERIFY_MESSENGER_TOKEN_URL`** (`MESSENGER_LINK_MODE=token`; startup fail nếu thiếu config).
+- Wispace API auth: header **`x-psid`** (PSID Messenger) + **`X-Internal-Key`** (`WISPACE_INTERNAL_KEY`); liên kết mapping **bắt buộc** verify token qua **`POST WISPACE_API_VERIFY_TOKEN_URL`** (chung 3 bot, body `{token, value, platform}`; `MESSENGER_LINK_MODE=token`; startup fail nếu thiếu config).
 - Ops HTTP (`/messenger/study-calendar/sync`, `send-reports`, …) cần header **`X-Internal-Api-Key`** hoặc `Authorization: Bearer …` khớp `INTERNAL_API_KEY`.
 - Cron nội bộ (sync 30 phút, dispatch adaptive S2) chạy trong process — không qua API key.
 - Debug jobs nhắc lịch: `npm run study-reminder:jobs` (`--failed`, `--stuck`, `--summary`).

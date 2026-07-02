@@ -17,6 +17,11 @@ import { MetricsModule } from './modules/metrics/metrics.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      // Own .env wins; falls back to root .env.shared for cross-bot vars
+      // (WISPACE_INTERNAL_KEY, OPENAI_*, DB_*...) — see .env.shared.example.
+      // Missing files are silently skipped, so this is a no-op when the
+      // shared file doesn't exist (e.g. production containers).
+      envFilePath: ['.env', '../../.env.shared'],
     }),
     DatabaseModule,
     RedisModule,

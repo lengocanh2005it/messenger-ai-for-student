@@ -10,7 +10,7 @@ import {
   POC_DEFAULT_LINK_CADENCE,
   POC_DEFAULT_LINK_TOPIC,
 } from '../../../../shared/config/poc.constants';
-import { readMessengerTokenVerifyUrl } from '../../../../shared/config/production-runtime.utils';
+import { readWispaceVerifyTokenUrl } from '../../../../shared/config/production-runtime.utils';
 import type {
   MessengerLinkVerifyFailureReason,
   MessengerLinkVerifyResult,
@@ -66,10 +66,10 @@ export class WispaceMessengerTokenVerifyService {
   }
 
   private getVerifyUrl(): string {
-    const url = readMessengerTokenVerifyUrl(this.configService);
+    const url = readWispaceVerifyTokenUrl(this.configService);
     if (!url) {
       throw new InternalServerErrorException(
-        'WISPACE_API_VERIFY_MESSENGER_TOKEN_URL must be set in .env',
+        'WISPACE_API_VERIFY_TOKEN_URL must be set in .env',
       );
     }
 

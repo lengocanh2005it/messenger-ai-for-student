@@ -17,10 +17,10 @@ const VERIFY_FAILURE_REASONS: DiscordLinkVerifyFailureReason[] = [
 ];
 
 /**
- * Calls WISPACE's existing account-link verify API (same shape as
- * Messenger's `WISPACE_API_VERIFY_MESSENGER_TOKEN_URL`, generalized with a
- * `platform` field) — WISPACE owns the token and its expiry/usage state, we
- * just verify + resolve `userId` server-to-server.
+ * Calls WISPACE's shared account-link verify API — same
+ * `WISPACE_API_VERIFY_TOKEN_URL` endpoint used by all 3 bots, payload
+ * `{ token, value, platform }` — WISPACE owns the token and its expiry/usage
+ * state, we just verify + resolve `userId` server-to-server.
  */
 @Injectable()
 export class WispaceDiscordTokenVerifyService {
@@ -66,12 +66,12 @@ export class WispaceDiscordTokenVerifyService {
 
   private getVerifyUrl(): string {
     const url = this.configService
-      .get<string>('WISPACE_API_VERIFY_DISCORD_TOKEN_URL')
+      .get<string>('WISPACE_API_VERIFY_TOKEN_URL')
       ?.trim();
 
     if (!url) {
       throw new InternalServerErrorException(
-        'WISPACE_API_VERIFY_DISCORD_TOKEN_URL must be set in .env',
+        'WISPACE_API_VERIFY_TOKEN_URL must be set in .env',
       );
     }
 

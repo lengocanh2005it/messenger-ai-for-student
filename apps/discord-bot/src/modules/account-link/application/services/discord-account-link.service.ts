@@ -18,8 +18,10 @@ export class DiscordAccountLinkService {
     private readonly repo: Repository<DiscordAccountLinkEntity>,
   ) {}
 
-  /** Exchanges the OAuth2 `code` for the Discord user id (`identify` scope). */
-  async exchangeCodeForDiscordUserId(code: string): Promise<string> {
+  /** Exchanges the OAuth2 `code` for Discord user info (`identify` scope). */
+  async exchangeCodeForDiscordUser(
+    code: string,
+  ): Promise<{ id: string; username: string }> {
     const clientId = this.configService.getOrThrow<string>('DISCORD_CLIENT_ID');
     const clientSecret = this.configService.getOrThrow<string>(
       'DISCORD_CLIENT_SECRET',
@@ -58,8 +60,15 @@ export class DiscordAccountLinkService {
       );
     }
 
-    const userJson = (await userResponse.json()) as { id: string };
-    return userJson.id;
+    const userJson = (await userResponse.json()) as {
+      id: string;
+      username: string;
+      global_name?: string;
+    };
+    return {
+      id: userJson.id,
+      username: userJson.global_name ?? userJson.username,
+    };
   }
 
   async upsertLink(userId: number, discordUserId: string): Promise<void> {

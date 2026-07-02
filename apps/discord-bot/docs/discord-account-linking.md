@@ -36,12 +36,13 @@ no extra WISPACE backend endpoint needed.
 `GET /discord/oauth/callback?code=...&state=...` (`DiscordOauthController`):
 1. Exchange `code` for a Discord access token, then fetch the Discord user id
    via `GET /users/@me` (`DiscordAccountLinkService.exchangeCodeForDiscordUserId`).
-2. Call WISPACE's **existing** account-link verify API
-   (`WispaceDiscordTokenVerifyService`, same shape as
-   `WISPACE_API_VERIFY_MESSENGER_TOKEN_URL`):
+2. Call WISPACE's **shared** account-link verify API
+   (`WispaceDiscordTokenVerifyService`) — same `WISPACE_API_VERIFY_TOKEN_URL`
+   endpoint used by all 3 bots (`WISPACE_API_VERIFY_TOKEN_URL`, no more
+   per-platform URL — see root `.env.shared.example`):
 
    ```
-   POST {WISPACE_API_VERIFY_DISCORD_TOKEN_URL}
+   POST {WISPACE_API_VERIFY_TOKEN_URL}
    Headers: X-Internal-Key: {WISPACE_INTERNAL_KEY}
    Body: { "token": "<state>", "value": "<discordUserId>", "platform": "discord" }
    ```
@@ -50,8 +51,7 @@ no extra WISPACE backend endpoint needed.
    platform's external user id is (`psid` for Messenger, `discordId` for
    Discord, `zaloId` for Zalo later), `platform` says which one calling.
    Messenger's `WispaceMessengerTokenVerifyService` sends the same shape
-   (`{ token, value, platform: 'messenger' }`) to
-   `WISPACE_API_VERIFY_MESSENGER_TOKEN_URL`.
+   (`{ token, value, platform: 'messenger' }`) to the same URL.
 
    Expected response: `{ "userId": 143 }` on success, or
    `{ "valid": false, "reason": "NOT_FOUND" | "EXPIRED" | "USED" | "INVALID_FORMAT" }`

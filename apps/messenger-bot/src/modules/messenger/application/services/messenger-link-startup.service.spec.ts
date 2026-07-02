@@ -21,7 +21,7 @@ describe('MessengerLinkStartupService', () => {
     const service = createService({
       NODE_ENV: 'development',
       MESSENGER_LINK_MODE: 'legacy',
-      WISPACE_API_VERIFY_MESSENGER_TOKEN_URL: 'https://example.com/verify',
+      WISPACE_API_VERIFY_TOKEN_URL: 'https://example.com/verify',
       WISPACE_INTERNAL_KEY: 'key',
     });
 
@@ -35,13 +35,13 @@ describe('MessengerLinkStartupService', () => {
       WISPACE_INTERNAL_KEY: 'key',
     });
 
-    expect(() => service.onModuleInit()).toThrow(/VERIFY_MESSENGER_TOKEN_URL/);
+    expect(() => service.onModuleInit()).toThrow(/VERIFY_TOKEN_URL/);
   });
 
   it('throws when WISPACE_INTERNAL_KEY is missing', () => {
     const service = createService({
       NODE_ENV: 'development',
-      WISPACE_API_VERIFY_MESSENGER_TOKEN_URL: 'https://example.com/verify',
+      WISPACE_API_VERIFY_TOKEN_URL: 'https://example.com/verify',
     });
 
     expect(() => service.onModuleInit()).toThrow(/WISPACE_INTERNAL_KEY/);
@@ -51,7 +51,7 @@ describe('MessengerLinkStartupService', () => {
     const service = createService({
       NODE_ENV: 'production',
       MESSENGER_LINK_MODE: 'token',
-      WISPACE_API_VERIFY_MESSENGER_TOKEN_URL: 'https://example.com/verify',
+      WISPACE_API_VERIFY_TOKEN_URL: 'https://example.com/verify',
       WISPACE_INTERNAL_KEY: 'key',
     });
 
@@ -61,7 +61,7 @@ describe('MessengerLinkStartupService', () => {
   it('passes when MESSENGER_LINK_MODE is unset but verify URL is set', () => {
     const service = createService({
       NODE_ENV: 'production',
-      WISPACE_API_VERIFY_MESSENGER_TOKEN_URL: 'https://example.com/verify',
+      WISPACE_API_VERIFY_TOKEN_URL: 'https://example.com/verify',
       WISPACE_INTERNAL_KEY: 'key',
     });
 
