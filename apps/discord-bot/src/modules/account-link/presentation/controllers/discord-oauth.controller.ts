@@ -70,46 +70,32 @@ export class DiscordOauthController {
         await this.accountLinkService.exchangeCodeForDiscordUser(code);
       const { id: discordUserId, username: discordUsername } = discordUser;
 
-      // Dev bypass: skip WISPACE verify + guild check when DISCORD_DEV_LINK_TOKEN matches
+      // Dev bypass: skip WISPACE verify only — guild check still runs
       const devToken = this.configService.get<string>('DISCORD_DEV_LINK_TOKEN');
       const devUserId = this.configService.get<string>(
         'DISCORD_DEV_LINK_USER_ID',
       );
+      const isDevBypass = !!(devToken && devUserId && token === devToken);
 
-      if (devToken && devUserId && token === devToken) {
+      let wispaceUserId: number;
+      if (isDevBypass) {
         this.logger.warn(
-          `Dev bypass: skipping guild check + WISPACE verify for token=${token.slice(0, 8)}…`,
+          `Dev bypass: skipping WISPACE verify for token=${token.slice(0, 8)}…`,
         );
-        await this.accountLinkService.upsertLink(
-          Number(devUserId),
+        wispaceUserId = Number(devUserId);
+      } else {
+        const verifyResult = await this.tokenVerifyService.verifyToken(
+          token,
           discordUserId,
         );
-        const dmChannelId = await this.outboundService.sendTextAndGetChannelId(
-          discordUserId,
-          buildDiscordLinkWelcomeMessage(discordUsername),
-        );
-        const botUserId =
-          this.configService.getOrThrow<string>('DISCORD_CLIENT_ID');
-        this.sendResult(res, {
-          type: 'success',
-          botUserId,
-          dmChannelId,
-          discordUsername,
-        });
-        return;
-      }
-
-      const verifyResult = await this.tokenVerifyService.verifyToken(
-        token,
-        discordUserId,
-      );
-
-      if (!verifyResult.valid) {
-        this.sendResult(res, {
-          type: 'error',
-          message: 'Link đã hết hạn hoặc không hợp lệ.',
-        });
-        return;
+        if (!verifyResult.valid) {
+          this.sendResult(res, {
+            type: 'error',
+            message: 'Link đã hết hạn hoặc không hợp lệ.',
+          });
+          return;
+        }
+        wispaceUserId = verifyResult.userId;
       }
 
       // Guild membership check — must join server before account can be linked
@@ -120,7 +106,7 @@ export class DiscordOauthController {
         );
         const pendingToken = this.pendingJoinService.create(
           discordUserId,
-          verifyResult.userId,
+          wispaceUserId,
           discordUsername,
         );
         this.sendResult(res, {
@@ -131,10 +117,7 @@ export class DiscordOauthController {
         return;
       }
 
-      await this.accountLinkService.upsertLink(
-        verifyResult.userId,
-        discordUserId,
-      );
+      await this.accountLinkService.upsertLink(wispaceUserId, discordUserId);
 
       const dmChannelId = await this.outboundService.sendTextAndGetChannelId(
         discordUserId,

@@ -72,15 +72,22 @@ export class DiscordAccountLinkService {
   }
 
   async upsertLink(userId: number, discordUserId: string): Promise<void> {
-    await this.repo.manager.query(
-      `
-        INSERT INTO discord_account_links (platform, external_user_id, user_id)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (platform, external_user_id)
-        DO UPDATE SET user_id = EXCLUDED.user_id, linked_at = now()
-      `,
-      [PLATFORM, discordUserId, userId],
-    );
+    await this.repo.manager.transaction(async (em) => {
+      // Remove any existing link for this WISPACE user (re-linking with a different Discord account)
+      await em.query(
+        `DELETE FROM discord_account_links WHERE platform = $1 AND user_id = $2 AND external_user_id != $3`,
+        [PLATFORM, userId, discordUserId],
+      );
+      await em.query(
+        `
+          INSERT INTO discord_account_links (platform, external_user_id, user_id)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (platform, external_user_id)
+          DO UPDATE SET user_id = EXCLUDED.user_id, linked_at = now()
+        `,
+        [PLATFORM, discordUserId, userId],
+      );
+    });
 
     this.logger.log(
       `Linked Discord account discordUserId=${discordUserId} userId=${userId}`,
