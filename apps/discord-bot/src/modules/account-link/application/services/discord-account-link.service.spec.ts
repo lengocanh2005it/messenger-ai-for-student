@@ -23,8 +23,8 @@ describe('DiscordAccountLinkService', () => {
     jest.restoreAllMocks();
   });
 
-  describe('exchangeCodeForDiscordUserId', () => {
-    it('exchanges the code for a token then fetches the Discord user id', async () => {
+  describe('exchangeCodeForDiscordUser', () => {
+    it('exchanges the code for a token then fetches the Discord user', async () => {
       const fetchMock = jest
         .fn()
         .mockResolvedValueOnce({
@@ -33,17 +33,17 @@ describe('DiscordAccountLinkService', () => {
         })
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ id: 'discord-user-1' }),
+          json: () =>
+            Promise.resolve({ id: 'discord-user-1', global_name: 'Test User' }),
         });
-      global.fetch = fetchMock;
+      global.fetch = fetchMock as typeof fetch;
 
       const repo = {} as Repository<DiscordAccountLinkEntity>;
       const service = new DiscordAccountLinkService(buildConfigService(), repo);
 
-      const discordUserId =
-        await service.exchangeCodeForDiscordUserId('auth-code');
+      const result = await service.exchangeCodeForDiscordUser('auth-code');
 
-      expect(discordUserId).toBe('discord-user-1');
+      expect(result).toEqual({ id: 'discord-user-1', username: 'Test User' });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(fetchMock).toHaveBeenNthCalledWith(
         1,
@@ -59,17 +59,39 @@ describe('DiscordAccountLinkService', () => {
       );
     });
 
+    it('falls back to username when global_name is absent', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ access_token: 'discord-token' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({ id: 'discord-user-1', username: 'testuser' }),
+        });
+      global.fetch = fetchMock as typeof fetch;
+
+      const repo = {} as Repository<DiscordAccountLinkEntity>;
+      const service = new DiscordAccountLinkService(buildConfigService(), repo);
+
+      const result = await service.exchangeCodeForDiscordUser('auth-code');
+
+      expect(result).toEqual({ id: 'discord-user-1', username: 'testuser' });
+    });
+
     it('throws when the token exchange fails', async () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: false,
         status: 400,
-      });
+      }) as typeof fetch;
 
       const repo = {} as Repository<DiscordAccountLinkEntity>;
       const service = new DiscordAccountLinkService(buildConfigService(), repo);
 
       await expect(
-        service.exchangeCodeForDiscordUserId('bad-code'),
+        service.exchangeCodeForDiscordUser('bad-code'),
       ).rejects.toThrow('Discord token exchange failed: 400');
     });
   });
