@@ -276,6 +276,8 @@
     function startPolling(pendingToken, discordUsername) {
       const pollLabel = document.getElementById('poll-label');
       const btnComplete = document.getElementById('btn-complete-link');
+      let joinedDetected = false;
+      let buttonWired = false;
 
       const intervalId = setInterval(async () => {
         try {
@@ -292,32 +294,36 @@
             return;
           }
 
-          if (data.joined) {
-            clearInterval(intervalId);
-            // Mark steps done visually
+          if (data.joined && !joinedDetected) {
+            joinedDetected = true;
+            // Mark step 2 done visually
             document.getElementById('pending-step-2').classList.remove('waiting');
             document.getElementById('pending-step-2').classList.add('done');
             document.getElementById('pending-step-2').querySelector('.step-number').textContent = '✓';
             pollLabel.textContent = 'Đã tham gia server! ✓';
             const dot = document.getElementById('poll-dot');
             if (dot) dot.remove();
-
-            if (data.completed) {
-              // Auto-completed by bot on guildMemberAdd — finish without button click
-              document.getElementById('pending-step-3').classList.add('done');
-              document.getElementById('pending-step-3').querySelector('.step-number').textContent = '✓';
-              await doCompleteLink(pendingToken, discordUsername);
-            } else {
-              // Joined but not yet linked — enable manual button as fallback
-              btnComplete.disabled = false;
-              document.getElementById('pending-step-3').classList.add('waiting');
-
+            // Enable button immediately as fallback (user can click while bot is processing)
+            btnComplete.disabled = false;
+            document.getElementById('pending-step-3').classList.add('waiting');
+            if (!buttonWired) {
+              buttonWired = true;
               btnComplete.addEventListener('click', async () => {
+                clearInterval(intervalId);
                 btnComplete.disabled = true;
                 btnComplete.textContent = 'Đang liên kết...';
                 await doCompleteLink(pendingToken, discordUsername);
               });
             }
+          }
+
+          // Keep polling until completed:true — handles race with guildMemberAdd handler
+          if (data.joined && data.completed) {
+            clearInterval(intervalId);
+            document.getElementById('pending-step-3').classList.remove('waiting');
+            document.getElementById('pending-step-3').classList.add('done');
+            document.getElementById('pending-step-3').querySelector('.step-number').textContent = '✓';
+            await doCompleteLink(pendingToken, discordUsername);
           }
         } catch {
           pollLabel.textContent = 'Đang thử lại...';
