@@ -7,6 +7,7 @@ interface PendingJoinEntry {
   discordUsername: string;
   expiresAt: number;
   completed?: boolean;
+  dmChannelId?: string;
 }
 
 const TTL_MS = 15 * 60 * 1000; // 15 minutes
@@ -57,9 +58,12 @@ export class DiscordPendingJoinService {
   }
 
   /** Mark token as completed so the frontend poll can detect success. */
-  markCompleted(token: string): void {
+  markCompleted(token: string, dmChannelId?: string): void {
     const entry = this.store.get(token);
-    if (entry) entry.completed = true;
+    if (entry) {
+      entry.completed = true;
+      if (dmChannelId) entry.dmChannelId = dmChannelId;
+    }
   }
 
   delete(token: string): void {

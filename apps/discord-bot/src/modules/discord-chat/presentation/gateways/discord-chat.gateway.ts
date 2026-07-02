@@ -72,7 +72,11 @@ export class DiscordChatGateway {
           pending.entry.wispaceUserId,
           discordUserId,
         );
-        this.pendingJoinService.markCompleted(pending.token);
+        const dmChannelId = await this.outboundService.sendTextAndGetChannelId(
+          discordUserId,
+          buildDiscordLinkWelcomeMessage(pending.entry.discordUsername),
+        );
+        this.pendingJoinService.markCompleted(pending.token, dmChannelId);
         this.logger.log(
           `Auto-completed account link for discordUserId=${discordUserId} wispaceUserId=${pending.entry.wispaceUserId}`,
         );
@@ -99,13 +103,8 @@ export class DiscordChatGateway {
       await this.outboundService.sendToChannel(welcomeChannelId, serverMsg);
     }
 
-    // Private DM — if link just completed, send account-link confirmation; otherwise generic greeting
-    if (pending) {
-      await this.outboundService.sendText(
-        discordUserId,
-        buildDiscordLinkWelcomeMessage(pending.entry.discordUsername),
-      );
-    } else {
+    // Private DM — already sent above when link completed; only send for organic joins
+    if (!pending) {
       const dmMsg =
         `Chào ${displayName}! Mình là trợ lý WISPACE. ` +
         `Bạn có thể hỏi về tiến độ học, lịch học sắp tới, hoặc mục tiêu band — cứ nhắn tự nhiên nhé 🎓`;

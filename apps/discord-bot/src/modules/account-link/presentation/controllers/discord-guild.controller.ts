@@ -79,14 +79,16 @@ export class DiscordGuildController {
       return;
     }
 
-    // Already auto-completed by guildMemberAdd — return success directly
+    // Already auto-completed by guildMemberAdd — return success with stored dmChannelId
     if (entry.completed) {
       const botUserId =
         this.configService.getOrThrow<string>('DISCORD_CLIENT_ID');
+      const dmChannelId = entry.dmChannelId;
       this.pendingJoinService.delete(token);
       res.json({
         success: true,
         botUserId,
+        dmChannelId,
         discordUsername: entry.discordUsername,
       });
       return;
