@@ -4,8 +4,10 @@ import { IntentsBitField, Partials } from 'discord.js';
 import { NecordModule } from 'necord';
 import { DatabaseModule } from './infrastructure/database/database.module';
 import { DiscordChatModule } from './modules/discord-chat/discord-chat.module';
+import { HealthController } from './health.controller';
 
 @Module({
+  controllers: [HealthController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,

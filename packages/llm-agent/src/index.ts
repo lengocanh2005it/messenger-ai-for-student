@@ -1,6 +1,20 @@
 export { LlmAgentService } from './agent.service';
 export type { LlmAgentPorts } from './agent.service';
-export { AGENT_TOOLS, AGENT_TOOL_NAMES, isAgentToolName } from './agent.tools';
+export {
+  AGENT_TOOLS,
+  AGENT_TOOL_NAMES,
+  SCORE_TOOLS,
+  SCHEDULE_TOOLS,
+  isAgentToolName,
+  readPositiveLimit,
+  readPastDays,
+  readCalendarTimeRange,
+  readPositiveInteger,
+  readSchedulingMode,
+  readOptionalString,
+  readValidatedDate,
+  readValidatedTime,
+} from './agent.tools';
 export type { AgentToolName } from './agent.tools';
 export { NOOP_METRICS_PORT } from './ports';
 export type {

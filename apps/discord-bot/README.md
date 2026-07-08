@@ -6,11 +6,17 @@ Xem kế hoạch đầy đủ ở [docs/turborepo-migration-plan.md](../../docs/
 
 ## Trạng thái hiện tại
 
-Đã có: bot online qua Necord, nhận DM, trả lời qua `@wispace/llm-agent` (chống prompt-injection, redirect ngoài phạm vi WISPACE, lịch sử hội thoại in-memory theo process). Quota/rate-limit + LLM usage/safety event persistence dùng chung `@wispace/chat-metering` (platform='discord') — xem `modules/chat-metering/`. Account-linking Discord ↔ WISPACE userId qua OAuth2 — xem [docs/discord-account-linking.md](docs/discord-account-linking.md) (contract cho WISPACE backend team). 5/7 tool WISPACE gọi Wispace API thật qua `@wispace/wispace-client` (`modules/wispace/`, header `x-discordid`): `get_user_goals`, `get_learning_progress_report`, `get_upcoming_study_sessions`, `list_study_calendar_entries`, `preview_next_study_reminder`. Prompt riêng: `src/shared/prompts/discord-chat.system.txt`.
+**Đã có:**
+- Bot online qua Necord, nhận DM + @mention trong server channel (reply qua DM), chống prompt-injection, redirect ngoài phạm vi WISPACE, lịch sử hội thoại in-memory theo process.
+- Quota/rate-limit + LLM usage/safety event persistence dùng chung `@wispace/chat-metering` (platform='discord') — xem `modules/chat-metering/`.
+- Account-linking Discord ↔ WISPACE userId qua OAuth2 (`GET /discord/oauth/callback`) — xem [docs/discord-account-linking.md](docs/discord-account-linking.md).
+- 6/7 tool WISPACE gọi Wispace API thật qua `@wispace/wispace-client` (header `x-discordid`): `get_user_goals`, `get_learning_progress_report`, `get_upcoming_study_sessions`, `list_study_calendar_entries`, `preview_next_study_reminder`, `reschedule_study_session` (confirm/cancel qua Discord button).
+- `GET /health` cho health check deploy.
+- Prompt riêng: `src/shared/prompts/discord-chat.system.txt`.
 
-**Chưa có (khác Messenger, cần làm tiếp):**
-
-- `reschedule_study_session`, `register_exam_report_notifications` — vẫn stub, cần thiết kế UX Discord riêng (xác nhận đổi lịch qua message components, semantics thông báo trước ngày thi).
+**Chưa có / ghi nợ:**
+- `register_exam_report_notifications` — vẫn stub; chỉ làm khi port cron báo cáo định kỳ sang Discord (không cần opt-in như Messenger vì không có giới hạn 24h).
+- CI/CD deploy VPS — workflow + script + Dockerfile đã viết, chưa chạy thật.
 - Chat history bền vững (Redis/multi-pod) — hiện chỉ Map trong process, mất khi restart.
 - Whitelist, quota-event audit table, stuck-reserved recovery, ops CLI (Messenger-only hiện tại).
 
@@ -22,7 +28,11 @@ npx turbo run build --filter=@wispace/discord-bot...   # build trước (llm-age
 npm run start:dev --workspace=apps/discord-bot
 ```
 
-Bot cần intent `MESSAGE CONTENT INTENT` bật trong Discord Developer Portal (Bot settings) để đọc nội dung DM. App giờ chạy như HTTP server (`PORT`, mặc định `3001`) để expose `GET /discord/oauth/callback` cho account-linking.
+Bot cần các intent sau bật trong Discord Developer Portal (Bot settings):
+- `MESSAGE CONTENT INTENT` — đọc nội dung DM và tin nhắn có @mention ✅
+- `SERVER MEMBERS INTENT` — nhận event `guildMemberAdd` để auto-complete account link ✅
+
+App giờ chạy như HTTP server (`PORT`, mặc định `3001`) để expose `GET /discord/oauth/callback` cho account-linking.
 
 ## Lệnh thường dùng (trong `apps/discord-bot/`)
 
