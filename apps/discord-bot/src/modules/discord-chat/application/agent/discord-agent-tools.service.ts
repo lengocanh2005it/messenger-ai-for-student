@@ -1,9 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { isAgentToolName, type AgentToolName } from '@wispace/llm-agent';
-import type {
-  CalendarSessionTimeRange,
-  RescheduleSchedulingMode,
-} from '@wispace/wispace-client';
+import {
+  isAgentToolName,
+  type AgentToolName,
+  readPositiveLimit,
+  readPastDays,
+  readCalendarTimeRange,
+  readPositiveInteger,
+  readSchedulingMode,
+  readValidatedDate,
+  readValidatedTime,
+} from '@wispace/llm-agent';
 import type { DiscordAgentToolContext } from '../../domain/entities/discord-chat.types';
 import { WispaceGoalsService } from '../../../wispace/application/services/wispace-goals.service';
 import { WispaceCalendarService } from '../../../wispace/application/services/wispace-calendar.service';
@@ -94,7 +100,7 @@ export class DiscordAgentToolsService {
       case 'get_upcoming_study_sessions':
         return this.withLinkedAccount(ctx, async () => {
           ctx.privateDataFetched = true;
-          const limit = this.readPositiveLimit(args.limit, 5);
+          const limit = readPositiveLimit(args.limit, 5);
           const sessions = await this.calendarService.getCalendarSessions(
             ctx.discordUserId,
             { timeRange: 'upcoming', limit },
@@ -107,14 +113,13 @@ export class DiscordAgentToolsService {
       case 'list_study_calendar_entries':
         return this.withLinkedAccount(ctx, async () => {
           ctx.privateDataFetched = true;
-          const timeRange =
-            this.readCalendarTimeRange(args.timeRange) ?? 'upcoming';
+          const timeRange = readCalendarTimeRange(args.timeRange) ?? 'upcoming';
           const sessions = await this.calendarService.getCalendarSessions(
             ctx.discordUserId,
             {
               timeRange,
-              limit: this.readPositiveLimit(args.limit, 10),
-              pastDays: this.readPastDays(args.pastDays),
+              limit: readPositiveLimit(args.limit, 10),
+              pastDays: readPastDays(args.pastDays),
             },
           );
           return { timeRange, entries: this.mapSessions(sessions) };
@@ -168,52 +173,24 @@ export class DiscordAgentToolsService {
     }));
   }
 
-  private readPositiveLimit(value: unknown, fallback: number): number {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return fallback;
-    }
-
-    return Math.min(Math.floor(parsed), 10);
-  }
-
-  private readPastDays(value: unknown): number {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return 90;
-    }
-
-    return Math.min(Math.floor(parsed), 365);
-  }
-
-  private readCalendarTimeRange(
-    value: unknown,
-  ): CalendarSessionTimeRange | undefined {
-    if (value === 'upcoming' || value === 'past' || value === 'all') {
-      return value;
-    }
-
-    return undefined;
-  }
-
   private async rescheduleStudySession(
     ctx: DiscordAgentToolContext,
     args: Record<string, unknown>,
   ): Promise<unknown> {
-    const calendarId = this.readPositiveInteger(args.calendarId);
+    const calendarId = readPositiveInteger(args.calendarId);
     if (!calendarId) {
       return { error: 'calendarId is required' };
     }
 
-    const schedulingMode = this.readSchedulingMode(args.schedulingMode);
+    const schedulingMode = readSchedulingMode(args.schedulingMode);
     if (!schedulingMode) {
       return {
         error: 'schedulingMode must be default_next_day_same_time or explicit',
       };
     }
 
-    const newLocalDate = this.readValidatedDate(args.newLocalDate);
-    const newTime = this.readValidatedTime(args.newTime);
+    const newLocalDate = readValidatedDate(args.newLocalDate);
+    const newTime = readValidatedTime(args.newTime);
 
     if (
       args.newLocalDate !== undefined &&
@@ -249,45 +226,5 @@ export class DiscordAgentToolsService {
       pendingConfirmation: true,
       sessionLabel: staged.sessionLabel,
     };
-  }
-
-  private readPositiveInteger(value: unknown): number | undefined {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return undefined;
-    }
-
-    return Math.floor(parsed);
-  }
-
-  private readSchedulingMode(
-    value: unknown,
-  ): RescheduleSchedulingMode | undefined {
-    if (value === 'default_next_day_same_time' || value === 'explicit') {
-      return value;
-    }
-
-    return undefined;
-  }
-
-  private readOptionalString(value: unknown): string | undefined {
-    if (typeof value !== 'string') {
-      return undefined;
-    }
-
-    const trimmed = value.trim();
-    return trimmed || undefined;
-  }
-
-  private readValidatedDate(value: unknown): string | undefined {
-    const str = this.readOptionalString(value);
-    if (!str) return undefined;
-    return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : undefined;
-  }
-
-  private readValidatedTime(value: unknown): string | undefined {
-    const str = this.readOptionalString(value);
-    if (!str) return undefined;
-    return /^\d{2}:\d{2}$/.test(str) ? str : undefined;
   }
 }
