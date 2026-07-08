@@ -6,6 +6,11 @@ import {
   getMinutesUntilSession,
   isSessionStarted,
 } from '@wispace/study-reminder-core';
+import { resolveAppTimezone } from '../../../../shared/config/app-timezone';
+import {
+  readOptionalPositiveNumber,
+  readRequiredPositiveNumber,
+} from '../../../../shared/config/env-helpers';
 
 @Injectable()
 export class StudyReminderScheduleService {
@@ -52,29 +57,45 @@ export class StudyReminderScheduleService {
   }
 
   private getMinutesBefore(): number {
-    return this.readRequiredPositiveNumber('STUDY_REMINDER_MINUTES_BEFORE');
+    return readRequiredPositiveNumber(
+      this.configService,
+      'STUDY_REMINDER_MINUTES_BEFORE',
+    );
   }
 
   private getMinLeadMinutes(): number {
-    return this.readRequiredPositiveNumber('STUDY_REMINDER_MIN_LEAD_MINUTES');
+    return readRequiredPositiveNumber(
+      this.configService,
+      'STUDY_REMINDER_MIN_LEAD_MINUTES',
+    );
   }
 
   private getSyncHorizonHours(): number {
-    return this.readRequiredPositiveNumber('STUDY_REMINDER_SYNC_HORIZON_HOURS');
+    return readRequiredPositiveNumber(
+      this.configService,
+      'STUDY_REMINDER_SYNC_HORIZON_HOURS',
+    );
   }
 
   private getMaxRetries(): number {
-    return this.readRequiredPositiveNumber('STUDY_REMINDER_MAX_RETRIES');
+    return readRequiredPositiveNumber(
+      this.configService,
+      'STUDY_REMINDER_MAX_RETRIES',
+    );
   }
 
   private getRetryBackoffMinutes(): number {
-    return this.readRequiredPositiveNumber(
+    return readRequiredPositiveNumber(
+      this.configService,
       'STUDY_REMINDER_RETRY_BACKOFF_MINUTES',
     );
   }
 
   private getJobRetentionDays(): number {
-    return this.readRequiredPositiveNumber('STUDY_REMINDER_JOB_RETENTION_DAYS');
+    return readRequiredPositiveNumber(
+      this.configService,
+      'STUDY_REMINDER_JOB_RETENTION_DAYS',
+    );
   }
 
   private getEveningRolloverHour(): number {
@@ -97,52 +118,14 @@ export class StudyReminderScheduleService {
   }
 
   private getTimezone(): string {
-    const timezone = this.configService
-      .get<string>('STUDY_REMINDER_TIMEZONE')
-      ?.trim();
-
-    if (!timezone) {
-      throw new InternalServerErrorException(
-        'STUDY_REMINDER_TIMEZONE must be set in .env',
-      );
-    }
-
-    return timezone;
+    return resolveAppTimezone(this.configService);
   }
 
   private getStuckProcessingMs(): number {
-    const raw = this.configService
-      .get<string>('STUDY_REMINDER_STUCK_PROCESSING_MS')
-      ?.trim();
-
-    if (!raw) {
-      return 10 * 60 * 1000;
-    }
-
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value <= 0) {
-      throw new InternalServerErrorException(
-        'STUDY_REMINDER_STUCK_PROCESSING_MS must be a positive number in .env',
-      );
-    }
-
-    return Math.floor(value);
-  }
-
-  private readRequiredPositiveNumber(key: string): number {
-    const raw = this.configService.get<string>(key)?.trim();
-
-    if (!raw) {
-      throw new InternalServerErrorException(`${key} must be set in .env`);
-    }
-
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value <= 0) {
-      throw new InternalServerErrorException(
-        `${key} must be a positive number in .env`,
-      );
-    }
-
-    return value;
+    return readOptionalPositiveNumber(
+      this.configService,
+      'STUDY_REMINDER_STUCK_PROCESSING_MS',
+      10 * 60 * 1000,
+    );
   }
 }

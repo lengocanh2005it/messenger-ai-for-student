@@ -14,7 +14,7 @@ import { MessengerAgentToolsService } from './application/agent/messenger-agent-
 import { MessengerAgentService } from './application/agent/messenger-agent.service';
 import { ChatHistoryStoreStartupService } from './application/services/chat-history-store-startup.service';
 import { ChatQueueStoreStartupService } from './application/services/chat-queue-store-startup.service';
-import { MessengerChatHistoryService } from './application/services/messenger-chat-history.service';
+
 import { WebhookDedupeStoreStartupService } from './application/services/webhook-dedupe-store-startup.service';
 import { MessengerChatQueueService } from './application/services/messenger-chat-queue.service';
 import { MessengerChatQueueWorkerService } from './application/services/messenger-chat-queue-worker.service';
@@ -83,7 +83,6 @@ import { MessengerController } from './presentation/controllers/messenger.contro
       provide: CHAT_QUEUE_STORE,
       useExisting: ChatQueueStoreResolver,
     },
-    MessengerChatHistoryService,
     MessengerChatQueueService,
     MessengerChatQueueWorkerService,
     MessengerAgentService,

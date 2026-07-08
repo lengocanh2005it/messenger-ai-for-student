@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   buildInputCostEnvKey,
@@ -6,6 +6,7 @@ import {
   estimateCostUsd,
   todayUsageDate,
 } from '@wispace/chat-metering';
+import { resolveAppTimezone } from '../../../../shared/config/app-timezone';
 
 @Injectable()
 export class LlmUsageConfigService {
@@ -25,17 +26,7 @@ export class LlmUsageConfigService {
   }
 
   getTimezone(): string {
-    const timezone = this.configService
-      .get<string>('LLM_USAGE_TIMEZONE')
-      ?.trim();
-
-    if (!timezone) {
-      throw new InternalServerErrorException(
-        'LLM_USAGE_TIMEZONE must be set in .env',
-      );
-    }
-
-    return timezone;
+    return resolveAppTimezone(this.configService);
   }
 
   getRetentionDays(): number {

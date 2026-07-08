@@ -25,7 +25,8 @@ import {
   buildChatQuotaRemainingHintMessage,
   shouldShowQuotaRemainingHint,
 } from '../messages/chat-quota.messages';
-import { MessengerChatHistoryService } from './messenger-chat-history.service';
+import { CHAT_HISTORY_STORE } from '../../domain/repositories/chat-history.store.port';
+import type { ChatHistoryStorePort } from '../../domain/repositories/chat-history.store.port';
 import { MessengerChatSharedConfigService } from './messenger-chat-shared-config.service';
 import {
   MessengerOutboundService,
@@ -73,7 +74,8 @@ export class MessengerChatQueueService implements OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly outbound: MessengerOutboundService,
     private readonly messengerAgentService: MessengerAgentService,
-    private readonly chatHistory: MessengerChatHistoryService,
+    @Inject(CHAT_HISTORY_STORE)
+    private readonly chatHistory: ChatHistoryStorePort,
     private readonly chatRateLimitService: ChatRateLimitService,
     private readonly metrics: MetricsService,
     @Inject(MESSENGER_REPOSITORY)

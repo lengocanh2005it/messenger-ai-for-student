@@ -16,8 +16,6 @@ import { StudyReminderScheduleService } from '../../../study-reminder/applicatio
 import { StudyReminderService } from '../../../study-reminder/application/services/study-reminder.service';
 import { StudyCalendarCommandService } from '../../../study-reminder/application/services/study-calendar-command.service';
 import { StudySessionSourceService } from '../../../study-reminder/application/services/study-session-source.service';
-import type { CalendarSessionTimeRange } from '../../../study-reminder/domain/entities/study-schedule.types';
-import type { RescheduleSchedulingMode } from '../../../study-reminder/application/utils/study-calendar.utils';
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
 import {
@@ -32,7 +30,17 @@ import {
   hasExplicitRescheduleTarget,
   isRescheduleIntent,
 } from '../../../../shared/utils/messenger-chat-intent.utils';
-import { isAgentToolName, AgentToolName } from '@wispace/llm-agent';
+import {
+  isAgentToolName,
+  AgentToolName,
+  readPositiveLimit,
+  readPastDays,
+  readCalendarTimeRange,
+  readPositiveInteger,
+  readSchedulingMode,
+  readValidatedDate,
+  readValidatedTime,
+} from '@wispace/llm-agent';
 import type { MessengerAgentReply } from './messenger-agent.service';
 import { MessengerRescheduleConfirmationService } from '../services/messenger-reschedule-confirmation.service';
 
@@ -159,15 +167,14 @@ export class MessengerAgentToolsService {
       case 'get_upcoming_study_sessions':
         return this.getUpcomingStudySessions(ctx, args);
       case 'list_study_calendar_entries': {
-        const timeRange =
-          this.readCalendarTimeRange(args.timeRange) ?? 'upcoming';
+        const timeRange = readCalendarTimeRange(args.timeRange) ?? 'upcoming';
         const list = await this.studyCalendarCommandService.listEntries(
           ctx.psid,
           ctx.userId,
           {
             timeRange,
-            limit: this.readPositiveLimit(args.limit, 10),
-            pastDays: this.readPastDays(args.pastDays),
+            limit: readPositiveLimit(args.limit, 10),
+            pastDays: readPastDays(args.pastDays),
           },
         );
         this.pushRichFollowUp(
@@ -210,12 +217,12 @@ export class MessengerAgentToolsService {
       };
     }
 
-    const calendarId = this.readPositiveInteger(args.calendarId);
+    const calendarId = readPositiveInteger(args.calendarId);
     if (!calendarId) {
       return { error: 'calendarId is required' };
     }
 
-    const schedulingMode = this.readSchedulingMode(args.schedulingMode);
+    const schedulingMode = readSchedulingMode(args.schedulingMode);
     if (!schedulingMode) {
       return {
         error: 'schedulingMode must be default_next_day_same_time or explicit',
@@ -239,8 +246,8 @@ export class MessengerAgentToolsService {
       };
     }
 
-    const newLocalDate = this.readValidatedDate(args.newLocalDate);
-    const newTime = this.readValidatedTime(args.newTime);
+    const newLocalDate = readValidatedDate(args.newLocalDate);
+    const newTime = readValidatedTime(args.newTime);
 
     if (
       args.newLocalDate !== undefined &&
@@ -282,7 +289,7 @@ export class MessengerAgentToolsService {
     ctx: MessengerAgentToolContext,
     args: Record<string, unknown>,
   ): Promise<unknown> {
-    const limit = this.readPositiveLimit(args.limit, 5);
+    const limit = readPositiveLimit(args.limit, 5);
     const sessions = await this.studySessionSourceService.getUpcomingSessions({
       psid: ctx.psid,
       userId: ctx.userId,
@@ -427,73 +434,5 @@ export class MessengerAgentToolsService {
         ctx.richFollowUps.push(followUp);
       }
     }
-  }
-
-  private readPositiveInteger(value: unknown): number | undefined {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return undefined;
-    }
-
-    return Math.floor(parsed);
-  }
-
-  private readSchedulingMode(
-    value: unknown,
-  ): RescheduleSchedulingMode | undefined {
-    if (value === 'default_next_day_same_time' || value === 'explicit') {
-      return value;
-    }
-
-    return undefined;
-  }
-
-  private readOptionalString(value: unknown): string | undefined {
-    if (typeof value !== 'string') {
-      return undefined;
-    }
-
-    const trimmed = value.trim();
-    return trimmed || undefined;
-  }
-
-  private readPositiveLimit(value: unknown, fallback: number): number {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return fallback;
-    }
-
-    return Math.min(Math.floor(parsed), 10);
-  }
-
-  private readPastDays(value: unknown): number {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return 90;
-    }
-
-    return Math.min(Math.floor(parsed), 365);
-  }
-
-  private readCalendarTimeRange(
-    value: unknown,
-  ): CalendarSessionTimeRange | undefined {
-    if (value === 'upcoming' || value === 'past' || value === 'all') {
-      return value;
-    }
-
-    return undefined;
-  }
-
-  private readValidatedDate(value: unknown): string | undefined {
-    const str = this.readOptionalString(value);
-    if (!str) return undefined;
-    return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : undefined;
-  }
-
-  private readValidatedTime(value: unknown): string | undefined {
-    const str = this.readOptionalString(value);
-    if (!str) return undefined;
-    return /^\d{2}:\d{2}$/.test(str) ? str : undefined;
   }
 }

@@ -1,5 +1,6 @@
 import { StudyReminderJob } from '../../domain/entities/study-reminder-job.types';
 import { NormalizedStudySession } from '../../domain/entities/study-schedule.types';
+import { DEFAULT_TOPIC } from '../../../../shared/config/poc.constants';
 
 export function buildStudyReminderMessageType(
   session: NormalizedStudySession,
@@ -11,6 +12,6 @@ export function jobToSession(job: StudyReminderJob): NormalizedStudySession {
   return {
     sessionKey: job.sessionKey,
     scheduledAt: job.scheduledAt,
-    topic: job.topic ?? 'IELTS Writing',
+    topic: job.topic ?? DEFAULT_TOPIC,
   };
 }

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UserCalendarScheduleClient } from '@wispace/wispace-client';
+import { resolveAppTimezone } from '../../../../shared/config/app-timezone';
 import { UserCalendarApiService } from './user-calendar-api.service';
 import { UserCalendarRecord } from '../../domain/entities/user-calendar.types';
 import {
@@ -67,9 +68,7 @@ export class UserCalendarScheduleService {
 
   private getClient(): UserCalendarScheduleClient {
     if (!this.client) {
-      const timezone =
-        this.configService.get<string>('STUDY_REMINDER_TIMEZONE')?.trim() ??
-        'Asia/Ho_Chi_Minh';
+      const timezone = resolveAppTimezone(this.configService);
 
       this.client = new UserCalendarScheduleClient(
         // The wrapped service already implements `listCalendars(psid)`;

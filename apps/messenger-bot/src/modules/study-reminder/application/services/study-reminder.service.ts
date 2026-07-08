@@ -6,7 +6,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
-import { FALLBACK_DISPLAY_NAME } from '../../../../shared/config/poc.constants';
+import {
+  DEFAULT_TOPIC,
+  FALLBACK_DISPLAY_NAME,
+} from '../../../../shared/config/poc.constants';
 import {
   parseJsonObject,
   readRequiredStringArrayField,
@@ -29,6 +32,7 @@ import { StudySessionSourceService } from './study-session-source.service';
 @Injectable()
 export class StudyReminderService {
   private readonly logger = new Logger(StudyReminderService.name);
+  private openai?: OpenAI;
 
   constructor(
     private readonly configService: ConfigService,
@@ -149,15 +153,12 @@ export class StudyReminderService {
     input: StudyReminderLlmInput,
     context: { psid: string; userId?: number; jobId?: number },
   ): Promise<StudyReminderLlmOutput> {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-
-    if (!apiKey) {
-      this.logger.warn('OPENAI_API_KEY missing, using fallback study reminder');
+    const client = this.getOpenAI();
+    if (!client) {
       return this.buildFallbackReminder(input);
     }
 
     const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
-    const client = new OpenAI({ apiKey });
 
     const correlationId =
       context.jobId !== undefined ? String(context.jobId) : context.psid;
@@ -245,9 +246,9 @@ export class StudyReminderService {
   }
 
   private sanitizeSessionTopic(topic: string, psid: string): string {
-    const sanitized = sanitizeUntrustedTextForLlm(topic || 'IELTS Writing', {
+    const sanitized = sanitizeUntrustedTextForLlm(topic || DEFAULT_TOPIC, {
       maxChars: 160,
-      unsafePlaceholder: 'IELTS Writing',
+      unsafePlaceholder: DEFAULT_TOPIC,
     });
     if (sanitized.wasSanitized) {
       this.logger.warn(
@@ -255,7 +256,22 @@ export class StudyReminderService {
       );
     }
 
-    return sanitized.text || 'IELTS Writing';
+    return sanitized.text || DEFAULT_TOPIC;
+  }
+
+  private getOpenAI(): OpenAI | undefined {
+    if (this.openai) {
+      return this.openai;
+    }
+
+    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+    if (!apiKey) {
+      this.logger.warn('OPENAI_API_KEY missing, using fallback study reminder');
+      return undefined;
+    }
+
+    this.openai = new OpenAI({ apiKey });
+    return this.openai;
   }
 
   private buildFallbackReminder(

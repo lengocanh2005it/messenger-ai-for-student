@@ -23,7 +23,7 @@ describe('UserCalendarScheduleService', () => {
     } as unknown as UserCalendarApiService;
     const config = {
       get: (key: string) =>
-        key === 'STUDY_REMINDER_TIMEZONE' ? 'Asia/Ho_Chi_Minh' : undefined,
+        key === 'CHAT_USAGE_TIMEZONE' ? 'Asia/Ho_Chi_Minh' : undefined,
     } as ConfigService;
 
     return new UserCalendarScheduleService(api, config);

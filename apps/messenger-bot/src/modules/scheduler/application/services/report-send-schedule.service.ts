@@ -1,5 +1,6 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { readRequiredPositiveNumber } from '../../../../shared/config/env-helpers';
 
 @Injectable()
 export class ReportSendScheduleService {
@@ -12,35 +13,21 @@ export class ReportSendScheduleService {
     timezone: string;
   } {
     return {
-      maxRetries: this.readRequiredPositiveNumber('REPORT_SEND_MAX_RETRIES'),
-      retryBackoffMinutes: this.readRequiredPositiveNumber(
+      maxRetries: readRequiredPositiveNumber(
+        this.configService,
+        'REPORT_SEND_MAX_RETRIES',
+      ),
+      retryBackoffMinutes: readRequiredPositiveNumber(
+        this.configService,
         'REPORT_SEND_RETRY_BACKOFF_MINUTES',
       ),
-      retryPollCronMinutes: this.readRequiredPositiveNumber(
+      retryPollCronMinutes: readRequiredPositiveNumber(
+        this.configService,
         'REPORT_SEND_RETRY_POLL_MINUTES',
       ),
       timezone:
         this.configService.get<string>('CHAT_USAGE_TIMEZONE')?.trim() ||
         'Asia/Ho_Chi_Minh',
     };
-  }
-
-  private readRequiredPositiveNumber(key: string): number {
-    const raw = this.configService.get<string>(key)?.trim();
-
-    if (!raw) {
-      throw new InternalServerErrorException(
-        `Missing required env ${key} for report send outbox (R5)`,
-      );
-    }
-
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value <= 0) {
-      throw new InternalServerErrorException(
-        `${key} must be a positive number (got ${raw})`,
-      );
-    }
-
-    return value;
   }
 }

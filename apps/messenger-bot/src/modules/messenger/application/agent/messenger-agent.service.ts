@@ -14,7 +14,7 @@ import {
   MessengerAgentToolsService,
   MessengerAgentToolContext,
 } from './messenger-agent-tools.service';
-import type { ChatHistoryMessage } from '../services/messenger-chat-history.service';
+import type { ChatHistoryMessage } from '../../domain/entities/chat-history.types';
 import type { MessengerRichFollowUp } from '../../domain/entities/messenger-rich-message.types';
 import { LlmSafetyEventService } from '../../../llm-safety/application/services/llm-safety-event.service';
 import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';

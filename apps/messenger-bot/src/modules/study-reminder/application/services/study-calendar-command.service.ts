@@ -15,6 +15,7 @@ import {
 } from '../utils/study-calendar.utils';
 import { StudyReminderScheduleService } from './study-reminder-schedule.service';
 import { StudyReminderSyncService } from './study-reminder-sync.service';
+import { DEFAULT_TOPIC } from '../../../../shared/config/poc.constants';
 
 export interface StudyCalendarEntryView {
   calendarId: number;
@@ -93,7 +94,7 @@ export class StudyCalendarCommandService {
             this.studyReminderScheduleService.formatScheduledTimeLabel(
               session.scheduledAt,
             ),
-          topic: session.topic || 'IELTS Writing',
+          topic: session.topic || DEFAULT_TOPIC,
         };
       })
       .filter((entry): entry is StudyCalendarEntryView => entry !== null);

@@ -1,13 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { todayUsageDate } from '@wispace/chat-metering';
 import { ChatQuotaOpsSummary } from '../../domain/entities/chat-quota-ops.types';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
-import { ChatRateLimitRepository } from '../../infrastructure/persistence/chat-rate-limit.repository';
+import {
+  CHAT_OPS_PORT,
+  type ChatOpsPort,
+} from '../../domain/repositories/chat-ops.port';
 
 @Injectable()
 export class ChatQuotaOpsService {
   constructor(
-    private readonly chatRateLimitRepository: ChatRateLimitRepository,
+    @Inject(CHAT_OPS_PORT)
+    private readonly opsPort: ChatOpsPort,
     private readonly chatRateLimitConfigService: ChatRateLimitConfigService,
   ) {}
 
@@ -18,11 +22,9 @@ export class ChatQuotaOpsService {
 
     const [stuckReserved, idempotencyByStatus, usersAtDailyLimit] =
       await Promise.all([
-        this.chatRateLimitRepository.countStuckReserved(stuckBefore),
-        this.chatRateLimitRepository.countIdempotencyByStatusForUsageDate(
-          usageDate,
-        ),
-        this.chatRateLimitRepository.countUsersAtOrAboveDailyLimit(
+        this.opsPort.countStuckReserved(stuckBefore),
+        this.opsPort.countIdempotencyByStatusForUsageDate(usageDate),
+        this.opsPort.countUsersAtOrAboveDailyLimit(
           usageDate,
           settings.freeFormDailyLimit,
         ),
