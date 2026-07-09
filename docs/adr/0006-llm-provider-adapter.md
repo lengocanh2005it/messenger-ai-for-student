@@ -55,20 +55,39 @@ interface LlmResponse {
 }
 ```
 
-### Adapter interface
+### Adapter interface (sync + streaming)
 
 ```typescript
 interface LlmProviderAdapter {
   readonly providerName: string;
+
+  // Sync — full response
   chat(params: {
     model: string;
     messages: LlmMessage[];
     tools?: LlmToolDefinition[];
     toolChoice?: 'auto' | 'none' | 'required';
   }): Promise<LlmResponse>;
+
+  // Streaming — emits events as tokens arrive
+  chatStream(params: {
+    model: string;
+    messages: LlmMessage[];
+    tools?: LlmToolDefinition[];
+    toolChoice?: 'auto' | 'none' | 'required';
+  }): AsyncIterable<LlmStreamEvent>;
+
   isRetryableError(error: unknown): boolean;
   isRateLimitError(error: unknown): boolean;
 }
+
+// Streaming events
+type LlmStreamEvent =
+  | { type: 'delta'; textDelta: string }
+  | { type: 'tool_call_start'; toolCall: LlmToolCall }
+  | { type: 'tool_call_delta'; toolCallId: string; argsDelta: string }
+  | { type: 'done'; response: LlmResponse }
+  | { type: 'error'; error: unknown };
 ```
 
 ### Adapter responsibilities
@@ -78,7 +97,8 @@ Each adapter handles:
 1. **Tool definition conversion**: `LlmToolDefinition[]` → provider-native format (e.g. OpenAI `ChatCompletionTool[]`, Anthropic `Tool[]`)
 2. **Message conversion**: `LlmMessage[]` → provider-native message format
 3. **Response normalization**: provider-native response → `LlmResponse`
-4. **Error classification**: `isRetryableError()` / `isRateLimitError()` using provider-specific error shapes
+4. **Streaming normalization**: provider-native stream → `AsyncIterable<LlmStreamEvent>`
+5. **Error classification**: `isRetryableError()` / `isRateLimitError()` using provider-specific error shapes
 
 ### OpenAI adapter (reference implementation)
 
@@ -87,12 +107,34 @@ Each adapter handles:
 - Converts `ChatCompletion` → `LlmResponse`
 - Moves existing `openai-error.utils.ts` logic into adapter methods
 
+### Agentic loop with streaming
+
+The agent loop emits events during execution, allowing downstream consumers to react in real-time (typing indicators, progressive display, tool progress).
+
+```typescript
+type AgentEvent =
+  | LlmStreamEvent                                            // proxied from adapter
+  | { type: 'tool_start'; toolName: string }                  // before tool execution
+  | { type: 'tool_end'; toolName: string }                    // after tool execution
+  | { type: 'round_start'; round: number }                    // new tool round
+  | { type: 'round_end'; round: number };                     // round completed
+```
+
+Loop behavior:
+1. For each round: call `adapter.chatStream()`, yield all `LlmStreamEvent`s
+2. Accumulate tool calls from stream (handle `tool_call_start` / `tool_call_delta`)
+3. If no tool calls → yield `done`, return
+4. Execute each tool via `ToolExecutorPort`, yield `tool_start`/`tool_end`
+5. Append tool results to messages, continue loop (max `maxToolRounds`)
+6. Guard: if stream errors mid-tool-call → yield `error`, return
+
 ### Agentic loop changes
 
 - `LlmAgentService` receives `LlmProviderAdapter` via constructor (no more `apiKey`)
 - `AGENT_TOOLS` type changes from `ChatCompletionTool[]` to `LlmToolDefinition[]`
 - Response handling uses `LlmResponse` instead of `ChatCompletion`
 - Tool result messages constructed as `LlmMessage` with `role: 'tool'`
+- Both sync (`chat()`) and streaming (`chatStream()`) modes supported per request
 
 ### Config
 
@@ -115,12 +157,17 @@ Each adapter handles:
 - **Positive**: `packages/llm-agent` no longer depends on the `openai` npm package in its core (only the OpenAI adapter does)
 - **Positive**: Stronger guarantee for ADR-0002's "framework-agnostic" claim
 - **Positive**: Provider-specific error handling is encapsulated, not scattered across utils
+- **Positive**: Streaming support enables real-time user experience (typing indicators, progressive text display)
+- **Positive**: Agent event stream decouples core loop from transport — Messenger, Discord, or WebSocket consumers can subscribe independently
 - **Negative**: One more interface to maintain; slightly more indirection in the call chain
 - **Negative**: Existing tests in `agent.service.spec.ts` need mock adapter instead of mock OpenAI response
 - **Negative**: `LlmExecutionPort` retry logic needs to use adapter's `isRetryableError()` instead of the current `isOpenAiRetryableError()` import
+- **Negative**: Streaming adds edge cases: tool JSON errors mid-stream, partial tool arguments, loop termination detection
+- **Negative**: `AsyncIterable` consumption requires careful cleanup (abort signals) when stream is interrupted
 
 ## Scope
 
-- **Phase 1** (this ADR): `packages/llm-agent` — core agentic loop
-- **Phase 2** (follow-up): `@wispace/student-report` — independent OpenAI client for report generation
-- **Phase 3** (future): Multi-provider routing, fallback chains, cost-based model selection
+- **Phase 1** (this ADR): `LlmProviderAdapter` interface + types + OpenAI adapter (`chat()` sync) + refactor `LlmAgentService`
+- **Phase 2** (follow-up): Add `chatStream()` to adapter + `LlmStreamEvent` + `AgentEvent` stream in `LlmAgentService`
+- **Phase 3** (follow-up): `@wispace/student-report` abstraction + streaming consumers in Messenger/Discord
+- **Phase 4** (future): Minimax/Anthropic adapters + `LLM_PROVIDER` env config + multi-provider routing
