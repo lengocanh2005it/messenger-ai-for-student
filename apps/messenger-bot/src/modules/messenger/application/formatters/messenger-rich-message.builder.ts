@@ -1,4 +1,5 @@
 import type { MessengerRichFollowUp } from '../../domain/entities/messenger-rich-message.types';
+import { DEFAULT_TOPIC } from '../../../../shared/config/poc.constants';
 
 const TITLE_MAX = 80;
 const SUBTITLE_MAX = 80;
@@ -25,10 +26,7 @@ export function buildStudySessionsRichFollowUps(
 
   const elements = sessions.slice(0, MAX_GENERIC_ELEMENTS).map((session) => ({
     title: clipMessengerLabel(`📅 ${session.scheduledTimeLabel}`, TITLE_MAX),
-    subtitle: clipMessengerLabel(
-      session.topic || 'IELTS Writing',
-      SUBTITLE_MAX,
-    ),
+    subtitle: clipMessengerLabel(session.topic || DEFAULT_TOPIC, SUBTITLE_MAX),
   }));
 
   return [
@@ -55,10 +53,7 @@ export function buildCalendarEntriesRichFollowUp(
     messageType: 'CHAT_CALENDAR_GENERIC',
     elements: entries.slice(0, MAX_GENERIC_ELEMENTS).map((entry) => ({
       title: clipMessengerLabel(`📅 ${entry.scheduledTimeLabel}`, TITLE_MAX),
-      subtitle: clipMessengerLabel(
-        entry.topic || 'IELTS Writing',
-        SUBTITLE_MAX,
-      ),
+      subtitle: clipMessengerLabel(entry.topic || DEFAULT_TOPIC, SUBTITLE_MAX),
     })),
   };
 }

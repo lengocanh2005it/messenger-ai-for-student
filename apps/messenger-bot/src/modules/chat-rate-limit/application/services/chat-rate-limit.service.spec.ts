@@ -1,6 +1,9 @@
 /* eslint-disable @typescript-eslint/unbound-method -- Jest mock method assertions */
 import { ConfigService } from '@nestjs/config';
 import type { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate-limit.repository.port';
+import type { ChatUsagePort } from '../../domain/repositories/chat-usage.port';
+import type { ChatReservationPort } from '../../domain/repositories/chat-reservation.port';
+import type { ChatRecoveryPort } from '../../domain/repositories/chat-recovery.port';
 import type { ChatBurstCounterPort } from '../../domain/repositories/chat-burst-counter.port';
 import type { MetricsService } from '../../../metrics/metrics.service';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
@@ -93,6 +96,26 @@ describe('ChatRateLimitService', () => {
       recoverAllStuckReserved: jest.fn(() => Promise.resolve([])),
     };
 
+    const usagePort: ChatUsagePort = {
+      getDailyUsageCount: repository.getDailyUsageCount,
+      incrementDailyUsage: repository.incrementDailyUsage,
+      decrementDailyUsage: repository.decrementDailyUsage,
+    };
+
+    const reservationPort: ChatReservationPort = {
+      reserveFreeFormSlotInTransaction:
+        repository.reserveFreeFormSlotInTransaction,
+      refundReservedSlot: repository.refundReservedSlot,
+      completeReservedSlot: repository.completeReservedSlot,
+      countRecentReservations: repository.countRecentReservations,
+    };
+
+    const recoveryPort: ChatRecoveryPort = {
+      listStuckReserved: repository.listStuckReserved,
+      recoverIdempotencyForRetry: repository.recoverIdempotencyForRetry,
+      recoverAllStuckReserved: repository.recoverAllStuckReserved,
+    };
+
     const burstCounter: ChatBurstCounterPort = {
       getBurstCount: jest.fn(() => Promise.resolve(options.burstCount ?? 0)),
       tryReserveBurst: jest.fn((_psid: string, limit: number) => {
@@ -118,6 +141,9 @@ describe('ChatRateLimitService', () => {
     const service = new ChatRateLimitService(
       configService,
       repository,
+      usagePort,
+      reservationPort,
+      recoveryPort,
       burstCounter,
       quotaEventRecorder,
       metrics,

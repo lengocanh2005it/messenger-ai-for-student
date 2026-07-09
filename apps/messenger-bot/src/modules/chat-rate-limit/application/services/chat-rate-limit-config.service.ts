@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ChatRateLimitSettings } from '../../domain/entities/chat-quota.types';
 import type { ChatBurstStoreKind } from '../../domain/entities/chat-burst.types';
+import { readRequiredPositiveNumber } from '../../../../shared/config/env-helpers';
 
 @Injectable()
 export class ChatRateLimitConfigService {
@@ -43,11 +44,17 @@ export class ChatRateLimitConfigService {
   }
 
   getFreeFormDailyLimit(): number {
-    return this.readRequiredPositiveNumber('CHAT_FREE_FORM_DAILY_LIMIT');
+    return readRequiredPositiveNumber(
+      this.configService,
+      'CHAT_FREE_FORM_DAILY_LIMIT',
+    );
   }
 
   getBurstPerMinute(): number {
-    return this.readRequiredPositiveNumber('CHAT_BURST_PER_MINUTE');
+    return readRequiredPositiveNumber(
+      this.configService,
+      'CHAT_BURST_PER_MINUTE',
+    );
   }
 
   getTimezone(): string {
@@ -80,7 +87,8 @@ export class ChatRateLimitConfigService {
   }
 
   getRemainingHintThreshold(): number {
-    return this.readRequiredPositiveNumber(
+    return readRequiredPositiveNumber(
+      this.configService,
       'CHAT_QUOTA_REMAINING_HINT_THRESHOLD',
     );
   }
@@ -182,22 +190,5 @@ export class ChatRateLimitConfigService {
     }
 
     return 'postgres';
-  }
-
-  private readRequiredPositiveNumber(key: string): number {
-    const raw = this.configService.get<string>(key)?.trim();
-
-    if (!raw) {
-      throw new InternalServerErrorException(`${key} must be set in .env`);
-    }
-
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value <= 0) {
-      throw new InternalServerErrorException(
-        `${key} must be a positive number in .env`,
-      );
-    }
-
-    return value;
   }
 }

@@ -11,7 +11,7 @@ describe('StudyReminderScheduleService', () => {
         STUDY_REMINDER_MAX_RETRIES: '3',
         STUDY_REMINDER_RETRY_BACKOFF_MINUTES: '2',
         STUDY_REMINDER_JOB_RETENTION_DAYS: '7',
-        STUDY_REMINDER_TIMEZONE: 'Asia/Ho_Chi_Minh',
+        CHAT_USAGE_TIMEZONE: 'Asia/Ho_Chi_Minh',
       };
       return values[key];
     },

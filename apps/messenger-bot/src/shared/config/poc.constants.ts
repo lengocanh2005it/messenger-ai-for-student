@@ -4,6 +4,9 @@ const VALID_CADENCES: NotificationCadence[] = ['DAILY', 'WEEKLY', 'MONTHLY'];
 
 /** Defaults when Messenger webhook only sends ref (Get Started / m.me). */
 export const POC_DEFAULT_LINK_TOPIC = 'IELTS';
+
+/** Default study-session topic when the Wispace calendar record has none. */
+export const DEFAULT_TOPIC = 'IELTS Writing';
 export const POC_DEFAULT_LINK_CADENCE: NotificationCadence = 'WEEKLY';
 
 export interface MessengerLinkContext {

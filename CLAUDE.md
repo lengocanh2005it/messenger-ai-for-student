@@ -72,6 +72,20 @@ Rule path-scoped tự load khi sửa file matching — xem bảng Rules bên dư
 - `database.md` — `apps/messenger-bot/src/infrastructure/database/**`
 - `prompts.md` — `apps/messenger-bot/src/shared/prompts/**` + `packages/llm-agent/src/messages.ts`
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues (`gh` CLI). External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles mapped to default label names. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
 ## Không làm trừ khi user yêu cầu
 
 Commit/push · thêm queue (Redis/Bull) · sửa `.env` · force push

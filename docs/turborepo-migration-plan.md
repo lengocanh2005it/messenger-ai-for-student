@@ -78,12 +78,13 @@ Repo NestJS đơn lẻ, `src/` ở root, 1 app duy nhất (Messenger bot), 1 Pos
 - **Còn stub: `register_exam_report_notifications` (quyết định: giữ nguyên, không code)** — tool này tồn tại ở Messenger để lách giới hạn 24h nhắn tin của Meta (phải opt-in "Notification Messages" mới nhắn được ngoài 24h kể từ tin cuối của user); Discord **không có** giới hạn 24h này nên bot có thể DM bất cứ lúc nào, không cần "đăng ký" gì. Quan trọng hơn: Discord chưa port `ReportCronService` (cron gửi báo cáo AI định kỳ trước ngày thi) — dù có implement "đăng ký" bây giờ (mặc định cadence=WEEKLY, khớp fallback default của Messenger ở `poc.constants.ts`) thì cũng chưa có gì đọc lại để gửi báo cáo, thành tính năng nửa vời. Chỉ làm khi port cả cron báo cáo định kỳ sang Discord.
 - Unit test cho `DiscordChatHistoryService`, `DiscordAgentToolsService` (bao gồm case đã/chưa liên kết cho tất cả tool + case reschedule hợp lệ/lỗi), `DiscordOutboundService` (bao gồm gửi confirm DM có button), `WispaceDiscordTokenVerifyService`, `DiscordAccountLinkService`, `DiscordOauthController`, và `packages/wispace-client` (`UserGoalsApiClient`, `user-calendar-record.normalizer`, `buildWispaceHeaders`).
 
-**Còn thiếu (chưa làm):**
-- `register_exam_report_notifications` — quyết định: giữ stub, chỉ làm khi port `ReportCronService` (cron báo cáo định kỳ) sang Discord (xem trên).
-- WISPACE web/app team hiển thị link "Connect Discord" (chỉ cần build URL với token account-link có sẵn) — chưa test thật end-to-end (cần Discord Application OAuth2 client thật + redirect URI public HTTPS + xác nhận response shape thật của `WISPACE_API_VERIFY_TOKEN_URL` khớp `WispaceDiscordTokenVerifyService`).
+**Còn thiếu / ghi nợ kỹ thuật:**
+- **CI/CD deploy VPS** — `Dockerfile`, `docker-compose.prod.yml`, `deploy-discord-bot.yml`, `vps-deploy-discord.sh`, `health.controller.ts` đã viết nhưng chưa commit + chưa chạy thật trên VPS.
+- **End-to-end test chưa làm** — cần Discord Application OAuth2 client thật + redirect URI public HTTPS + WISPACE backend hiển thị link "Connect Discord" + xác nhận response shape thật của `WISPACE_API_VERIFY_TOKEN_URL`.
+- `register_exam_report_notifications` — quyết định: giữ stub, chỉ làm khi port `ReportCronService` (cron báo cáo định kỳ) sang Discord.
 - Chat history bền vững / multi-pod (Redis) nếu cần scale nhiều instance.
 - Whitelist, quota-event audit table, stuck-reserved recovery, ops CLI cho Discord (Messenger-only hiện tại).
-- `apps/messenger-bot`'s local `study-reminder/application/utils/study-calendar.utils.ts` giờ trùng với `packages/wispace-client`'s bản port (`resolveRescheduleSlot` vẫn dùng cho reschedule Messenger) — chưa dedupe, để tránh mở rộng phạm vi refactor lần này.
+- `apps/messenger-bot`'s local `study-reminder/application/utils/study-calendar.utils.ts` trùng với `packages/wispace-client` — chưa dedupe (ghi nợ, để tránh mở rộng phạm vi Phase 3).
 
 **Verify đã làm:** `npx turbo run format:check lint typecheck test build --filter=@wispace/messenger-bot... --filter=@wispace/discord-bot... --filter=@wispace/chat-metering... --filter=@wispace/wispace-client...` pass toàn bộ (messenger-bot 304 test + chat-metering 18 test + wispace-client 10 test + discord-bot 26 test). Chưa test thật với Discord server (cần `DISCORD_BOT_TOKEN` thật + bật `MESSAGE CONTENT INTENT` trong Developer Portal), chưa test thật kết nối DB (`DB_*` env) hoặc Wispace API thật (`WISPACE_API_*_URL` + `x-discordid`) cho Discord, và chưa test thật luồng OAuth (cần redirect URI public + WISPACE backend hiển thị link "Connect Discord").
 
@@ -116,6 +117,6 @@ Tương tự Phase 3, dùng Zalo OA API thay Discord REST API. Ưu tiên làm sa
 | 0 | Hiện trạng ban đầu | Tham chiếu |
 | 1 | Turborepo scaffold + tách `packages/llm-agent` + placeholder discord/zalo | ✅ Đã xong |
 | 2 | Generalize khóa DB `(platform, external_user_id)` | ✅ Đã xong — đã chạy migration trên VPS production, verify qua SSH |
-| 3 | Triển khai Discord bot | 🟡 Chat + quota/usage/safety (dùng `packages/chat-metering` chung Messenger) xong — tool handlers thật (Wispace API + account-linking) chưa làm |
+| 3 | Triển khai Discord bot | 🟡 Features xong (chat + quota + account-linking OAuth2 + 6/7 tools thật + reschedule với Discord button) — CI/CD deploy VPS đang hoàn thiện (Dockerfile + compose + workflow chưa commit), chưa test end-to-end thật (cần bot token + OAuth redirect public) |
 | 4 | Triển khai Zalo bot | ⏳ Chưa làm |
-| 5 | CI/CD độc lập hoàn toàn | ⏳ Chưa làm |
+| 5 | CI/CD độc lập hoàn toàn | 🟡 Discord workflow đang làm (`deploy-discord-bot.yml`, `vps-deploy-discord.sh`) — Messenger workflow chưa tách riêng |

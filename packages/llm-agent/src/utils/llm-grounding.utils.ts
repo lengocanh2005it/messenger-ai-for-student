@@ -1,3 +1,5 @@
+import { SCORE_TOOLS, SCHEDULE_TOOLS } from '../agent.tools';
+
 export interface LlmGroundingResult {
   suspicious: boolean;
   reason?: 'score_without_tool' | 'schedule_without_tool';
@@ -11,14 +13,6 @@ const PERSONAL_SCORE_RE =
 // Matches "DD/MM", "DD-MM", "lúc HH:MM" — personal schedule claims
 const PERSONAL_SCHEDULE_RE =
   /\b\d{1,2}[/-]\d{1,2}([/-]\d{2,4})?\b|\blúc\s+\d{1,2}:\d{2}\b/i;
-
-const SCORE_TOOLS = new Set(['get_user_goals', 'get_learning_progress_report']);
-
-const SCHEDULE_TOOLS = new Set([
-  'list_study_calendar_entries',
-  'get_upcoming_study_sessions',
-  'preview_next_study_reminder',
-]);
 
 /**
  * Checks whether the LLM response contains specific personal data claims
@@ -46,7 +40,10 @@ export function checkLlmGrounding(
   return { suspicious: false };
 }
 
-function hasAny(called: ReadonlySet<string>, required: Set<string>): boolean {
+function hasAny(
+  called: ReadonlySet<string>,
+  required: ReadonlySet<string>,
+): boolean {
   for (const tool of required) {
     if (called.has(tool)) return true;
   }

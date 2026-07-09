@@ -5,6 +5,7 @@ import {
   type StudentReportPorts,
 } from '@wispace/student-report';
 import { todayUsageDate } from '@wispace/chat-metering';
+import { resolveAppTimezone } from '../../../../shared/config/app-timezone';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
 import { sanitizeMessengerText } from '../../../../shared/utils/messenger-text.utils';
 import type { LlmExecutionContext } from '../../../llm-execution/application/services/llm-execution.service';
@@ -35,10 +36,7 @@ export class StudentReportService {
       this.core = this.buildCore();
     }
 
-    const timezone =
-      this.configService.get<string>('LLM_USAGE_TIMEZONE')?.trim() ??
-      this.configService.get<string>('CHAT_USAGE_TIMEZONE')?.trim() ??
-      'Asia/Ho_Chi_Minh';
+    const timezone = resolveAppTimezone(this.configService);
     const correlationId = `${psid}:${todayUsageDate(timezone)}`;
 
     return this.core.generateReport(psid, { correlationId });

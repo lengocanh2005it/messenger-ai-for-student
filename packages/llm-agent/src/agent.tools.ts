@@ -12,6 +12,17 @@ export const AGENT_TOOL_NAMES = [
 
 export type AgentToolName = (typeof AGENT_TOOL_NAMES)[number];
 
+export const SCORE_TOOLS: ReadonlySet<AgentToolName> = new Set([
+  'get_user_goals',
+  'get_learning_progress_report',
+]);
+
+export const SCHEDULE_TOOLS: ReadonlySet<AgentToolName> = new Set([
+  'list_study_calendar_entries',
+  'get_upcoming_study_sessions',
+  'preview_next_study_reminder',
+]);
+
 export function isAgentToolName(name: string): name is AgentToolName {
   return (AGENT_TOOL_NAMES as readonly string[]).includes(name);
 }
@@ -153,3 +164,54 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
     },
   },
 ];
+
+export function readPositiveLimit(value: unknown, fallback: number): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.floor(parsed), 10);
+}
+
+export function readPastDays(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 90;
+  return Math.min(Math.floor(parsed), 365);
+}
+
+export function readCalendarTimeRange(
+  value: unknown,
+): 'upcoming' | 'past' | 'all' | undefined {
+  if (value === 'upcoming' || value === 'past' || value === 'all') return value;
+  return undefined;
+}
+
+export function readPositiveInteger(value: unknown): number | undefined {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}
+
+export function readSchedulingMode(
+  value: unknown,
+): 'default_next_day_same_time' | 'explicit' | undefined {
+  if (value === 'default_next_day_same_time' || value === 'explicit')
+    return value;
+  return undefined;
+}
+
+export function readOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+export function readValidatedDate(value: unknown): string | undefined {
+  const str = readOptionalString(value);
+  if (!str) return undefined;
+  return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : undefined;
+}
+
+export function readValidatedTime(value: unknown): string | undefined {
+  const str = readOptionalString(value);
+  if (!str) return undefined;
+  return /^\d{2}:\d{2}$/.test(str) ? str : undefined;
+}

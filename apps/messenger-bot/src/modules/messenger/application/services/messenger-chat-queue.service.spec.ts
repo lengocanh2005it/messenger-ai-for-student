@@ -8,7 +8,7 @@ import {
   buildChatQuotaDeniedMessage,
   buildChatQuotaRemainingHintMessage,
 } from '../messages/chat-quota.messages';
-import type { MessengerChatHistoryService } from './messenger-chat-history.service';
+import type { ChatHistoryStorePort } from '../../domain/repositories/chat-history.store.port';
 import type { MessengerOutboundService } from './messenger-outbound.service';
 import {
   MessengerApiError,
@@ -57,7 +57,7 @@ describe('MessengerChatQueueService', () => {
     const chatHistory = {
       getHistory,
       appendTurn,
-    } as unknown as MessengerChatHistoryService;
+    } as unknown as ChatHistoryStorePort;
 
     const reserveFreeFormSlot = jest.fn(() => Promise.resolve(quotaAllowed()));
     const markCompleted = jest.fn(() => Promise.resolve());
