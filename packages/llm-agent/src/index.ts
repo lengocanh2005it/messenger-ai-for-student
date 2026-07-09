@@ -51,3 +51,25 @@ export {
 export { isObviouslyOffTopic } from './utils/scope.utils';
 export { sanitizeReplyText } from './utils/text.utils';
 export { loadSystemPromptFile } from './utils/load-system-prompt';
+
+// --- Provider abstraction (new) ---
+export type {
+  LlmProvider,
+  LlmFeature,
+  LlmToolDefinition,
+  LlmMessageRole,
+  LlmToolCall,
+  LlmMessage,
+  LlmUsage,
+  LlmProviderMetadata,
+  LlmJsonRequest,
+  LlmJsonResponse,
+  LlmToolChatRequest,
+  LlmToolChatResponse,
+  LlmStreamEvent,
+  LlmProviderError,
+} from './provider/types';
+export type { LlmProviderAdapter } from './provider/llm-provider.adapter';
+export { OpenAiAdapter } from './provider/openai/openai-adapter';
+export { OpenAiCompatibleAdapter } from './provider/openai-compatible/openai-compatible-adapter';
+export { createLlmProviderAdapter } from './provider/factory';

@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import type { ChatCompletion } from 'openai/resources/chat/completions';
+import type { LlmToolChatResponse } from '@wispace/llm-agent';
 import { MessengerAgentService } from './messenger-agent.service';
 import { MessengerAgentToolsService } from './messenger-agent-tools.service';
 import { UserDisplayNameService } from '../../../study-reminder/application/services/user-display-name.service';
@@ -11,44 +11,32 @@ import type { MetricsService } from '../../../metrics/metrics.service';
 // ---- helpers ----------------------------------------------------------------
 
 function makeCompletion(
-  override: Partial<ChatCompletion['choices'][0]['message']> = {},
-): ChatCompletion {
+  content: string | null,
+  toolCalls?: { id: string; name: string; arguments: string }[],
+): LlmToolChatResponse {
   return {
-    id: 'cmpl-1',
-    object: 'chat.completion',
-    created: 0,
-    model: 'gpt-5.4',
-    choices: [
-      {
-        index: 0,
-        finish_reason: 'stop',
-        message: {
-          role: 'assistant',
-          content: 'Xin chào học viên!',
-          refusal: null,
-          ...override,
-        },
-        logprobs: null,
-      },
-    ],
-    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-  } as unknown as ChatCompletion;
+    message: {
+      role: 'assistant',
+      content: content ?? undefined,
+      toolCalls,
+    },
+    content: toolCalls ? undefined : content?.trim() || undefined,
+    metadata: {
+      provider: 'openai',
+      model: 'gpt-5.4',
+      responseId: 'cmpl-1',
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+    },
+  };
 }
 
 function makeToolCallCompletion(
   toolName: string,
   argsJson = '{}',
-): ChatCompletion {
-  return makeCompletion({
-    content: null,
-    tool_calls: [
-      {
-        id: 'call-1',
-        type: 'function',
-        function: { name: toolName, arguments: argsJson },
-      },
-    ],
-  });
+): LlmToolChatResponse {
+  return makeCompletion(null, [
+    { id: 'call-1', name: toolName, arguments: argsJson },
+  ]);
 }
 
 // ---- factory ----------------------------------------------------------------
@@ -99,6 +87,11 @@ function buildService(
     llmRoundOutcome: { inc: jest.fn() },
   } as unknown as MetricsService;
 
+  const adapter = {
+    isConfigured: () => Boolean(configValues['OPENAI_API_KEY']),
+    getDefaultModel: () => configValues['OPENAI_MODEL'] ?? 'gpt-5.4',
+  } as never;
+
   const service = new MessengerAgentService(
     configService,
     toolsService,
@@ -107,6 +100,7 @@ function buildService(
     llmExecution,
     llmSafetyEventService,
     metrics,
+    adapter,
   );
 
   return {
@@ -220,9 +214,7 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — normal LLM flow', () => {
     it('returns text and empty richFollowUps when LLM responds directly', async () => {
-      const completion = makeCompletion({
-        content: 'Tiến độ của bạn tốt lắm!',
-      });
+      const completion = makeCompletion('Tiến độ của bạn tốt lắm!');
       const llmRun = jest.fn().mockResolvedValue(completion);
 
       const { service, llmUsageRecorder } = buildService(
@@ -248,7 +240,7 @@ describe('MessengerAgentService', () => {
     });
 
     it('uses default model when OPENAI_MODEL is not set', async () => {
-      const completion = makeCompletion({ content: 'OK' });
+      const completion = makeCompletion('OK');
       const llmRun = jest.fn().mockResolvedValue(completion);
 
       const { service } = buildService(
@@ -265,11 +257,8 @@ describe('MessengerAgentService', () => {
       );
     });
 
-    it('throws when LLM returns empty choices', async () => {
-      const emptyCompletion = {
-        ...makeCompletion(),
-        choices: [],
-      } as unknown as ChatCompletion;
+    it('throws when LLM returns empty content', async () => {
+      const emptyCompletion = makeCompletion(null);
       const llmRun = jest.fn().mockResolvedValue(emptyCompletion);
 
       const { service } = buildService(
@@ -278,12 +267,12 @@ describe('MessengerAgentService', () => {
       );
 
       await expect(service.reply(BASE_INPUT)).rejects.toThrow(
-        'OpenAI returned empty assistant message',
+        'LLM provider returned empty content',
       );
     });
 
     it('throws when LLM returns empty content with no tool calls', async () => {
-      const completion = makeCompletion({ content: '   ' });
+      const completion = makeCompletion('   ');
       const llmRun = jest.fn().mockResolvedValue(completion);
 
       const { service } = buildService(
@@ -292,16 +281,14 @@ describe('MessengerAgentService', () => {
       );
 
       await expect(service.reply(BASE_INPUT)).rejects.toThrow(
-        'OpenAI returned empty content',
+        'LLM provider returned empty content',
       );
     });
   });
 
   describe('reply() — tool call round-trip', () => {
     it('calls toolsService.execute then returns final text after one tool round', async () => {
-      const textCompletion = makeCompletion({
-        content: 'Đây là kết quả của bạn.',
-      });
+      const textCompletion = makeCompletion('Đây là kết quả của bạn.');
       const toolCompletion = makeToolCallCompletion(
         'get_learning_progress_report',
       );
@@ -366,9 +353,7 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — conversation history', () => {
     it('includes history messages in LLM request messages', async () => {
-      const completion = makeCompletion({
-        content: 'Trả lời dựa trên lịch sử.',
-      });
+      const completion = makeCompletion('Trả lời dựa trên lịch sử.');
       const llmRun = jest.fn().mockResolvedValue(completion);
 
       const { service } = buildService(
@@ -396,9 +381,7 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — indirect tool result injection (Fix 1)', () => {
     it('sanitizes tool result containing injection pattern before feeding to LLM', async () => {
-      const textCompletion = makeCompletion({
-        content: 'Kết quả đã được xử lý.',
-      });
+      const textCompletion = makeCompletion('Kết quả đã được xử lý.');
       const toolCompletion = makeToolCallCompletion('get_user_goals');
 
       const llmRun = jest
@@ -426,7 +409,7 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — history poisoning (Fix 2)', () => {
     it('redacts injected history entries and still calls LLM', async () => {
-      const completion = makeCompletion({ content: 'Trả lời an toàn.' });
+      const completion = makeCompletion('Trả lời an toàn.');
       const llmRun = jest.fn().mockResolvedValue(completion);
 
       const { service } = buildService(
@@ -452,7 +435,7 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — context budget truncation (Fix 3)', () => {
     it('truncates old history when total chars exceed OPENAI_MAX_CONTEXT_CHARS', async () => {
-      const completion = makeCompletion({ content: 'OK' });
+      const completion = makeCompletion('OK');
       const llmRun = jest.fn().mockResolvedValue(completion);
 
       const { service } = buildService(
@@ -475,9 +458,7 @@ describe('MessengerAgentService', () => {
 
   describe('reply() — unknown userId (unlinked user)', () => {
     it('works without userId', async () => {
-      const completion = makeCompletion({
-        content: 'Bạn chưa liên kết tài khoản.',
-      });
+      const completion = makeCompletion('Bạn chưa liên kết tài khoản.');
       const llmRun = jest.fn().mockResolvedValue(completion);
 
       const { service } = buildService(

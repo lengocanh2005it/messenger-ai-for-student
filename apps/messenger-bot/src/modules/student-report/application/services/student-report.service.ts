@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   StudentReportCore,
   type StudentReportPorts,
 } from '@wispace/student-report';
+import type { LlmProviderAdapter } from '@wispace/llm-agent';
 import { todayUsageDate } from '@wispace/chat-metering';
 import { resolveAppTimezone } from '../../../../shared/config/app-timezone';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
@@ -29,6 +30,8 @@ export class StudentReportService {
     private readonly studentCapacityService: StudentCapacityService,
     private readonly llmUsageRecorder: LlmUsageRecorderService,
     private readonly llmExecution: LlmExecutionService,
+    @Inject('LLM_PROVIDER_ADAPTER')
+    private readonly adapter: LlmProviderAdapter,
   ) {}
 
   generateReport(psid: string): Promise<string> {
@@ -72,8 +75,7 @@ export class StudentReportService {
 
     return new StudentReportCore(
       {
-        apiKey: this.configService.get<string>('OPENAI_API_KEY'),
-        model: this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4',
+        adapter: this.adapter,
         systemPrompt: loadSystemPrompt('studentReport'),
         sanitizeText: sanitizeMessengerText,
       },

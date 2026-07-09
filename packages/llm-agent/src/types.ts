@@ -4,6 +4,7 @@ export interface ChatHistoryMessage {
 }
 
 export interface LlmAgentConfig {
+  /** @deprecated Use adapter.isConfigured() instead. Kept for backward compat. */
   apiKey?: string;
   model?: string;
   maxToolRounds?: number;

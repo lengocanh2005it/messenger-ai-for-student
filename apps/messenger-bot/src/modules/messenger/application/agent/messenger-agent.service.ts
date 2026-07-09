@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   LlmAgentService,
   LlmAgentPorts,
   ToolExecutorPort,
   loadSystemPromptFile,
+  type LlmProviderAdapter,
 } from '@wispace/llm-agent';
 import { join } from 'path';
 import { trace } from '@opentelemetry/api';
@@ -56,6 +57,8 @@ export class MessengerAgentService {
     private readonly llmExecution: LlmExecutionService,
     private readonly llmSafetyEventService: LlmSafetyEventService,
     private readonly metrics: MetricsService,
+    @Inject('LLM_PROVIDER_ADAPTER')
+    private readonly adapter: LlmProviderAdapter,
   ) {}
 
   async reply(input: MessengerAgentInput): Promise<MessengerAgentReply> {
@@ -153,6 +156,7 @@ export class MessengerAgentService {
           this.metrics.llmRoundOutcome.inc({ feature, outcome }),
       },
       toolExecutor,
+      adapter: this.adapter,
       logger: {
         warn: (message) => this.logger.warn(message),
         debug: (message) => this.logger.debug(message),
@@ -161,8 +165,6 @@ export class MessengerAgentService {
 
     return new LlmAgentService<MessengerAgentToolContext>(
       {
-        apiKey: this.configService.get<string>('OPENAI_API_KEY'),
-        model: this.configService.get<string>('OPENAI_MODEL'),
         maxToolRounds: Number(
           this.configService.get<string>('OPENAI_MAX_TOOL_ROUNDS'),
         ),

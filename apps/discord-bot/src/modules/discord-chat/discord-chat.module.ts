@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { OpenAiAdapter, type LlmProviderAdapter } from '@wispace/llm-agent';
 import { ChatMeteringModule } from '../chat-metering/chat-metering.module';
 import { AccountLinkModule } from '../account-link/account-link.module';
 import { WispaceModule } from '../wispace/wispace.module';
@@ -19,6 +21,17 @@ import { DiscordChatGateway } from './presentation/gateways/discord-chat.gateway
   ],
   providers: [
     DiscordChatGateway,
+    {
+      provide: 'LLM_PROVIDER_ADAPTER',
+      useFactory: (configService: ConfigService): LlmProviderAdapter => {
+        return new OpenAiAdapter(
+          () =>
+            configService.get<string>('OPENAI_API_KEY')?.trim() || undefined,
+          () => configService.get<string>('OPENAI_MODEL')?.trim() || 'gpt-5.4',
+        );
+      },
+      inject: [ConfigService],
+    },
     DiscordAgentService,
     DiscordAgentToolsService,
     DiscordChatHistoryService,

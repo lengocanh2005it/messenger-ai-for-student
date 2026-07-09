@@ -1,6 +1,6 @@
-import OpenAI from 'openai';
 import type {
   LlmExecutionPort,
+  LlmProviderAdapter,
   LlmUsageRecorderPort,
 } from '@wispace/llm-agent';
 import type { CapacityDataPort } from './ports';
@@ -20,12 +20,10 @@ import {
 } from './report-formatter';
 import type { StudentCapacityInput, StudentCapacityReport } from './types';
 
-const DEFAULT_MODEL = 'gpt-5.4';
 const FEATURE = 'STUDENT_REPORT';
 
 export interface StudentReportConfig {
-  apiKey?: string;
-  model?: string;
+  adapter: LlmProviderAdapter;
   systemPrompt: string;
   /** Strips platform-unsupported formatting (e.g. Markdown) from LLM output. */
   sanitizeText?: (raw: string) => string;
@@ -58,8 +56,6 @@ const NOOP_LOGGER = { log: () => undefined, warn: () => undefined };
  * implemented per app.
  */
 export class StudentReportCore {
-  private openai: OpenAI | null = null;
-
   constructor(
     private readonly config: StudentReportConfig,
     private readonly ports: StudentReportPorts,
@@ -113,24 +109,23 @@ export class StudentReportCore {
     correlationId: string,
   ): Promise<StudentCapacityReport> {
     const logger = this.ports.logger ?? NOOP_LOGGER;
+    const adapter = this.config.adapter;
 
-    if (!this.config.apiKey) {
-      logger.warn('OPENAI_API_KEY missing, using fallback report content');
+    if (!adapter.isConfigured()) {
+      logger.warn('LLM provider missing, using fallback report content');
       return buildFallbackReport(input);
     }
 
-    const model = this.config.model ?? DEFAULT_MODEL;
-    const client = this.getOpenAiClient(this.config.apiKey);
+    const model = adapter.getDefaultModel();
 
     const response = await this.ports.llmExecution.run(
       () =>
-        client.chat.completions.create({
+        adapter.generateJson({
+          feature: FEATURE,
           model,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: this.config.systemPrompt },
-            { role: 'user', content: JSON.stringify(input) },
-          ],
+          systemPrompt: this.config.systemPrompt,
+          userContent: JSON.stringify(input),
+          correlationId,
         }),
       { feature: FEATURE, correlationId },
     );
@@ -139,14 +134,23 @@ export class StudentReportCore {
       feature: FEATURE,
       externalUserId,
       model,
-      response,
+      response: {
+        id: response.metadata.responseId ?? '',
+        usage: response.metadata.usage
+          ? {
+              prompt_tokens: response.metadata.usage.promptTokens,
+              completion_tokens: response.metadata.usage.completionTokens,
+              total_tokens: response.metadata.usage.totalTokens,
+            }
+          : null,
+      },
       correlationId,
       toolRound: 0,
     });
 
-    const content = response.choices[0]?.message?.content;
+    const content = response.content;
     if (!content) {
-      throw new Error('OpenAI returned empty content');
+      throw new Error('LLM provider returned empty content');
     }
 
     try {
@@ -159,12 +163,5 @@ export class StudentReportCore {
       );
       return buildFallbackReport(input);
     }
-  }
-
-  private getOpenAiClient(apiKey: string): OpenAI {
-    if (!this.openai) {
-      this.openai = new OpenAI({ apiKey });
-    }
-    return this.openai;
   }
 }

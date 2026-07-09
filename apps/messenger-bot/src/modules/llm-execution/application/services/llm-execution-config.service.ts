@@ -83,4 +83,30 @@ export class LlmExecutionConfigService {
 
     return Math.floor(value);
   }
+
+  // --- LLM provider config (used by OpenAiAdapter) ---
+
+  getApiKey(): string | undefined {
+    return (
+      this.configService.get<string>('LLM_API_KEY')?.trim() ||
+      this.configService.get<string>('OPENAI_API_KEY')?.trim() ||
+      undefined
+    );
+  }
+
+  getModel(): string {
+    return (
+      this.configService.get<string>('LLM_MODEL')?.trim() ||
+      this.configService.get<string>('OPENAI_MODEL')?.trim() ||
+      'gpt-5.4'
+    );
+  }
+
+  getBaseUrl(): string | undefined {
+    return this.configService.get<string>('LLM_BASE_URL')?.trim() || undefined;
+  }
+
+  getProvider(): string | undefined {
+    return this.configService.get<string>('LLM_PROVIDER')?.trim() || undefined;
+  }
 }

@@ -1,6 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import pLimit from 'p-limit';
-import { isOpenAiRetryableError } from '@wispace/llm-agent';
+import type { LlmProviderAdapter } from '@wispace/llm-agent';
 import { MetricsService } from '../../../metrics/metrics.service';
 import { LlmExecutionConfigService } from './llm-execution-config.service';
 
@@ -45,13 +45,15 @@ export class LlmExecutionService {
   constructor(
     private readonly config: LlmExecutionConfigService,
     private readonly metrics: MetricsService,
+    @Inject('LLM_PROVIDER_ADAPTER')
+    private readonly adapter: LlmProviderAdapter,
   ) {
     this.limiter = pLimit(this.config.getMaxConcurrent());
   }
 
   /**
-   * Runs an OpenAI call with optional global concurrency cap (p-limit) and retry
-   * on 429 / 5xx. Each chat completion.create should pass through here.
+   * Runs an LLM call with optional global concurrency cap (p-limit) and retry
+   * on retryable errors (429 / 5xx). Each LLM request should pass through here.
    */
   async run<T>(
     fn: () => Promise<T>,
@@ -88,15 +90,14 @@ export class LlmExecutionService {
       } catch (error) {
         lastError = error;
 
-        if (!isOpenAiRetryableError(error) || attempt >= maxAttempts) {
+        if (!this.adapter.isRetryableError(error) || attempt >= maxAttempts) {
           throw error;
         }
 
         const backoffMs = baseBackoffMs * attempt;
-        const feature = context?.feature ?? 'unknown';
         const correlation = context?.correlationId ?? 'n/a';
         this.logger.warn(
-          `OpenAI retry feature=${feature} correlation=${correlation} attempt=${attempt}/${maxAttempts} backoffMs=${backoffMs}: ${
+          `LLM provider retry feature=${feature} correlation=${correlation} attempt=${attempt}/${maxAttempts} backoffMs=${backoffMs}: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );

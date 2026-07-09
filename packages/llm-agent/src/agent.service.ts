@@ -1,8 +1,5 @@
-import OpenAI from 'openai';
-import type {
-  ChatCompletionMessageParam,
-  ChatCompletionToolMessageParam,
-} from 'openai/resources/chat/completions';
+import type { LlmProviderAdapter } from './provider/llm-provider.adapter';
+import type { LlmMessage } from './provider/types';
 import { AGENT_TOOLS } from './agent.tools';
 import { checkLlmGrounding } from './utils/llm-grounding.utils';
 import {
@@ -30,7 +27,6 @@ import type {
   LlmAgentReply,
 } from './types';
 
-const DEFAULT_MODEL = 'gpt-5.4';
 const DEFAULT_MAX_TOOL_ROUNDS = 6;
 const DEFAULT_MAX_CONTEXT_CHARS = 24_000;
 const FEATURE = 'FREE_FORM_CHAT';
@@ -40,6 +36,7 @@ export interface LlmAgentPorts<TToolContext> {
   usageRecorder: LlmUsageRecorderPort;
   safetyEvents: LlmSafetyEventPort;
   toolExecutor: ToolExecutorPort<TToolContext>;
+  adapter: LlmProviderAdapter;
   metrics?: AgentMetricsPort;
   logger?: {
     warn: (message: string) => void;
@@ -50,13 +47,13 @@ export interface LlmAgentPorts<TToolContext> {
 const NOOP_LOGGER = { warn: () => undefined, debug: () => undefined };
 
 /**
- * Framework-agnostic OpenAI function-calling orchestration loop, shared across
+ * Framework-agnostic LLM function-calling orchestration loop, shared across
  * all WISPACE bot platforms. Tool business logic (Wispace API calls, DB reads...)
  * is NOT part of this class — it lives behind `ToolExecutorPort`, implemented per app.
+ *
+ * The LLM provider is injected via `LlmProviderAdapter` — no direct SDK dependency.
  */
 export class LlmAgentService<TToolContext> {
-  private openai: OpenAI | null = null;
-
   constructor(
     private readonly config: LlmAgentConfig,
     private readonly ports: LlmAgentPorts<TToolContext>,
@@ -68,9 +65,10 @@ export class LlmAgentService<TToolContext> {
   ): Promise<LlmAgentReply> {
     const logger = this.ports.logger ?? NOOP_LOGGER;
     const metrics = this.ports.metrics ?? NOOP_METRICS_PORT;
+    const adapter = this.ports.adapter;
 
-    if (!this.config.apiKey) {
-      logger.warn('OPENAI_API_KEY missing, using fallback chat reply');
+    if (!adapter.isConfigured()) {
+      logger.warn('LLM provider missing, using fallback chat reply');
       return { text: this.buildFallbackReply(input.userText) };
     }
 
@@ -86,8 +84,7 @@ export class LlmAgentService<TToolContext> {
       return { text: buildWispaceScopeRedirectMessage() };
     }
 
-    const model = this.config.model ?? DEFAULT_MODEL;
-    const client = this.getOpenAiClient(this.config.apiKey);
+    const model = adapter.getDefaultModel();
     const safeHistory = this.buildSafeHistory(
       input.history ?? [],
       input.systemPrompt,
@@ -95,7 +92,8 @@ export class LlmAgentService<TToolContext> {
       input.externalUserId,
       logger,
     );
-    const messages: ChatCompletionMessageParam[] = [
+
+    const messages: LlmMessage[] = [
       { role: 'system', content: input.systemPrompt },
       ...safeHistory.map((entry) => ({
         role: entry.role,
@@ -111,11 +109,13 @@ export class LlmAgentService<TToolContext> {
       const response = await metrics.timeLlmCall(FEATURE, model, round, () =>
         this.ports.llmExecution.run(
           () =>
-            client.chat.completions.create({
+            adapter.chatWithTools({
+              feature: FEATURE,
               model,
               messages,
               tools: AGENT_TOOLS,
-              tool_choice: 'auto',
+              toolChoice: 'auto',
+              correlationId: input.correlationId,
             }),
           { feature: FEATURE, correlationId: input.correlationId },
         ),
@@ -126,25 +126,27 @@ export class LlmAgentService<TToolContext> {
         externalUserId: input.externalUserId,
         userId: input.userId,
         model,
-        response,
+        response: {
+          id: response.metadata.responseId ?? '',
+          usage: response.metadata.usage
+            ? {
+                prompt_tokens: response.metadata.usage.promptTokens,
+                completion_tokens: response.metadata.usage.completionTokens,
+                total_tokens: response.metadata.usage.totalTokens,
+              }
+            : null,
+        },
         correlationId: input.correlationId,
         toolRound: round,
       });
 
-      const choice = response.choices[0]?.message;
-      if (!choice) {
-        throw new Error('OpenAI returned empty assistant message');
-      }
-
-      messages.push(choice);
-
-      const toolCalls = choice.tool_calls;
+      const toolCalls = response.message.toolCalls;
       if (!toolCalls?.length) {
         metrics.llmRoundOutcomeInc(FEATURE, 'direct_reply');
 
-        const text = choice.content?.trim();
+        const text = response.content;
         if (!text) {
-          throw new Error('OpenAI returned empty content');
+          throw new Error('LLM provider returned empty content');
         }
 
         const groundingCheck = checkLlmGrounding(text, toolsCalledThisTurn);
@@ -168,18 +170,17 @@ export class LlmAgentService<TToolContext> {
 
       metrics.llmRoundOutcomeInc(FEATURE, 'tool_call');
 
-      for (const toolCall of toolCalls) {
-        if (toolCall.type !== 'function') {
-          continue;
-        }
+      // Push the assistant message (with tool calls) for the next round
+      messages.push(response.message);
 
-        const toolName = toolCall.function.name;
+      for (const toolCall of toolCalls) {
+        const toolName = toolCall.name;
         toolsCalledThisTurn.add(toolName);
 
         const result = await metrics.timeTool(toolName, () =>
           this.ports.toolExecutor.execute(
             toolName,
-            toolCall.function.arguments ?? '{}',
+            toolCall.arguments || '{}',
             toolContext,
           ),
         );
@@ -192,12 +193,11 @@ export class LlmAgentService<TToolContext> {
           );
         }
 
-        const toolMessage: ChatCompletionToolMessageParam = {
+        messages.push({
           role: 'tool',
-          tool_call_id: toolCall.id,
+          toolCallId: toolCall.id,
           content: sanitized.content,
-        };
-        messages.push(toolMessage);
+        });
       }
     }
 
@@ -279,12 +279,5 @@ export class LlmAgentService<TToolContext> {
       this.config.maxToolRounds > 0
       ? Math.floor(this.config.maxToolRounds)
       : DEFAULT_MAX_TOOL_ROUNDS;
-  }
-
-  private getOpenAiClient(apiKey: string): OpenAI {
-    if (!this.openai) {
-      this.openai = new OpenAI({ apiKey });
-    }
-    return this.openai;
   }
 }
