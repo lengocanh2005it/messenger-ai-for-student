@@ -1,27 +1,27 @@
-# Chat rate limiting qua DB thay vì Redis
+# Chat rate limiting via DB instead of Redis
 
-FREE_FORM chat quota (daily usage + burst limit) được track qua PostgreSQL tables (`chat_daily_usage`, `chat_idempotency`, `chat_quota_events`) thay vì Redis counters. Reserve/refund/markCompleted là DB transactions.
+FREE_FORM chat quota (daily usage + burst limit) is tracked via PostgreSQL tables (`chat_daily_usage`, `chat_idempotency`, `chat_quota_events`) rather than Redis counters. Reserve/refund/markCompleted are DB transactions.
 
-## Lý do
+## Rationale
 
-- **POC simplicity**: Single-instance deployment. Không cần distributed counter. PostgreSQL atomic operations (`UPDATE ... SET free_form_count = free_form_count + 1`) đủ dùng.
-- **Audit trail**: `chat_quota_events` table ghi lại mọi state changes (reserved, released, denied). Redis chỉ giữ counter, không có history.
-- **Idempotency tự nhiên**: `chat_idempotency` table với unique constraint trên message ID đảm bảo mỗi tin nhắn chỉ đếm một lần. Redis cần thêm logic để achieve điều này.
-- **Transaction safety**: Reserve + idempotency check trong cùng transaction. Không race condition giữa pods.
-- **Không cần Redis infrastructure**: POC chạy single pod, chưa cần Redis. Có thể migrate sau (R3 phase).
+- **POC simplicity**: Single-instance deployment. No distributed counter needed. PostgreSQL atomic operations (`UPDATE ... SET free_form_count = free_form_count + 1`) are sufficient.
+- **Audit trail**: The `chat_quota_events` table records all state changes (reserved, released, denied). Redis only holds counters with no history.
+- **Natural idempotency**: The `chat_idempotency` table with a unique constraint on message ID ensures each message is counted only once. Redis would need additional logic to achieve this.
+- **Transaction safety**: Reserve + idempotency check in the same transaction. No race conditions between pods.
+- **No Redis infrastructure**: The POC runs on a single pod; Redis is not yet needed. Migration is possible later (R3 phase).
 
-## Phương án đã loại
+## Alternatives considered
 
-| Phương án | Lý do loại |
-|-----------|-----------|
-| Redis counters | Cần Redis infrastructure. Không có audit trail. Race conditions giữa pods nếu không dùng Lua scripts. |
-| In-memory counters | Server crash mất hết state. Không durable. |
-| Rate limiting service外部 (Upstash, etc.) | Vendor lock-in, thêm chi phí, network latency. |
-| Token bucket algorithm | Phức tạp hơn mức cần cho daily quota. Phù hợp hơn cho real-time rate limiting. |
+| Alternative | Reason for rejection |
+|-------------|---------------------|
+| Redis counters | Requires Redis infrastructure. No audit trail. Race conditions between pods without Lua scripts. |
+| In-memory counters | Server crash loses all state. Not durable. |
+| External rate limiting service (Upstash, etc.) | Vendor lock-in, additional cost, network latency. |
+| Token bucket algorithm | More complex than needed for a daily quota. Better suited for real-time rate limiting. |
 
-## Hậu quả
+## Consequences
 
-- Mỗi chat request cần 1 DB round-trip cho reserve. Nếu DB latency cao (>50ms), user experience bị ảnh hưởng.
-- Burst counter hiện dùng postgres (default) nhưng có thể chuyển sang memory hoặc Redis (R3) khi cần performance.
-- Khi scale multi-pod, DB become bottleneck. Cần migrate sang Redis counters (R3 phase) hoặc distributed rate limiter.
-- `chat_quota_events` table sẽ lớn nhanh. Cần retention policy (hiện tại chưa có cleanup cron cho events, chỉ có cho `messenger_message_logs`).
+- Each chat request requires one DB round-trip for the reserve. If DB latency is high (>50ms), user experience is impacted.
+- The burst counter currently uses postgres (default) but can be switched to memory or Redis (R3) when performance demands it.
+- When scaling to multi-pod, the DB becomes a bottleneck. Migration to Redis counters (R3 phase) or a distributed rate limiter will be necessary.
+- The `chat_quota_events` table will grow quickly. A retention policy is needed (currently there is no cleanup cron for events, only for `messenger_message_logs`).

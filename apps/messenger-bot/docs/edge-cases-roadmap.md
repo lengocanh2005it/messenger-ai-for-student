@@ -1,38 +1,38 @@
-# Edge cases & gap — roadmap khắc phục
+# Edge Cases & Gaps — Remediation Roadmap
 
-Tài liệu ghi **điểm yếu / chưa xử lý** của POC `demo_send_message_fb` (toàn bộ chức năng, không chỉ rate limit) và **cách khắc phục** theo **phase nhỏ** — merge PR độc lập.
+This document records **weaknesses / unhandled areas** of the `demo_send_message_fb` POC (all features, not just rate limit) and **how to remediate** them in **small phases** — independent PR merges.
 
-**Trạng thái baseline:** Chat rate limit **V1 + H1–H7 ✓**. DB POC **tách** sang `ai_chat_bot_db` (✓). Các mục dưới là gap còn lại hoặc cải thiện tùy quy mô.
+**Baseline status:** Chat rate limit **V1 + H1–H7 ✓**. DB POC **separated** to `ai_chat_bot_db` (✓). Items below are remaining gaps or scale-dependent improvements.
 
-Liên quan: [project-overview.md](./project-overview.md), [study-session-reminder.md](./study-session-reminder.md), [chat-rate-limit-quota.md](./chat-rate-limit-quota.md), [AGENTS.md](../AGENTS.md) (bảng Integration gaps).
+Related: [project-overview.md](./project-overview.md), [study-session-reminder.md](./study-session-reminder.md), [chat-rate-limit-quota.md](./chat-rate-limit-quota.md), [AGENTS.md](../AGENTS.md) (Integration gaps table).
 
 ---
 
-## Bảng phase (tóm tắt)
+## Phase Table (Summary)
 
-| Phase | Tên | Effort ước lượng | Ưu tiên POC 1 instance |
-|-------|-----|------------------|-------------------------|
-| **Q1** ✓ | QA E2E 4 luồng | 0.5 ngày | **Cao** — trước go-live |
-| **L1** ✓ | Tin không phải text → reply hướng dẫn | 0.5 ngày | Trung bình |
-| **L2** ✓ | Policy Send 24h cho báo cáo / nhắc lịch | 0.5–1 ngày | Trung bình |
-| **L3** ✓ | Mapping đổi `user_id` (PSID giữ nguyên) | 1 ngày | Thấp (hiếm) |
-| **L4** ✓ | Bảo mật link `ref` — token one-time (POC); HMAC optional bridge | 1–2 ngày | **Cao** — trước go-live user thật |
-| **R1** ✓ | Báo cáo: empty score → tin thân thiện | 0.5 ngày | Trung bình |
-| **R2** ✓ | Báo cáo: chia bubble dài | 0.5 ngày | Thấp |
-| **R3** ✓ | Báo cáo: phân loại lỗi Wispace (defer cron / UX menu) | 1–1.5 ngày | Trung bình |
-| **R5** ✓ | Báo cáo: outbox retry 5xx (như nhắc lịch) | 1–1.5 ngày | Khi Wispace hay 503 |
-| **R4** ✓ | Báo cáo 08:00: idempotency / cron leader (≥2 pod) | 1 ngày | Chỉ khi scale |
-| **S0** ✓ | Wispace wire `study-calendar/sync` | 0.5 ngày (Wispace) | **Cao** — tích hợp |
-| **S1** ✓ | Alert ops job `failed` / stuck nhắc lịch | 0.5 ngày | Trung bình |
-| **S2** ✓ | Adaptive dispatch poll (scale) | 1–2 ngày | Khi outbox lớn |
-| **C1** | Tier quota theo gói Wispace | 2+ ngày | Product sau |
-| **C2** | Event store / billing LLM | ✓ MVP (hybrid Q0 + `llm_usage_events`) — [c2-master-implementation-plan.md](./c2-master-implementation-plan.md) |
-| **I1** ✓ | Alert / grep `CHAT_QUOTA_*` + runbook | 0.5 ngày | Trung bình |
-| **DL** ✓ | Dead-letter webhook + auto-retry cron | 1.5 ngày | Multi-pod / production |
-| **I2** | Monitor tổng hợp (Slack/webhook ops) | 1 ngày | Khi có user thật |
-| **I3** ✓ | Bỏ fallback DB `UserCalendars` | 1 ngày | API-only qua `x-psid` |
+| Phase | Name | Estimated Effort | POC 1-Instance Priority |
+|-------|------|-----------------|------------------------|
+| **Q1** ✓ | E2E QA for 4 flows | 0.5 days | **High** — before go-live |
+| **L1** ✓ | Non-text message → guide reply | 0.5 days | Medium |
+| **L2** ✓ | Send 24h policy for reports / reminders | 0.5–1 days | Medium |
+| **L3** ✓ | `user_id` change mapping (PSID stays same) | 1 day | Low (rare) |
+| **L4** ✓ | `ref` link security — one-time token (POC); HMAC optional bridge | 1–2 days | **High** — before real-user go-live |
+| **R1** ✓ | Report: empty score → friendly message | 0.5 days | Medium |
+| **R2** ✓ | Report: split long bubbles | 0.5 days | Low |
+| **R3** ✓ | Report: classify Wispace errors (defer cron / UX menu) | 1–1.5 days | Medium |
+| **R5** ✓ | Report: outbox retry 5xx (like reminders) | 1–1.5 days | When Wispace has frequent 503 |
+| **R4** ✓ | 08:00 report: idempotency / cron leader (≥2 pods) | 1 day | Only when scaling |
+| **S0** ✓ | Wispace wire `study-calendar/sync` | 0.5 days (Wispace) | **High** — integration |
+| **S1** ✓ | Ops alert for `failed` / stuck reminder jobs | 0.5 days | Medium |
+| **S2** ✓ | Adaptive dispatch poll (scale) | 1–2 days | When outbox grows |
+| **C1** | Tier quota by Wispace plan | 2+ days | Post-product |
+| **C2** | Event store / LLM billing | ✓ MVP (hybrid Q0 + `llm_usage_events`) — [c2-master-implementation-plan.md](./c2-master-implementation-plan.md) |
+| **I1** ✓ | Alert / grep `CHAT_QUOTA_*` + runbook | 0.5 days | Medium |
+| **DL** ✓ | Dead-letter webhook + auto-retry cron | 1.5 days | Multi-pod / production |
+| **I2** | Aggregate monitoring (Slack/webhook ops) | 1 day | When real users arrive |
+| **I3** ✓ | Remove `UserCalendars` DB fallback | 1 day | API-only via `x-psid` |
 
-**Thứ tự khuyến nghị:** ~~Q1/S0/I1/S1/L1/R1/L2/R2/R3/L3/R4/R5/S2~~ (✓) → `CHAT_QUEUE_SHARED` khi scale → phần còn lại theo feedback user.
+**Recommended order:** ~~Q1/S0/I1/S1/L1/R1/L2/R2/R3/L3/R4/R5/S2~~ (✓) → `CHAT_QUEUE_SHARED` when scaling → remaining items per user feedback.
 
 ```mermaid
 flowchart LR
@@ -46,223 +46,223 @@ flowchart LR
 
 ---
 
-## 1. Liên kết Messenger ↔ WISPACE
+## 1. Messenger ↔ WISPACE Linking
 
-### Đã có ✓
+### Already Implemented ✓
 
-| Hành vi | Code / ghi chú |
-|---------|-----------------|
+| Behavior | Code / Notes |
+|----------|-------------|
 | Opt-in / `referral.ref` | `MessengerService` → `user_messenger_mappings` |
-| **Đổi `user_id` cùng PSID** | **L3** ✓ — `MessengerMappingService`, `MAPPING_USER_ID_UPDATED`, ops relink |
-| Đăng ký báo cáo trùng topic/cadence | `SUBSCRIPTION_ALREADY_ACTIVE` |
+| **`user_id` change with same PSID** | **L3** ✓ — `MessengerMappingService`, `MAPPING_USER_ID_UPDATED`, ops relink |
+| Duplicate topic/cadence report registration | `SUBSCRIPTION_ALREADY_ACTIVE` |
 | Postback dedupe 15s | `isDuplicatePostback` |
 | **POST webhook signature** | `MessengerWebhookSignatureGuard` + `MESSENGER_APP_SECRET` / `X-Hub-Signature-256` |
-| Chat chưa link | `MISSING_USER_REF` |
-| **Link token-only (L4)** | `MessengerLinkContextService` verify WISPACE; startup fail nếu thiếu config; legacy `ref=userId` đã gỡ |
-| Tin **không phải text** (sticker, ảnh, file) | **L1** — `UNSUPPORTED_MESSAGE_TYPE`, `isUnsupportedUserMessage` |
-| User **chặn bot** / **Meta 24h window** | **L2** ✓ — `*_MESSENGER_24H` log, nhắc lịch terminal fail, cron báo cáo skip |
+| Unlinked user chat | `MISSING_USER_REF` |
+| **Token-only link (L4)** | `MessengerLinkContextService` verifies WISPACE; startup fails if config missing; legacy `ref=userId` removed |
+| **Non-text message** (sticker, image, file) | **L1** — `UNSUPPORTED_MESSAGE_TYPE`, `isUnsupportedUserMessage` |
+| **User blocks bot** / **Meta 24h window** | **L2** ✓ — `*_MESSENGER_24H` log, reminder terminal fail, report cron skip |
 
-### Gap & khắc phục
+### Gaps & Remediation
 
-| Gap | Ảnh hưởng | Khắc phục | Phase |
-|-----|-----------|-----------|-------|
-| ~~**`ref` = `userId` thuần — không verify chủ tài khoản**~~ | ~~IDOR~~ | **Done (POC)** — token-only + startup validator; link `m.me` chỉ WISPACE — [messenger-link-security.md](./messenger-link-security.md) | **L4** ✓ |
-| ~~POST `/webhook` không verify chữ ký Meta~~ | Payload giả nếu lộ URL webhook | **Done** — `MessengerWebhookSignatureGuard`, `MESSENGER_APP_SECRET`, `rawBody` | Done |
-| ~~Port app public / flood bypass Nginx~~ | Bỏ qua rate limit + body cap | **Done** — Docker `127.0.0.1:PORT`; Nginx `deploy/nginx/` trên VPS | Done |
-| ~~Webhook Meta retry; lỗi 1 event~~ | ~~Event khác vẫn xử lý (đúng); event lỗi mất~~ | **DL** ✓ — `messenger_webhook_dead_letters` + auto-retry cron 5 phút + advisory lock + script ops | Done |
+| Gap | Impact | Remedy | Phase |
+|-----|--------|--------|-------|
+| ~~**`ref` = raw `userId` — no owner verification**~~ | ~~IDOR~~ | **Done (POC)** — token-only + startup validator; `m.me` links only from WISPACE — [messenger-link-security.md](./messenger-link-security.md) | **L4** ✓ |
+| ~~POST `/webhook` doesn't verify Meta signature~~ | Spoofed payload if webhook URL leaks | **Done** — `MessengerWebhookSignatureGuard`, `MESSENGER_APP_SECRET`, `rawBody` | Done |
+| ~~App port public / flood bypasses Nginx~~ | Bypasses rate limit + body cap | **Done** — Docker `127.0.0.1:PORT`; Nginx `deploy/nginx/` on VPS | Done |
+| ~~Meta webhook retry; 1 event errors~~ | ~~Other events still processed (correct); error event lost~~ | **DL** ✓ — `messenger_webhook_dead_letters` + 5-min auto-retry cron + advisory lock + ops script | Done |
 
 ---
 
-## 2. Báo cáo học tập AI
+## 2. AI Learning Reports
 
-### Đã có ✓
+### Already Implemented ✓
 
-| Hành vi | Ghi chú |
-|---------|---------|
-| Cron 08:00, cửa sổ 2–3 ngày trước thi | `ReportScheduleService` |
-| Skip đã gửi hôm nay | `hasSentScheduledReportToday` |
-| Lỗi từng user không chặn batch | `report-cron.service` try/catch per mapping |
-| Thiếu OpenAI key | Fallback template |
-| Menu + ops `send-reports` | `forceSend` bypass cửa sổ; mặc định **skip** đã gửi hôm nay; `{ psid }` gửi một user |
-| **TaskScoreAverage rỗng** | **R1** — `StudentReportNoScoreDataError` → tin hướng dẫn làm bài, không throw |
-| **Báo cáo bubble dài** | **R2** ✓ — `sendTextBubblesViaPsid` + `CHAT_MAX_BUBBLES` |
-| **Wispace API lỗi** | **R3** ✓ + **R5** ✓ — 5xx: outbox `report_send_jobs`, cron retry 15 phút đến `daysUntilExam >= 0`; menu tin “thử lại sau”; 4xx tin “chưa đủ dữ liệu” |
+| Behavior | Notes |
+|----------|-------|
+| Cron 08:00, 2–3 day window before exam | `ReportScheduleService` |
+| Skip if already sent today | `hasSentScheduledReportToday` |
+| Per-user error doesn't block batch | `report-cron.service` try/catch per mapping |
+| Missing OpenAI key | Fallback template |
+| Menu + ops `send-reports` | `forceSend` bypasses window; default **skips** already sent today; `{ psid }` sends to one user |
+| **Empty TaskScoreAverage** | **R1** — `StudentReportNoScoreDataError` → friendly message about taking a test, no throw |
+| **Long report bubble** | **R2** ✓ — `sendTextBubblesViaPsid` + `CHAT_MAX_BUBBLES` |
+| **Wispace API error** | **R3** ✓ + **R5** ✓ — 5xx: outbox `report_send_jobs`, cron retries every 15 min until `daysUntilExam >= 0`; menu shows "try again later"; 4xx shows "insufficient data" |
 | **Meta 24h proactive** | **L2** ✓ — `*_MESSENGER_24H` log; cron `windowClosed` / `deferred` |
 | **Multi-pod cron 08:00** | **R4** ✓ — `messenger_scheduled_report_claims`, advisory lock, `CRON_LEADER_*` |
-| **Outbox retry báo cáo 5xx** | **R5** ✓ — `report_send_jobs`, `ReportSendRetryDispatchService` cron `*/15` ICT |
+| **Report outbox retry 5xx** | **R5** ✓ — `report_send_jobs`, `ReportSendRetryDispatchService` cron `*/15` ICT |
 
-### Gap & khắc phục
+### Gaps & Remediation
 
-| Gap | Ảnh hưởng | Khắc phục | Phase |
-|-----|-----------|-----------|-------|
-| Menu 503 — chỉ UX, không auto-retry | User phải bấm lại «Xem tiến độ» | Chấp nhận POC; optional hẹn retry postback | Backlog |
+| Gap | Impact | Remedy | Phase |
+|-----|--------|--------|-------|
+| Menu 503 — UX only, no auto-retry | User must tap "View progress" again | Acceptable for POC; optional scheduled retry postback | Backlog |
 
-### 2.1 R3 + R5 — Hành vi báo cáo (đã có ✓)
+### 2.1 R3 + R5 — Report Behavior (✓ Implemented)
 
-**R5** bổ sung outbox `report_send_jobs` (unique `psid` + `exam_date`): cron 08:00 ghi job khi 5xx → poll **15 phút** retry đến khi gửi thành công hoặc `daysUntilExam < 0` / hết `REPORT_SEND_MAX_RETRIES`.
+**R5** adds outbox `report_send_jobs` (unique `psid` + `exam_date`): 08:00 cron writes job on 5xx → polls every **15 minutes** retrying until sent successfully or `daysUntilExam < 0` / `REPORT_SEND_MAX_RETRIES` exhausted.
 
-#### So sánh nhanh
+#### Quick Comparison
 
-| | Nhắc lịch | Báo cáo cron + R5 outbox | Menu «Xem tiến độ» |
-|--|-----------|--------------------------|---------------------|
-| Wispace **5xx** | Retry backoff phút, `study_reminder_jobs` | **R5** — `report_send_jobs`, retry đến ngày trước thi (`daysUntilExam >= 0`) | Tin `*_API_DEFERRED`; user tự bấm lại |
-| Ngày cuối cửa sổ + 503 | Retry trong ngày | **R5** — retry 8:15, 8:30… và **ngày 13** (1 ngày trước thi) nếu còn retry | — |
+| | Study Reminder | Report Cron + R5 Outbox | Menu "View Progress" |
+|--|----------------|------------------------|---------------------|
+| Wispace **5xx** | Retry with minute backoff, `study_reminder_jobs` | **R5** — `report_send_jobs`, retries until day before exam (`daysUntilExam >= 0`) | Shows `*_API_DEFERRED`; user taps again |
+| Last day of window + 503 | Retries within the day | **R5** — retries at 8:15, 8:30… and **day 13** (1 day before exam) if retries remain | — |
 
 Code: `ReportSendJobRepository`, `ReportSendRetryDispatchService`, `ReportCronService.retryQueued`, env `REPORT_SEND_*`.
 
-#### Ví dụ — Lan thi **ngày 14**, 503 ngày cuối cửa sổ (đã fix R5)
+#### Example — Exam on **day 14**, 503 on last window day (R5 fixed)
 
-| Thời điểm | Việc xảy ra |
-|-----------|-------------|
-| **12** 8:00 | Cron 503 → job `report_send_jobs`, `next_retry_at` 8:15 |
-| **12** 8:15 | Retry dispatch → OK → Lan nhận báo cáo ✓ |
-| (hoặc 503 cả ngày 12) | **13** 8:15 retry vẫn chạy (`daysUntilExam=1`) → có cơ hội gửi dù cron 8:00 ngày 13 skip cửa sổ |
+| Time | What Happens |
+|------|-------------|
+| **12th** 8:00 | Cron gets 503 → job in `report_send_jobs`, `next_retry_at` 8:15 |
+| **12th** 8:15 | Retry dispatch → OK → Lan receives report ✓ |
+| (or 503 all day on 12th) | **13th** 8:15 retry still runs (`daysUntilExam=1`) → chance to send even though 13th 8:00 cron skips the window |
 
-#### R5 — env
+#### R5 — Env
 
 ```env
 REPORT_SEND_MAX_RETRIES=3
 REPORT_SEND_RETRY_BACKOFF_MINUTES=15
-REPORT_SEND_RETRY_POLL_MINUTES=15   # khớp cron */15 ICT
+REPORT_SEND_RETRY_POLL_MINUTES=15   # matches cron */15 ICT
 ```
 
-Ops dự phòng (không trùng báo cáo):
+Ops fallback (no duplicate reports):
 
 ```bash
-# Một user bị deferred / R5 hết retry
+# One user deferred / R5 exhausted
 POST /messenger/send-reports
 { "psid": "<PSID>" }
 
-# Chạy tay outbox retry
+# Manually run outbox retry
 POST /messenger/send-reports/retry-dispatch
 
-# Gửi lại cả lô (skip người đã nhận hôm nay)
+# Re-send entire batch (skip users who already received today)
 POST /messenger/send-reports
 {}
 
-# Bắt buộc gửi lại dù đã nhận (hiếm)
+# Force re-send even if already received (rare)
 POST /messenger/send-reports
 { "allowDuplicate": true }
 ```
 
 ---
 
-## 3. Nhắc lịch học
+## 3. Study Session Reminders
 
-### Đã có ✓
+### Already Implemented ✓
 
-Outbox `study_reminder_jobs`, retry/backoff, reset stuck `processing`, upsert đổi giờ, cancel stale, preview menu, LLM fallback, `claimJob` multi-instance.
+Outbox `study_reminder_jobs`, retry/backoff, stuck `processing` reset, upsert on reschedule, stale cancel, menu preview, LLM fallback, `claimJob` multi-instance.
 
-| Hành vi | Ghi chú |
-|---------|---------|
-| **Wispace wire sync** | **S0** ✓ — `POST /messenger/study-calendar/sync` sau POST/DELETE `UserCalendar` |
-| **Adaptive dispatch poll** | **S2** ✓ — `StudyReminderWorkerService` vòng `setTimeout`; `findNextDueTime`; env `STUDY_REMINDER_POLL_*` |
+| Behavior | Notes |
+|----------|-------|
+| **Wispace wire sync** | **S0** ✓ — `POST /messenger/study-calendar/sync` after POST/DELETE `UserCalendar` |
+| **Adaptive dispatch poll** | **S2** ✓ — `StudyReminderWorkerService` `setTimeout` loop; `findNextDueTime`; env `STUDY_REMINDER_POLL_*` |
 
-### Gap & khắc phục
+### Gaps & Remediation
 
-| Gap | Ảnh hưởng | Khắc phục | Phase |
-|-----|-----------|-----------|-------|
-| Horizon **14 ngày** | Buổi xa chưa có job | Document; tăng `STUDY_REMINDER_SYNC_HORIZON_HOURS` nếu product cần | Config / doc |
-| User chưa link PSID | Không nhắc | By design — optional kênh khác (email) ngoài scope | — |
-| Job **failed** hết retry | Học viên không nhắc, ops không biết | **S1** ✓ — `study-reminder:jobs --failed`, cron `OPS_HEALTH_ALERT`, `npm run ops:health` | Done |
-| 24h window nhắc lịch | Send fail | **L2** ✓ — `STUDY_SESSION_REMINDER_*_MESSENGER_24H`, terminal fail | Done |
+| Gap | Impact | Remedy | Phase |
+|-----|--------|--------|-------|
+| **14-day** horizon | Far-out sessions have no jobs | Documented; increase `STUDY_REMINDER_SYNC_HORIZON_HOURS` if product requires | Config / doc |
+| Unlinked PSID user | No reminders | By design — optional other channels (email) outside scope | — |
+| `failed` job exhausted retries | Student misses reminder, ops unaware | **S1** ✓ — `study-reminder:jobs --failed`, `OPS_HEALTH_ALERT` cron, `npm run ops:health` | Done |
+| 24h window on reminders | Send fail | **L2** ✓ — `STUDY_SESSION_REMINDER_*_MESSENGER_24H`, terminal fail | Done |
 
-### 3.1 S2 — Adaptive dispatch poll (đã có ✓)
+### 3.1 S2 — Adaptive Dispatch Poll (✓ Implemented)
 
-Thay cron cố định **1 phút**, worker dùng vòng lặp thích ứng:
+Replaces fixed **1-minute** cron with an adaptive loop:
 
-1. `dispatchDueReminders()` → trả `nextDueAt` (`findNextDueTime` — MIN `remind_at` / `next_retry_at`)
-2. Delay lần poll tiếp: `clamp(msTilDue - pollLeadMs, pollMinMs, pollMaxMs)`
+1. `dispatchDueReminders()` → returns `nextDueAt` (`findNextDueTime` — MIN `remind_at` / `next_retry_at`)
+2. Delay next poll: `clamp(msTilDue - pollLeadMs, pollMinMs, pollMaxMs)`
 
-| Env | Mặc định | Ý nghĩa |
-|-----|----------|---------|
-| `STUDY_REMINDER_POLL_MIN_MS` | 30s | Poll nhanh nhất (job sắp due) |
-| `STUDY_REMINDER_POLL_MAX_MS` | 210s (3.5 phút) | Poll chậm nhất (không có job) |
-| `STUDY_REMINDER_POLL_LEAD_MS` | 60s | Wake sớm hơn job 1 phút |
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `STUDY_REMINDER_POLL_MIN_MS` | 30s | Fastest poll (job about to be due) |
+| `STUDY_REMINDER_POLL_MAX_MS` | 210s (3.5 min) | Slowest poll (no jobs) |
+| `STUDY_REMINDER_POLL_LEAD_MS` | 60s | Wake 1 minute before job is due |
 
-- **Không có job** → ~3.5 phút/lần (giảm tải DB khi scale)
-- **Job due sau 10 phút** → poll lại ~9 phút sau
-- Multi-pod: mỗi pod chạy loop riêng; `claimJob` atomic — không cần advisory lock dispatch
+- **No jobs** → ~3.5 min intervals (reduces DB load on scale)
+- **Job due in 10 minutes** → polls again ~9 minutes later
+- Multi-pod: each pod runs its own loop; `claimJob` is atomic — no advisory lock needed for dispatch
 
-Chi tiết: [study-session-reminder.md §11.6](./study-session-reminder.md#116-worker-dispatch-polling--trở-ngại-tải-db--giảm-rủi-ro).
+Details: [study-session-reminder.md §11.6](./study-session-reminder.md#116-worker-dispatch-polling--trở-ngại-tải-db--giảm-rủi-ro).
 
 ---
 
-## 4. Chat AI + agent
+## 4. Chat AI + Agent
 
-### Đã có ✓
+### Already Implemented ✓
 
 Rate limit V1 + **H1–H7**, agent tools, history RAM/DB, delivery semantics H4.
 
-### Gap & khắc phục
+### Gaps & Remediation
 
-| Gap | Ảnh hưởng | Khắc phục | Phase |
-|-----|-----------|-----------|-------|
-| Tier theo gói Wispace | Mọi user cùng `CHAT_FREE_FORM_DAILY_LIMIT` | Phase 7: limit theo `user_id` / API gói — [§5.8](./chat-rate-limit-quota.md) | **C1** |
-| Event store / billing | Khó audit chi phí LLM theo tháng | [c2-master-implementation-plan.md](./c2-master-implementation-plan.md) | **C2** ✓ MVP |
-| Tool đổi lịch qua chat | **Confirm postback** — `reschedule_study_session` chỉ stage; API Wispace chạy khi bấm «Xác nhận đổi lịch» | Done |
+| Gap | Impact | Remedy | Phase |
+|-----|--------|--------|-------|
+| Tier by Wispace plan | All users share same `CHAT_FREE_FORM_DAILY_LIMIT` | Phase 7: limit by `user_id` / plan API — [§5.8](./chat-rate-limit-quota.md) | **C1** |
+| Event store / billing | Hard to audit monthly LLM costs | [c2-master-implementation-plan.md](./c2-master-implementation-plan.md) | **C2** ✓ MVP |
+| Schedule change tool via chat | **Confirm postback** — `reschedule_study_session` only stages; Wispace API runs when user taps "Confirm reschedule" | Done |
 
 ---
 
-## 5. Hạ tầng & vận hành
+## 5. Infrastructure & Operations
 
-| Edge case | Hiện trạng | Khắc phục | Phase |
-|-----------|------------|-----------|-------|
-| **1 instance POC** | Phù hợp | Giữ `CHAT_QUEUE_SHARED=false` | — |
-| **≥2 pod chat** | Queue/history tách pod | `CHAT_QUEUE_SHARED=true` + migration — H7 ✓; `appendChatHistoryTurn` atomic ✓ | Done (bật env) |
-| **≥2 pod cron báo cáo** | ~~Risk gửi trùng 08:00~~ | **R4** ✓ claim + advisory lock + optional cron leader | Done |
-| **≥2 pod cron nhắc** | `claimJob` ✓ + **cron pg_advisory_lock** ✓ | `upsertPendingJob` TOCTOU fixed ✓ (`pg_advisory_xact_lock`) | Done |
-| Cron webhook dedupe cleanup multi-pod | N×DELETE | **pg_advisory_lock** ✓ — chỉ 1 pod chạy mỗi 15 phút | Done |
-| Monitor / alert | Log + scripts | **I1** ✓ runbook + `ops:health`; **S1** ✓ failed/stuck jobs; **DL** ✓ dead-letter cron; **I2** Slack alert | **I2** |
-| **Env prod sync thủ công VPS** | Lệch local/prod; rotate secret phải SSH | **Doppler** + `DOPPLER_TOKEN` trên CI — [doppler-secrets.md](./doppler-secrets.md) | Done (code) — cần setup dashboard |
-| Wispace **schema** đổi | ~~Fallback DB `UserCalendars`~~ | **I3** ✓ — API-only `UserCalendar` qua `x-psid` | **I3** ✓ |
+| Edge Case | Current State | Remedy | Phase |
+|-----------|---------------|--------|-------|
+| **1-instance POC** | Appropriate | Keep `CHAT_QUEUE_SHARED=false` | — |
+| **≥2 pod chat** | Queue/history split across pods | `CHAT_QUEUE_SHARED=true` + migration — H7 ✓; `appendChatHistoryTurn` atomic ✓ | Done (enable env) |
+| **≥2 pod report cron** | ~~Risk of duplicate 08:00 sends~~ | **R4** ✓ claim + advisory lock + optional cron leader | Done |
+| **≥2 pod reminder cron** | `claimJob` ✓ + **cron pg_advisory_lock** ✓ | `upsertPendingJob` TOCTOU fixed ✓ (`pg_advisory_xact_lock`) | Done |
+| Cron webhook dedupe cleanup multi-pod | N×DELETE | **pg_advisory_lock** ✓ — only 1 pod runs every 15 minutes | Done |
+| Monitoring / alerts | Log + scripts | **I1** ✓ runbook + `ops:health`; **S1** ✓ failed/stuck jobs; **DL** ✓ dead-letter cron; **I2** Slack alert | **I2** |
+| **Manual VPS prod env sync** | Local/prod drift; secret rotation requires SSH | **Doppler** + `DOPPLER_TOKEN` on CI — [doppler-secrets.md](./doppler-secrets.md) | Done (code) — needs dashboard setup |
+| Wispace **schema** change | ~~`UserCalendars` DB fallback~~ | **I3** ✓ — API-only `UserCalendar` via `x-psid` | **I3** ✓ |
 
-### I1 — Ops alert nhẹ (không cần Prometheus) ✓
+### I1 — Lightweight Ops Alert (No Prometheus Needed) ✓
 
-| Việc | Done khi |
-|------|----------|
+| Task | Done When |
+|------|-----------|
 | Runbook grep `CHAT_QUOTA_DENY`, `REFUND`, `RECOVERED` | `project-overview.md` §12 |
-| `chat-quota:status --ops` + `study-reminder:jobs --failed` / `--stuck` | Script ops |
-| Cron 09:00 ICT + `npm run ops:health` | `OPS_HEALTH_ALERT` trong app log |
+| `chat-quota:status --ops` + `study-reminder:jobs --failed` / `--stuck` | Ops scripts |
+| Cron 09:00 ICT + `npm run ops:health` | `OPS_HEALTH_ALERT` in app log |
 
-### S1 — Nhắc lịch failed / stuck ✓
+### S1 — Failed / Stuck Reminders ✓
 
-| Việc | Done khi |
-|------|----------|
-| `npm run study-reminder:jobs -- --failed` | Terminal failed (retry hết) |
-| `npm run study-reminder:jobs -- --stuck` | Processing > 10 phút |
-| `npm run ops:health` / cron nội bộ | `OPS_HEALTH_ALERT` khi có spike |
+| Task | Done When |
+|------|-----------|
+| `npm run study-reminder:jobs -- --failed` | Terminal failed (retries exhausted) |
+| `npm run study-reminder:jobs -- --stuck` | Processing > 10 minutes |
+| `npm run ops:health` / internal cron | `OPS_HEALTH_ALERT` on spikes |
 
 ---
 
-## Q1 — Checklist QA E2E (không cần code) ✓
+## Q1 — E2E QA Checklist (No Code Needed) ✓
 
-Đã chạy manual test trước go-live (Messenger + `.env` prod).
+Manual tests run before go-live (Messenger + prod `.env`).
 
-### Q1.1 Link
+### Q1.1 Linking
 
-- [x] Mở `m.me` có `ref={userId}` từ WISPACE
-- [x] Kiểm tra `user_messenger_mappings` có `psid` + `user_id`
-- [x] Menu persistent hiển thị (đã `profile/setup`)
+- [x] Open `m.me` with `ref={userId}` from WISPACE
+- [x] Verify `user_messenger_mappings` has `psid` + `user_id`
+- [x] Persistent menu displayed (after `profile/setup`)
 
-### Q1.2 Báo cáo
+### Q1.2 Reports
 
-- [x] Postback “Xem tiến độ” → nhận tin, log `LEARNING_PROGRESS`
-- [x] (Tuỳ chọn) User trong cửa sổ 2–3 ngày trước thi → cron hoặc `POST /messenger/send-reports`
+- [x] Postback "View progress" → receive message, log `LEARNING_PROGRESS`
+- [x] (Optional) User in 2–3 day pre-exam window → cron or `POST /messenger/send-reports`
 
-### Q1.3 Nhắc lịch
+### Q1.3 Reminders
 
-- [x] Có buổi trong `UserCalendar` trong horizon
-- [x] `npm run study-reminder:jobs` thấy job `pending` → `remind_at` đúng
-- [x] Sau sync (API hoặc cron) → đến giờ nhận tin nhắc
-- [x] Postback preview “Nhắc lịch sắp tới” hoạt động
+- [x] Session in `UserCalendar` within horizon
+- [x] `npm run study-reminder:jobs` shows `pending` job → correct `remind_at`
+- [x] After sync (API or cron) → reminder message arrives on time
+- [x] Postback preview "Upcoming study session" works
 
-### Q1.4 Chat quota
+### Q1.4 Chat Quota
 
 - [x] `CHAT_RATE_LIMIT_ENABLED=true`
-- [x] Nhắn text → bot reply, `chat-quota:status` tăng `used`
-- [x] Burst / hết ngày → `CHAT_QUOTA_DENIED`
-- [x] Menu postback **không** tăng quota
+- [x] Send text → bot replies, `chat-quota:status` shows increased `used`
+- [x] Burst / daily limit exceeded → `CHAT_QUOTA_DENIED`
+- [x] Menu postback does **not** increase quota
 
 ```bash
 npm run chat-quota:status -- --psid=<PSID>
@@ -271,16 +271,16 @@ npm run study-reminder:jobs
 
 ---
 
-## Cập nhật tài liệu khi đóng phase
+## Documentation Updates When Closing Phases
 
-| Khi merge phase | Cập nhật |
-|-----------------|----------|
-| Bất kỳ | Tick ✓ trong bảng phase đầu file này |
+| When Merging Phase | Update |
+|--------------------|--------|
+| Any | Check ✓ in phase table at top of file |
 | S0 | `AGENTS.md` Integration gaps, `study-session-reminder.md` |
 | S2 | `study-session-reminder.md` §11.6, `project-overview.md` §6 |
 | R4, H7 scale | `project-overview.md` §10 |
-| L1, R1, L2, R2, R3, … | Mục tương ứng trong file này → chuyển sang “Đã có” ✓ |
+| L1, R1, L2, R2, R3, … | Move corresponding section in this file → "Already Implemented" ✓ |
 
 ---
 
-*POC ưu tiên ship — không implement hết roadmap; chọn phase theo feedback user thật và quy mô deploy.*
+*POC prioritizes shipping — not implementing the entire roadmap; phases chosen per real user feedback and deploy scale.*
