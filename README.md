@@ -29,6 +29,9 @@ packages/llm-agent/    Orchestration OpenAI function-calling dùng chung mọi b
 | [apps/messenger-bot/docs/edge-cases-roadmap.md](apps/messenger-bot/docs/edge-cases-roadmap.md) | Gap toàn POC + checklist QA + phase khắc phục |
 | [apps/messenger-bot/docs/study-session-reminder.md](apps/messenger-bot/docs/study-session-reminder.md) | Nhắc lịch học (chi tiết) |
 | [apps/messenger-bot/docs/README.md](apps/messenger-bot/docs/README.md) | Mục lục tài liệu Messenger bot |
+| [CONTEXT.md](CONTEXT.md) | Domain glossary — thuật ngữ dự án (17 areas, 130+ terms) |
+| [docs/adr/](docs/adr/) | Architectural Decision Records — 5 quyết định kiến trúc chính |
+| [docs/agents/](docs/agents/) | Agent skills config: issue tracker, triage labels, domain docs |
 | [AGENTS.md](AGENTS.md) | Hướng dẫn cho AI agent / Cursor |
 
 ## Chạy nhanh (Messenger bot)
