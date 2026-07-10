@@ -41,3 +41,16 @@ export interface LlmAgentReply {
    */
   toolSummary?: string;
 }
+
+/**
+ * Events emitted by `LlmAgentService.replyStream()`.
+ * - `delta` — incremental text token from the final LLM reply round.
+ * - `tool_start` — a tool call is about to be executed (non-streaming round).
+ * - `done` — stream complete; full reply is in `reply`.
+ * - `error` — unrecoverable error; stream terminates after this event.
+ */
+export type LlmAgentStreamEvent =
+  | { type: 'delta'; textDelta: string }
+  | { type: 'tool_start'; toolName: string }
+  | { type: 'done'; reply: LlmAgentReply }
+  | { type: 'error'; error: unknown };

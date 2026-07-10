@@ -854,4 +854,85 @@ describe('LlmAgentService', () => {
       expect(chatWithToolsImpl).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('replyStream()', () => {
+    async function collectStream(
+      iterable: AsyncIterable<import('./types').LlmAgentStreamEvent>,
+    ) {
+      const events: import('./types').LlmAgentStreamEvent[] = [];
+      for await (const event of iterable) {
+        events.push(event);
+      }
+      return events;
+    }
+
+    it('yields delta then done for a direct text reply', async () => {
+      const response = makeTextResponse('Tiến độ tốt lắm!');
+      const adapter = makeAdapter([response]);
+      const { service } = buildService({ adapter });
+
+      const events = await collectStream(
+        service.replyStream(BASE_INPUT, TOOL_CONTEXT),
+      );
+
+      const doneEvent = events.find((e) => e.type === 'done');
+      expect(doneEvent).toBeDefined();
+      expect(
+        (doneEvent as { type: 'done'; reply: { text: string } }).reply.text,
+      ).toBe('Tiến độ tốt lắm!');
+      expect(events.some((e) => e.type === 'delta')).toBe(true);
+    });
+
+    it('emits tool_start events before executing tools', async () => {
+      const toolResponse = makeToolCallResponse('get_learning_progress_report');
+      const textResponse = makeTextResponse('Kết quả của bạn.');
+      const adapter = makeAdapter([toolResponse, textResponse]);
+      const execute = jest.fn().mockResolvedValue({});
+
+      const { service } = buildService({ adapter, execute });
+
+      const events = await collectStream(
+        service.replyStream(BASE_INPUT, TOOL_CONTEXT),
+      );
+
+      expect(events.some((e) => e.type === 'tool_start')).toBe(true);
+      const toolStartEvent = events.find((e) => e.type === 'tool_start') as {
+        type: 'tool_start';
+        toolName: string;
+      };
+      expect(toolStartEvent.toolName).toBe('get_learning_progress_report');
+    });
+
+    it('yields done with exhausted=true when maxToolRounds exceeded', async () => {
+      const toolResponse = makeToolCallResponse('get_user_goals');
+      const adapter = makeAdapter([toolResponse]);
+      const execute = jest.fn().mockResolvedValue({});
+
+      const { service } = buildService({ adapter, execute });
+
+      const events = await collectStream(
+        service.replyStream(BASE_INPUT, TOOL_CONTEXT),
+      );
+
+      const doneEvent = events.find((e) => e.type === 'done') as {
+        type: 'done';
+        reply: { exhausted?: boolean };
+      };
+      expect(doneEvent?.reply.exhausted).toBe(true);
+    });
+
+    it('yields done with fallback text when provider not configured', async () => {
+      const { service } = buildService({ adapter: makeNotConfiguredAdapter() });
+
+      const events = await collectStream(
+        service.replyStream(BASE_INPUT, TOOL_CONTEXT),
+      );
+
+      const doneEvent = events.find((e) => e.type === 'done') as {
+        type: 'done';
+        reply: { text: string };
+      };
+      expect(doneEvent?.reply.text).toMatch(/WISPACE/);
+    });
+  });
 });

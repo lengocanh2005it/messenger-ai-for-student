@@ -44,13 +44,22 @@ describe('MessengerChatQueueService', () => {
       sendRichFollowUps,
     } as unknown as MessengerOutboundService;
 
-    const reply = jest.fn(() =>
-      Promise.resolve({
-        text: 'Bot reply',
-        richFollowUps: [],
-      }),
+    const replyStream = jest.fn(
+      // Returns an AsyncIterable that yields a single `done` event.
+      // Tests can override with replyStream.mockImplementationOnce(...).
+      () =>
+        (function* () {
+          yield {
+            type: 'done' as const,
+            reply: { text: 'Bot reply', richFollowUps: [] as [] },
+          };
+        })(),
     );
-    const messengerAgentService = { reply } as unknown as MessengerAgentService;
+    // Keep `reply` alias so existing assertions still reference the same mock.
+    const reply = replyStream;
+    const messengerAgentService = {
+      replyStream,
+    } as unknown as MessengerAgentService;
 
     const getHistory = jest.fn(() => []);
     const appendTurn = jest.fn();
@@ -299,7 +308,15 @@ describe('MessengerChatQueueService', () => {
       refundFreeFormSlot,
       markCompleted,
     } = createService();
-    reply.mockRejectedValue(new Error('OpenAI down'));
+    reply.mockImplementationOnce(() => {
+      const err = new Error('OpenAI down');
+      // Return an object satisfying AsyncIterable that throws on first next()
+      return {
+        [Symbol.asyncIterator]() {
+          return { next: () => Promise.reject(err) };
+        },
+      };
+    });
 
     service.enqueue({
       psid: 'psid-1',

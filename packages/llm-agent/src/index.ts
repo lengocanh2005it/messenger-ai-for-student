@@ -30,6 +30,7 @@ export type {
   LlmAgentConfig,
   LlmAgentInput,
   LlmAgentReply,
+  LlmAgentStreamEvent,
 } from './types';
 export {
   buildPromptInjectionBlockedMessage,

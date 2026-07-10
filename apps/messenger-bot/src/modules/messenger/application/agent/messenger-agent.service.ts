@@ -29,6 +29,13 @@ export interface MessengerAgentReply {
   toolSummary?: string;
 }
 
+/** Stream events from MessengerAgentService.replyStream() — done carries full MessengerAgentReply. */
+export type MessengerAgentStreamEvent =
+  | { type: 'delta'; textDelta: string }
+  | { type: 'tool_start'; toolName: string }
+  | { type: 'done'; reply: MessengerAgentReply }
+  | { type: 'error'; error: unknown };
+
 export interface MessengerAgentInput {
   psid: string;
   userId?: number;
@@ -114,6 +121,70 @@ export class MessengerAgentService {
       exhausted: result.exhausted,
       toolSummary: result.toolSummary,
     };
+  }
+
+  async *replyStream(
+    input: MessengerAgentInput,
+  ): AsyncIterable<MessengerAgentStreamEvent> {
+    const toolContext: MessengerAgentToolContext = {
+      psid: input.psid,
+      userId: input.userId,
+      linkContext: input.linkContext,
+      richFollowUps: [],
+    };
+
+    const fastReschedule = await this.toolsService.tryFastDefaultReschedule(
+      toolContext,
+      input.userText,
+    );
+    if (fastReschedule) {
+      yield { type: 'delta', textDelta: fastReschedule.text };
+      yield {
+        type: 'done',
+        reply: {
+          text: fastReschedule.text,
+          richFollowUps: toolContext.richFollowUps,
+          exhausted: fastReschedule.exhausted,
+          toolSummary: fastReschedule.toolSummary,
+        },
+      };
+      return;
+    }
+
+    const displayName = await this.userDisplayNameService.resolveDisplayName({
+      psid: input.psid,
+      userId: input.userId,
+    });
+
+    if (!this.agent) {
+      this.agent = this.buildAgent();
+    }
+
+    for await (const event of this.agent.replyStream(
+      {
+        externalUserId: input.psid,
+        userId: input.userId,
+        userText: input.userText,
+        systemPrompt: this.buildSystemPrompt(displayName, input.userId),
+        history: input.history,
+        correlationId: input.correlationId,
+      },
+      toolContext,
+    )) {
+      if (event.type === 'done') {
+        yield {
+          type: 'done',
+          reply: {
+            text: event.reply.text,
+            richFollowUps: toolContext.richFollowUps,
+            exhausted: event.reply.exhausted,
+            toolSummary: event.reply.toolSummary,
+          },
+        };
+      } else {
+        yield event;
+      }
+    }
   }
 
   private buildAgent(): LlmAgentService<MessengerAgentToolContext> {

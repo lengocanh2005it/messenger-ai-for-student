@@ -345,16 +345,30 @@ export class MessengerChatQueueService implements OnModuleDestroy {
         this.chatHistory.getHistory(psid),
       );
 
-      const reply = await this.metrics.timeStep('llm_agent', () =>
-        this.messengerAgentService.reply({
+      const reply = await this.metrics.timeStep('llm_agent', async () => {
+        // Collect stream events into a final reply.
+        // Future enhancement: on 'delta' events, send partial bubbles for
+        // faster perceived response before all tool rounds complete.
+        const stream = this.messengerAgentService.replyStream({
           psid,
           userId,
           userText: mergedText,
           linkContext,
           history,
           correlationId: idempotencyKey,
-        }),
-      );
+        });
+        for await (const event of stream) {
+          if (event.type === 'done') {
+            return event.reply;
+          }
+          if (event.type === 'error') {
+            throw event.error instanceof Error
+              ? event.error
+              : new Error(String(event.error));
+          }
+        }
+        throw new Error('LLM agent stream ended without done event');
+      });
 
       const assistantText = reply.text.trim();
       if (assistantText) {

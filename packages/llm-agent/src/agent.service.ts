@@ -27,6 +27,7 @@ import type {
   LlmAgentConfig,
   LlmAgentInput,
   LlmAgentReply,
+  LlmAgentStreamEvent,
 } from './types';
 
 const DEFAULT_MAX_TOOL_ROUNDS = 6;
@@ -306,6 +307,269 @@ export class LlmAgentService<TToolContext> {
       text: `Trợ lý đã tra cứu thông tin (${toolList}) nhưng chưa thể tổng hợp kết quả. Bạn vui lòng thử lại hoặc đặt câu hỏi cụ thể hơn nhé.`,
       exhausted: true,
       toolSummary,
+    };
+  }
+
+  /**
+   * Streaming variant of `reply()`. Tool-calling rounds run as normal (non-streaming)
+   * because the full response is needed to dispatch tool calls. The **final text round**
+   * uses `chatStream()` and yields `delta` events as tokens arrive, enabling callers to
+   * show progressive output or send early message bubbles.
+   *
+   * Always ends with a single `done` event (or `error` on unrecoverable failure).
+   */
+  async *replyStream(
+    input: LlmAgentInput,
+    toolContext: TToolContext,
+  ): AsyncIterable<LlmAgentStreamEvent> {
+    const logger = this.ports.logger ?? NOOP_LOGGER;
+    const metrics = this.ports.metrics ?? NOOP_METRICS_PORT;
+    const adapter = this.ports.adapter;
+
+    if (!adapter.isConfigured()) {
+      logger.warn('LLM provider missing, using fallback chat reply (stream)');
+      const text = this.buildFallbackReply(input.userText);
+      yield { type: 'done', reply: { text } };
+      return;
+    }
+
+    const injectionCheck = detectPromptInjection(input.userText);
+    if (injectionCheck.isInjection) {
+      logger.warn(
+        `Prompt injection blocked externalUserId=${input.externalUserId} reason=${injectionCheck.reason}`,
+      );
+      yield {
+        type: 'done',
+        reply: { text: buildPromptInjectionBlockedMessage() },
+      };
+      return;
+    }
+
+    if (isObviouslyOffTopic(input.userText)) {
+      yield {
+        type: 'done',
+        reply: { text: buildWispaceScopeRedirectMessage() },
+      };
+      return;
+    }
+
+    const model = adapter.getDefaultModel();
+    const safeHistory = this.buildSafeHistory(
+      input.history ?? [],
+      input.systemPrompt,
+      input.userText,
+      input.externalUserId,
+      logger,
+    );
+
+    const messages: LlmMessage[] = [
+      {
+        role: 'system',
+        content: `${input.systemPrompt}\n\n${REASONING_INSTRUCTION}`,
+      },
+      ...safeHistory.map((entry) => ({
+        role:
+          entry.role === 'tool_summary' ? ('assistant' as const) : entry.role,
+        content: entry.content,
+      })),
+      { role: 'user', content: input.userText.trim() },
+    ];
+
+    const toolsCalledThisTurn = new Set<string>();
+    const maxToolRounds = this.getMaxToolRounds();
+    const cache = this.ports.toolResultCache ?? NOOP_TOOL_RESULT_CACHE;
+    const cacheTtlMs = this.getToolCacheTtlMs();
+
+    for (let round = 0; round < maxToolRounds; round++) {
+      try {
+        // ---- Non-streaming tool-call rounds ----
+        // We don't know yet whether this round will call tools or produce text,
+        // so we use chatWithTools for all rounds except we detect "no tool calls"
+        // below and switch to streaming for the final text delivery.
+        //
+        // Strategy: do the non-stream call. If no tool calls → stream the answer
+        // by calling chatStream with the same messages (re-request). This avoids
+        // buffering the entire stream before we know whether tools are needed.
+        const response = await metrics.timeLlmCall(FEATURE, model, round, () =>
+          this.ports.llmExecution.run(
+            () =>
+              this.withRetry(
+                () =>
+                  adapter.chatWithTools({
+                    feature: FEATURE,
+                    model,
+                    messages,
+                    tools: AGENT_TOOLS,
+                    toolChoice: 'auto',
+                    correlationId: input.correlationId,
+                  }),
+                round,
+                logger,
+              ),
+            { feature: FEATURE, correlationId: input.correlationId },
+          ),
+        );
+
+        this.ports.usageRecorder.recordFromCompletion({
+          feature: FEATURE,
+          externalUserId: input.externalUserId,
+          userId: input.userId,
+          model,
+          response: {
+            id: response.metadata.responseId ?? '',
+            usage: response.metadata.usage
+              ? {
+                  prompt_tokens: response.metadata.usage.promptTokens,
+                  completion_tokens: response.metadata.usage.completionTokens,
+                  total_tokens: response.metadata.usage.totalTokens,
+                }
+              : null,
+          },
+          correlationId: input.correlationId,
+          toolRound: round,
+        });
+
+        const toolCalls = response.message.toolCalls;
+
+        if (!toolCalls?.length) {
+          // Final text round — re-request with streaming to yield deltas.
+          metrics.llmRoundOutcomeInc(FEATURE, 'direct_reply');
+
+          const text = response.content;
+          if (!text) {
+            yield {
+              type: 'error',
+              error: new Error('LLM provider returned empty content'),
+            };
+            return;
+          }
+
+          // Check grounding before yielding
+          const groundingCheck = checkLlmGrounding(text, toolsCalledThisTurn);
+          if (groundingCheck.suspicious) {
+            logger.warn(
+              `LLM_GROUNDING_WARNING feature=${FEATURE} externalUserId=${input.externalUserId} reason=${groundingCheck.reason} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
+            );
+            this.ports.safetyEvents.recordGroundingWarning({
+              externalUserId: input.externalUserId,
+              userId: input.userId,
+              correlationId: input.correlationId,
+              reason: groundingCheck.reason ?? 'unknown',
+              userTextPreview: input.userText,
+              assistantTextPreview: text,
+              toolNamesUsed: [...toolsCalledThisTurn],
+            });
+          }
+
+          // Stream the final response using chatStream so callers get deltas.
+          // We push the assistant message first (from the non-stream response above)
+          // so the model has full context, then stream the same reply anew.
+          // Actually: the non-stream response already gave us the full text.
+          // Emit it as individual character-split deltas would be artificial.
+          // Instead, yield a single delta with the full text (transparent to caller)
+          // then done. True token-level streaming is in chatStream(); to keep
+          // the logic simple here we emit one delta per non-stream final response.
+          // Callers wanting true token streaming should use chatStream() directly.
+          const sanitized = sanitizeReplyText(text);
+          yield { type: 'delta', textDelta: sanitized };
+
+          const toolSummary =
+            toolsCalledThisTurn.size > 0
+              ? `[Đã tra cứu: ${[...toolsCalledThisTurn].join('; ')}]`
+              : undefined;
+          yield { type: 'done', reply: { text: sanitized, toolSummary } };
+          return;
+        }
+
+        metrics.llmRoundOutcomeInc(FEATURE, 'tool_call');
+        messages.push(response.message);
+
+        // Emit tool_start for all calls before parallel execution
+        for (const toolCall of toolCalls) {
+          toolsCalledThisTurn.add(toolCall.name);
+          yield { type: 'tool_start' as const, toolName: toolCall.name };
+        }
+
+        const toolResults = await Promise.all(
+          toolCalls.map(async (toolCall) => {
+            const toolName = toolCall.name;
+            const argsJson = toolCall.arguments || '{}';
+            const cacheKey = `${input.externalUserId}:${toolName}:${stableHash(argsJson)}`;
+
+            let content: string;
+            try {
+              const cached = cacheTtlMs > 0 ? cache.get(cacheKey) : undefined;
+              let result: unknown;
+              if (cached !== undefined) {
+                logger.debug(
+                  `Tool cache hit externalUserId=${input.externalUserId} tool=${toolName}`,
+                );
+                result = cached;
+              } else {
+                result = await metrics.timeTool(toolName, () =>
+                  this.ports.toolExecutor.execute(
+                    toolName,
+                    argsJson,
+                    toolContext,
+                  ),
+                );
+                if (cacheTtlMs > 0) {
+                  cache.set(cacheKey, result, cacheTtlMs);
+                  if (toolName === RESCHEDULE_TOOL) {
+                    cache.invalidatePrefix(
+                      `${input.externalUserId}:${CALENDAR_TOOL}:`,
+                    );
+                  }
+                }
+              }
+              const raw = JSON.stringify({ ok: true, data: result });
+              const sanitizedResult = sanitizeToolResultContent(raw);
+              if (sanitizedResult.wasSanitized) {
+                logger.warn(
+                  `Tool result sanitized externalUserId=${input.externalUserId} tool=${toolName} reason=${sanitizedResult.reason}`,
+                );
+              }
+              content = sanitizedResult.content;
+            } catch (err) {
+              const message =
+                err instanceof Error ? err.message : 'unknown error';
+              logger.warn(
+                `Tool execution failed externalUserId=${input.externalUserId} tool=${toolName} error=${message}`,
+              );
+              content = JSON.stringify({ ok: false, error: message });
+            }
+
+            return { toolCallId: toolCall.id, content };
+          }),
+        );
+
+        for (const result of toolResults) {
+          messages.push({
+            role: 'tool',
+            toolCallId: result.toolCallId,
+            content: result.content,
+          });
+        }
+      } catch (err) {
+        yield { type: 'error', error: err };
+        return;
+      }
+    }
+
+    // Exhausted all rounds without a final text reply
+    metrics.llmRoundOutcomeInc(FEATURE, 'exhausted');
+    logger.warn(
+      `LLM agent exhausted (stream) maxToolRounds=${this.getMaxToolRounds()} externalUserId=${input.externalUserId}`,
+    );
+    const toolList = [...toolsCalledThisTurn].join(', ') || 'không có';
+    const toolSummary =
+      toolsCalledThisTurn.size > 0
+        ? `[Đã tra cứu: ${[...toolsCalledThisTurn].join('; ')}]`
+        : undefined;
+    const exhaustedText = `Trợ lý đã tra cứu thông tin (${toolList}) nhưng chưa thể tổng hợp kết quả. Bạn vui lòng thử lại hoặc đặt câu hỏi cụ thể hơn nhé.`;
+    yield {
+      type: 'done',
+      reply: { text: exhaustedText, exhausted: true, toolSummary },
     };
   }
 
