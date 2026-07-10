@@ -53,6 +53,10 @@ export class LlmUsageEventEntity {
   @Column({ name: 'total_tokens', type: 'int', default: 0 })
   totalTokens: number;
 
+  /** Subset of promptTokens served from OpenAI's automatic prompt cache. */
+  @Column({ name: 'cached_tokens', type: 'int', default: 0 })
+  cachedTokens: number;
+
   @Column({
     name: 'openai_response_id',
     type: 'varchar',

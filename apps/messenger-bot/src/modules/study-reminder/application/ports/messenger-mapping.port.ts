@@ -1,11 +1,9 @@
-import { UserMessengerMapping } from '../../../messenger/domain/entities/messenger.types';
+import type { UserLink } from '../../domain/entities/user-link';
 
 export const MESSENGER_MAPPING_READER = Symbol('MESSENGER_MAPPING_READER');
 
 export interface MessengerMappingReaderPort {
-  findActiveMappingByPsid(psid: string): Promise<UserMessengerMapping | null>;
-  findActiveMappingByUserId(
-    userId: number,
-  ): Promise<UserMessengerMapping | null>;
-  findActiveMappingsWithPsid(): Promise<UserMessengerMapping[]>;
+  findActiveMappingByPsid(psid: string): Promise<UserLink | null>;
+  findActiveMappingByUserId(userId: number): Promise<UserLink | null>;
+  findActiveMappingsWithPsid(): Promise<UserLink[]>;
 }

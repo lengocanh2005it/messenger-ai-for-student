@@ -133,6 +133,7 @@ export class LlmUsageQueryService {
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0,
+        cachedTokens: 0,
         estimatedCostUsd: null as string | null,
       };
 
@@ -140,6 +141,7 @@ export class LlmUsageQueryService {
       existing.promptTokens += row.promptTokens;
       existing.completionTokens += row.completionTokens;
       existing.totalTokens += row.totalTokens;
+      existing.cachedTokens += row.cachedTokens;
       existing.estimatedCostUsd = addCostUsdStrings(
         existing.estimatedCostUsd,
         this.estimateRowCostUsd(row),
@@ -161,6 +163,7 @@ export class LlmUsageQueryService {
             row.model,
             row.unstoredPromptTokens,
             row.unstoredCompletionTokens,
+            row.unstoredCachedTokens,
           );
 
     return addCostUsdStrings(row.storedCostUsd, unstoredCost);
@@ -175,6 +178,7 @@ export class LlmUsageQueryService {
         promptTokens: acc.promptTokens + row.promptTokens,
         completionTokens: acc.completionTokens + row.completionTokens,
         totalTokens: acc.totalTokens + row.totalTokens,
+        cachedTokens: acc.cachedTokens + row.cachedTokens,
         estimatedCostUsd: addCostUsdStrings(
           acc.estimatedCostUsd,
           row.estimatedCostUsd,
@@ -185,6 +189,7 @@ export class LlmUsageQueryService {
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0,
+        cachedTokens: 0,
         estimatedCostUsd: null as string | null,
       },
     );

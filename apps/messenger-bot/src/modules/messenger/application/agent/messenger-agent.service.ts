@@ -249,6 +249,9 @@ export class MessengerAgentService {
         maxContextChars: Number(
           this.configService.get<string>('OPENAI_MAX_CONTEXT_CHARS'),
         ),
+        maxOutputTokens: Number(
+          this.configService.get<string>('OPENAI_MAX_OUTPUT_TOKENS'),
+        ),
       },
       ports,
     );

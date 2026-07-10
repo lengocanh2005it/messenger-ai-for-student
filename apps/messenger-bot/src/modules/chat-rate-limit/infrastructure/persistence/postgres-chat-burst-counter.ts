@@ -2,9 +2,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import { PostgresBurstCounter } from '@wispace/chat-metering';
 import type { ChatBurstCounterPort } from '../../domain/repositories/chat-burst-counter.port';
 import {
-  CHAT_RESERVATION_PORT,
-  type ChatReservationPort,
-} from '../../domain/repositories/chat-reservation.port';
+  CHAT_QUOTA_REPOSITORY,
+  type ChatQuotaRepositoryPort,
+} from '../../domain/repositories/chat-quota.repository.port';
 import { ChatRateLimitConfigService } from '../../application/services/chat-rate-limit-config.service';
 
 /** Thin NestJS wrapper around the shared `@wispace/chat-metering` Postgres-derived burst counter. */
@@ -14,13 +14,13 @@ export class PostgresChatBurstCounter implements ChatBurstCounterPort {
 
   constructor(
     private readonly configService: ChatRateLimitConfigService,
-    @Inject(CHAT_RESERVATION_PORT)
-    reservationPort: ChatReservationPort,
+    @Inject(CHAT_QUOTA_REPOSITORY)
+    repository: ChatQuotaRepositoryPort,
   ) {
     this.core = new PostgresBurstCounter(
       {
         countRecentReservations: (psid, since, options) =>
-          reservationPort.countRecentReservations(psid, since, options),
+          repository.countRecentReservations(psid, since, options),
       },
       this.configService.getBurstCountsRefunded(),
     );

@@ -16,11 +16,7 @@ import { ChatRateLimitService } from './application/services/chat-rate-limit.ser
 import { ChatQuotaOpsService } from './application/services/chat-quota-ops.service';
 import { CHAT_BURST_COUNTER } from './domain/repositories/chat-burst-counter.port';
 import { CHAT_QUOTA_EVENT_REPOSITORY } from './domain/repositories/chat-quota-event.repository.port';
-import { CHAT_RATE_LIMIT_REPOSITORY } from './domain/repositories/chat-rate-limit.repository.port';
-import { CHAT_USAGE_PORT } from './domain/repositories/chat-usage.port';
-import { CHAT_RESERVATION_PORT } from './domain/repositories/chat-reservation.port';
-import { CHAT_RECOVERY_PORT } from './domain/repositories/chat-recovery.port';
-import { CHAT_OPS_PORT } from './domain/repositories/chat-ops.port';
+import { CHAT_QUOTA_REPOSITORY } from './domain/repositories/chat-quota.repository.port';
 import { ChatBurstCounterResolver } from './infrastructure/persistence/chat-burst-counter.resolver';
 import { ChatQuotaEventRepository } from './infrastructure/persistence/chat-quota-event.repository';
 import { MemoryChatBurstCounter } from './infrastructure/persistence/memory-chat-burst-counter';
@@ -61,23 +57,7 @@ import { ChatRateLimitRepository } from './infrastructure/persistence/chat-rate-
     ChatQuotaOpsService,
     ChatRateLimitRepository,
     {
-      provide: CHAT_RATE_LIMIT_REPOSITORY,
-      useExisting: ChatRateLimitRepository,
-    },
-    {
-      provide: CHAT_USAGE_PORT,
-      useExisting: ChatRateLimitRepository,
-    },
-    {
-      provide: CHAT_RESERVATION_PORT,
-      useExisting: ChatRateLimitRepository,
-    },
-    {
-      provide: CHAT_RECOVERY_PORT,
-      useExisting: ChatRateLimitRepository,
-    },
-    {
-      provide: CHAT_OPS_PORT,
+      provide: CHAT_QUOTA_REPOSITORY,
       useExisting: ChatRateLimitRepository,
     },
   ],
@@ -85,11 +65,7 @@ import { ChatRateLimitRepository } from './infrastructure/persistence/chat-rate-
     ChatRateLimitConfigService,
     ChatRateLimitService,
     ChatQuotaOpsService,
-    CHAT_RATE_LIMIT_REPOSITORY,
-    CHAT_USAGE_PORT,
-    CHAT_RESERVATION_PORT,
-    CHAT_RECOVERY_PORT,
-    CHAT_OPS_PORT,
+    CHAT_QUOTA_REPOSITORY,
   ],
 })
 export class ChatRateLimitModule {}

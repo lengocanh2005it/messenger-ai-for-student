@@ -5,9 +5,11 @@ export interface LlmUsageAggregateRow {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens: number;
   storedCostUsd: string | null;
   unstoredPromptTokens: number;
   unstoredCompletionTokens: number;
+  unstoredCachedTokens: number;
 }
 
 export interface LlmUsageQueryFilter {
@@ -23,6 +25,7 @@ export interface LlmUsageFeatureSummary {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens: number;
   estimatedCostUsd: string | null;
 }
 

@@ -14,6 +14,7 @@ interface OpenAiUsageShape {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number };
 }
 
 export interface LlmUsageRecorderLogger {
@@ -34,6 +35,7 @@ export class LlmUsageRecorderCore {
       model: string,
       promptTokens: number,
       completionTokens: number,
+      cachedTokens?: number,
     ) => string | null,
     private readonly todayUsageDate: () => string,
     private readonly logger: LlmUsageRecorderLogger = NOOP_LOGGER,
@@ -50,6 +52,7 @@ export class LlmUsageRecorderCore {
 
     const promptTokens = usage?.prompt_tokens ?? 0;
     const completionTokens = usage?.completion_tokens ?? 0;
+    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
 
     this.writer.write({
       feature: input.feature,
@@ -59,6 +62,7 @@ export class LlmUsageRecorderCore {
       promptTokens,
       completionTokens,
       totalTokens: usage?.total_tokens ?? 0,
+      cachedTokens,
       openaiResponseId: input.response.id,
       correlationId: input.correlationId,
       toolRound: input.toolRound,
@@ -66,6 +70,7 @@ export class LlmUsageRecorderCore {
         input.model,
         promptTokens,
         completionTokens,
+        cachedTokens,
       ),
       usageDate: this.todayUsageDate(),
     });

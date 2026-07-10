@@ -316,11 +316,38 @@ describe('MessengerAgentService', () => {
       expect(llmRun).toHaveBeenCalledTimes(2);
     });
 
-    it('returns graceful exhaustion reply after maxToolRounds (default = 6)', async () => {
+    it('stops early and returns graceful exhaustion reply when the model repeats an identical tool call', async () => {
       const toolCompletion = makeToolCallCompletion('get_user_goals');
-      // Always return tool calls → never resolves with text
+      // Always return the same tool call → duplicate-call detection breaks the loop
       const llmRun = jest.fn().mockResolvedValue(toolCompletion);
       const execute = jest.fn().mockResolvedValue({ goals: [] });
+
+      const { service } = buildService(
+        { OPENAI_API_KEY: 'sk-test' },
+        { llmRun, execute },
+      );
+
+      const result = await service.reply(BASE_INPUT);
+      expect(result.exhausted).toBe(true);
+      expect(result.text).toMatch(/thử lại/);
+      // round 0 executes, round 1 detects the repeat and stops — well
+      // before the default maxToolRounds=6 ceiling.
+      expect(llmRun).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns graceful exhaustion reply after maxToolRounds (default = 6) when tool args genuinely differ each round', async () => {
+      let call = 0;
+      const llmRun = jest
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve(
+            makeToolCallCompletion(
+              'list_study_calendar_entries',
+              `{"limit":${++call}}`,
+            ),
+          ),
+        );
+      const execute = jest.fn().mockResolvedValue({ entries: [] });
 
       const { service } = buildService(
         // Default max = 6

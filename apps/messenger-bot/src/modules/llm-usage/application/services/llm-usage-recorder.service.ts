@@ -39,6 +39,8 @@ export class LlmUsageRecorderService {
       );
     }
 
+    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+
     this.recordUsage({
       feature: input.feature,
       psid: input.psid,
@@ -47,6 +49,7 @@ export class LlmUsageRecorderService {
       promptTokens: usage?.prompt_tokens ?? 0,
       completionTokens: usage?.completion_tokens ?? 0,
       totalTokens: usage?.total_tokens ?? 0,
+      cachedTokens,
       openaiResponseId: input.response.id,
       correlationId: input.correlationId,
       toolRound: input.toolRound,
@@ -54,6 +57,7 @@ export class LlmUsageRecorderService {
         input.model,
         usage?.prompt_tokens ?? 0,
         usage?.completion_tokens ?? 0,
+        cachedTokens,
       ),
     });
   }
@@ -71,6 +75,7 @@ export class LlmUsageRecorderService {
             input.model,
             input.promptTokens,
             input.completionTokens,
+            input.cachedTokens,
           );
 
     this.bullQueue.enqueue({

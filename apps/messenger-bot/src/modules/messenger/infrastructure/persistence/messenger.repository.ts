@@ -8,6 +8,9 @@ import {
   UserPlatformMappingEntity,
 } from '../../../../infrastructure/database/entities';
 import { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
+import type { MessengerMappingRepositoryPort } from '../../domain/repositories/messenger-mapping.repository.port';
+import type { MessengerMessageLogRepositoryPort } from '../../domain/repositories/messenger-message-log.repository.port';
+import type { ReportClaimRepositoryPort } from '../../domain/repositories/report-claim.repository.port';
 import {
   MessengerMessageLog,
   NotificationCadence,
@@ -18,7 +21,13 @@ import {
 const PLATFORM = 'messenger' as const;
 
 @Injectable()
-export class MessengerRepository implements MessengerRepositoryPort {
+export class MessengerRepository
+  implements
+    MessengerMappingRepositoryPort,
+    MessengerMessageLogRepositoryPort,
+    ReportClaimRepositoryPort,
+    MessengerRepositoryPort
+{
   constructor(
     @InjectRepository(UserPlatformMappingEntity)
     private readonly mappingRepo: Repository<UserPlatformMappingEntity>,

@@ -13,9 +13,11 @@ interface AggregateQueryRow {
   prompt_tokens: string;
   completion_tokens: string;
   total_tokens: string;
+  cached_tokens: string;
   stored_cost_usd: string | null;
   unstored_prompt_tokens: string;
   unstored_completion_tokens: string;
+  unstored_cached_tokens: string;
 }
 
 export class LlmUsageRepository {
@@ -39,6 +41,7 @@ export class LlmUsageRepository {
           prompt_tokens,
           completion_tokens,
           total_tokens,
+          cached_tokens,
           openai_response_id,
           correlation_id,
           tool_round,
@@ -46,7 +49,7 @@ export class LlmUsageRepository {
           error_message,
           estimated_cost_usd
         )
-        VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       `,
       [
         input.usageDate,
@@ -58,6 +61,7 @@ export class LlmUsageRepository {
         input.promptTokens,
         input.completionTokens,
         input.totalTokens,
+        input.cachedTokens ?? 0,
         input.openaiResponseId ?? null,
         input.correlationId ?? null,
         input.toolRound ?? null,
@@ -167,9 +171,11 @@ export class LlmUsageRepository {
         COALESCE(SUM(prompt_tokens), 0)::text AS prompt_tokens,
         COALESCE(SUM(completion_tokens), 0)::text AS completion_tokens,
         COALESCE(SUM(total_tokens), 0)::text AS total_tokens,
+        COALESCE(SUM(cached_tokens), 0)::text AS cached_tokens,
         SUM(estimated_cost_usd)::text AS stored_cost_usd,
         COALESCE(SUM(prompt_tokens) FILTER (WHERE estimated_cost_usd IS NULL), 0)::text AS unstored_prompt_tokens,
-        COALESCE(SUM(completion_tokens) FILTER (WHERE estimated_cost_usd IS NULL), 0)::text AS unstored_completion_tokens
+        COALESCE(SUM(completion_tokens) FILTER (WHERE estimated_cost_usd IS NULL), 0)::text AS unstored_completion_tokens,
+        COALESCE(SUM(cached_tokens) FILTER (WHERE estimated_cost_usd IS NULL), 0)::text AS unstored_cached_tokens
       FROM llm_usage_events
       WHERE ${whereClauses.join(' AND ')}
       GROUP BY feature, model
@@ -185,9 +191,11 @@ export class LlmUsageRepository {
       promptTokens: Number(row.prompt_tokens),
       completionTokens: Number(row.completion_tokens),
       totalTokens: Number(row.total_tokens),
+      cachedTokens: Number(row.cached_tokens),
       storedCostUsd: row.stored_cost_usd,
       unstoredPromptTokens: Number(row.unstored_prompt_tokens),
       unstoredCompletionTokens: Number(row.unstored_completion_tokens),
+      unstoredCachedTokens: Number(row.unstored_cached_tokens),
     };
   }
 }

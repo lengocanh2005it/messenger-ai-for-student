@@ -29,7 +29,11 @@ export interface LlmSafetyEventPort {
   }): void;
 }
 
-export type LlmRoundOutcome = 'direct_reply' | 'tool_call' | 'exhausted';
+export type LlmRoundOutcome =
+  | 'direct_reply'
+  | 'tool_call'
+  | 'exhausted'
+  | 'duplicate_tool_calls';
 
 export interface AgentMetricsPort {
   timeLlmCall<T>(

@@ -1,9 +1,6 @@
 /* eslint-disable @typescript-eslint/unbound-method -- Jest mock method assertions */
 import { ConfigService } from '@nestjs/config';
-import type { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate-limit.repository.port';
-import type { ChatUsagePort } from '../../domain/repositories/chat-usage.port';
-import type { ChatReservationPort } from '../../domain/repositories/chat-reservation.port';
-import type { ChatRecoveryPort } from '../../domain/repositories/chat-recovery.port';
+import type { ChatQuotaRepositoryPort } from '../../domain/repositories/chat-quota.repository.port';
 import type { ChatBurstCounterPort } from '../../domain/repositories/chat-burst-counter.port';
 import type { MetricsService } from '../../../metrics/metrics.service';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
@@ -44,7 +41,7 @@ describe('ChatRateLimitService', () => {
     const idempotencyKeys = new Set<string>();
 
     let reserveCallCount = 0;
-    const repository: ChatRateLimitRepositoryPort = {
+    const repository: ChatQuotaRepositoryPort = {
       getDailyUsageCount: jest.fn(() => Promise.resolve(count)),
       incrementDailyUsage: jest.fn(() => {
         count += 1;
@@ -94,26 +91,9 @@ describe('ChatRateLimitService', () => {
       listStuckReserved: jest.fn(() => Promise.resolve([])),
       recoverIdempotencyForRetry: jest.fn(() => Promise.resolve('not_found')),
       recoverAllStuckReserved: jest.fn(() => Promise.resolve([])),
-    };
-
-    const usagePort: ChatUsagePort = {
-      getDailyUsageCount: repository.getDailyUsageCount,
-      incrementDailyUsage: repository.incrementDailyUsage,
-      decrementDailyUsage: repository.decrementDailyUsage,
-    };
-
-    const reservationPort: ChatReservationPort = {
-      reserveFreeFormSlotInTransaction:
-        repository.reserveFreeFormSlotInTransaction,
-      refundReservedSlot: repository.refundReservedSlot,
-      completeReservedSlot: repository.completeReservedSlot,
-      countRecentReservations: repository.countRecentReservations,
-    };
-
-    const recoveryPort: ChatRecoveryPort = {
-      listStuckReserved: repository.listStuckReserved,
-      recoverIdempotencyForRetry: repository.recoverIdempotencyForRetry,
-      recoverAllStuckReserved: repository.recoverAllStuckReserved,
+      countStuckReserved: jest.fn(() => Promise.resolve(0)),
+      countIdempotencyByStatusForUsageDate: jest.fn(() => Promise.resolve({})),
+      countUsersAtOrAboveDailyLimit: jest.fn(() => Promise.resolve(0)),
     };
 
     const burstCounter: ChatBurstCounterPort = {
@@ -141,9 +121,6 @@ describe('ChatRateLimitService', () => {
     const service = new ChatRateLimitService(
       configService,
       repository,
-      usagePort,
-      reservationPort,
-      recoveryPort,
       burstCounter,
       quotaEventRecorder,
       metrics,
