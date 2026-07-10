@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatQuotaOpsService } from '../../../chat-rate-limit/application/services/chat-quota-ops.service';
 import { StudyReminderOpsService } from '../../../study-reminder/application/services/study-reminder-ops.service';
-import { MESSENGER_REPOSITORY } from '../../../messenger/domain/repositories/messenger.repository.port';
-import type { MessengerRepositoryPort } from '../../../messenger/domain/repositories/messenger.repository.port';
+import { MESSENGER_MESSAGE_LOG_REPOSITORY } from '../../../messenger/domain/repositories/messenger-message-log.repository.port';
+import type { MessengerMessageLogRepositoryPort } from '../../../messenger/domain/repositories/messenger-message-log.repository.port';
 import { LlmSafetyEventService } from '../../../llm-safety/application/services/llm-safety-event.service';
 import type {
   OpsHealthAlert,
@@ -18,8 +18,8 @@ export class OpsHealthService {
     private readonly configService: ConfigService,
     private readonly chatQuotaOpsService: ChatQuotaOpsService,
     private readonly studyReminderOpsService: StudyReminderOpsService,
-    @Inject(MESSENGER_REPOSITORY)
-    private readonly messengerRepository: MessengerRepositoryPort,
+    @Inject(MESSENGER_MESSAGE_LOG_REPOSITORY)
+    private readonly messageLogRepository: MessengerMessageLogRepositoryPort,
     private readonly llmSafetyEventService: LlmSafetyEventService,
   ) {}
 
@@ -63,11 +63,11 @@ export class OpsHealthService {
         failedHours,
         stuckProcessingMinutes,
       }),
-      this.messengerRepository.countMessageLogsByTypeSince(
+      this.messageLogRepository.countMessageLogsByTypeSince(
         'CHAT_QUOTA_DENIED',
         denySince,
       ),
-      this.messengerRepository.countMessageLogsByTypeSince(
+      this.messageLogRepository.countMessageLogsByTypeSince(
         'META_TOKEN_EXPIRED',
         denySince,
       ),

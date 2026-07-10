@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { ChatQuotaOpsService } from '../../../chat-rate-limit/application/services/chat-quota-ops.service';
 import { StudyReminderOpsService } from '../../../study-reminder/application/services/study-reminder-ops.service';
-import { MESSENGER_REPOSITORY } from '../../../messenger/domain/repositories/messenger.repository.port';
+import { MESSENGER_MESSAGE_LOG_REPOSITORY } from '../../../messenger/domain/repositories/messenger-message-log.repository.port';
 import { LlmSafetyEventService } from '../../../llm-safety/application/services/llm-safety-event.service';
 import { OpsHealthService } from './ops-health.service';
 
@@ -17,7 +17,7 @@ describe('OpsHealthService', () => {
     getSummary: jest.fn(),
   };
 
-  const messengerRepository = {
+  const messageLogRepository = {
     countMessageLogsByTypeSince: jest.fn(),
   };
 
@@ -58,8 +58,8 @@ describe('OpsHealthService', () => {
           useValue: studyReminderOpsService,
         },
         {
-          provide: MESSENGER_REPOSITORY,
-          useValue: messengerRepository,
+          provide: MESSENGER_MESSAGE_LOG_REPOSITORY,
+          useValue: messageLogRepository,
         },
         {
           provide: LlmSafetyEventService,
@@ -90,7 +90,7 @@ describe('OpsHealthService', () => {
       stuckProcessingMinutes: 10,
       samples: { terminalFailed: [], stuckProcessing: [] },
     });
-    messengerRepository.countMessageLogsByTypeSince.mockResolvedValue(0);
+    messageLogRepository.countMessageLogsByTypeSince.mockResolvedValue(0);
 
     const snapshot = await service.collectSnapshot();
 
@@ -120,7 +120,7 @@ describe('OpsHealthService', () => {
       stuckProcessingMinutes: 10,
       samples: { terminalFailed: [], stuckProcessing: [] },
     });
-    messengerRepository.countMessageLogsByTypeSince.mockResolvedValue(5);
+    messageLogRepository.countMessageLogsByTypeSince.mockResolvedValue(5);
 
     const snapshot = await service.collectSnapshot();
 

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { UserMessengerMapping } from '../../../messenger/domain/entities/messenger.types';
+import type { UserLink } from '../../domain/entities/user-link';
 import { MESSENGER_MAPPING_READER } from '../ports/messenger-mapping.port';
 import type { MessengerMappingReaderPort } from '../ports/messenger-mapping.port';
 import {
@@ -106,7 +106,7 @@ export class StudyReminderSyncService {
   }
 
   private async syncMappings(
-    mappings: UserMessengerMapping[],
+    mappings: UserLink[],
     horizonEnd: Date,
     maxRetries: number,
   ): Promise<{
