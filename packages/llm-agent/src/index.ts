@@ -73,3 +73,8 @@ export type { LlmProviderAdapter } from './provider/llm-provider.adapter';
 export { OpenAiAdapter } from './provider/openai/openai-adapter';
 export { OpenAiCompatibleAdapter } from './provider/openai-compatible/openai-compatible-adapter';
 export { createLlmProviderAdapter } from './provider/factory';
+
+// --- Tool result cache ---
+export type { ToolResultCachePort } from './tool-cache/tool-result-cache.port';
+export { NOOP_TOOL_RESULT_CACHE } from './tool-cache/tool-result-cache.port';
+export { InMemoryToolResultCache } from './tool-cache/in-memory-tool-result-cache';
