@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ProactiveMessenger24hSkippedError } from '../../../messenger/application/utils/proactive-send.utils';
-import { MessengerService } from '../../../messenger/application/services/messenger.service';
+import { MessengerReportDeliveryService } from '../../../messenger/application/services/messenger-report-delivery.service';
 import {
   MESSENGER_REPOSITORY,
   type MessengerRepositoryPort,
@@ -25,7 +25,7 @@ export class ReportSendRetryDispatchService {
     private readonly reportSendJobRepository: ReportSendJobRepositoryPort,
     @Inject(MESSENGER_REPOSITORY)
     private readonly messengerRepository: MessengerRepositoryPort,
-    private readonly messengerService: MessengerService,
+    private readonly messengerReportDeliveryService: MessengerReportDeliveryService,
     private readonly reportScheduleService: ReportScheduleService,
     private readonly reportSendScheduleService: ReportSendScheduleService,
     private readonly reportCronLeaderService: ReportCronLeaderService,
@@ -148,7 +148,9 @@ export class ReportSendRetryDispatchService {
 
       try {
         const result =
-          await this.messengerService.sendScheduledReportForMapping(mapping);
+          await this.messengerReportDeliveryService.sendReportForMapping(
+            mapping,
+          );
 
         if (result) {
           await this.messengerRepository.markScheduledReportClaimSent({

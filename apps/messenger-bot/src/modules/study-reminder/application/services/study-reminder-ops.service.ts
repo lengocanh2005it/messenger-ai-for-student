@@ -1,11 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { StudyReminderOpsSummary } from '../../domain/entities/study-reminder-ops.types';
-import { StudyReminderJobRepository } from '../../infrastructure/persistence/study-reminder-job.repository';
+import {
+  STUDY_REMINDER_JOB_REPOSITORY,
+  type StudyReminderJobRepositoryPort,
+} from '../../domain/repositories/study-reminder-job.repository.port';
 
 @Injectable()
 export class StudyReminderOpsService {
   constructor(
-    private readonly studyReminderJobRepository: StudyReminderJobRepository,
+    @Inject(STUDY_REMINDER_JOB_REPOSITORY)
+    private readonly studyReminderJobRepository: StudyReminderJobRepositoryPort,
   ) {}
 
   async getSummary(options?: {

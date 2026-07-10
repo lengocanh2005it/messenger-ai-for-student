@@ -8,7 +8,6 @@ import { StudentReportModule } from '../student-report/student-report.module';
 import { LlmExecutionModule } from '../llm-execution/llm-execution.module';
 import { LlmUsageModule } from '../llm-usage/llm-usage.module';
 import { StudyCalendarCommandService } from './application/services/study-calendar-command.service';
-import { StudyReminderCleanupService } from './application/services/study-reminder-cleanup.service';
 import { StudyReminderDispatchService } from './application/services/study-reminder-dispatch.service';
 import { StudyReminderScheduleService } from './application/services/study-reminder-schedule.service';
 import { StudyReminderSyncService } from './application/services/study-reminder-sync.service';
@@ -53,7 +52,6 @@ import { StudyReminderJobRepository } from './infrastructure/persistence/study-r
     },
     StudyReminderSyncService,
     StudyReminderDispatchService,
-    StudyReminderCleanupService,
     StudyReminderWorkerService,
     StudyReminderOpsService,
   ],

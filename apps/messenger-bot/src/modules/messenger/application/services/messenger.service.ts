@@ -2,30 +2,17 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
-  InternalServerErrorException,
   Logger,
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   MessengerLinkContext,
-  buildPocPsidToken,
   buildWelcomeMessage,
-  getPocAlreadySubscribedMessage,
-  getPocSubscriptionConfirmationMessage,
   getMissingUserRefMessage,
 } from '../../../../shared/config/poc.constants';
-import { StudentReportService } from '../../../student-report/application/services/student-report.service';
-import { StudentReportRetryableError } from '../../../student-report/domain/errors/wispace-api.error';
-import { buildStudentReportApiRetryMessage } from '../../../student-report/application/messages/student-report.messages';
-import {
-  getNoUpcomingStudySessionMessage,
-  getStudyReminderLeadTimeNotice,
-} from '../../../study-reminder/application/messages/study-reminder.messages';
-import { StudyReminderScheduleService } from '../../../study-reminder/application/services/study-reminder-schedule.service';
-import { StudyReminderService } from '../../../study-reminder/application/services/study-reminder.service';
 import { UserDisplayNameService } from '../../../study-reminder/application/services/user-display-name.service';
-import { NormalizedStudySession } from '../../../study-reminder/domain/entities/study-schedule.types';
+import { getStudyReminderLeadTimeNotice } from '../../../study-reminder/application/messages/study-reminder.messages';
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
 import { WEBHOOK_DEDUPE_STORE } from '../../domain/repositories/webhook-dedupe.store.port';
@@ -35,20 +22,12 @@ import type { MessengerWebhookDeadLetterRepositoryPort } from '../../domain/repo
 import {
   MessengerWebhookEvent,
   MessengerWebhookPayload,
-  UserMessengerMapping,
 } from '../../domain/entities/messenger.types';
 import { ChatRateLimitConfigService } from '../../../chat-rate-limit/application/services/chat-rate-limit-config.service';
 import { MessengerChatQueueService } from './messenger-chat-queue.service';
-import {
-  buildChatMissingMidMessage,
-  buildUnsupportedMessageTypeReply,
-} from '../messages/chat-delivery.messages';
+import { buildChatMissingMidMessage } from '../messages/chat-delivery.messages';
 import { isUnsupportedUserMessage } from '../utils/webhook-message.utils';
-import { readMessengerBubbleLimits } from '../utils/messenger-bubble-config.utils';
-import {
-  isProactiveMessenger24hError,
-  ProactiveMessenger24hSkippedError,
-} from '../utils/proactive-send.utils';
+import { buildUnsupportedMessageTypeReply } from '../messages/chat-delivery.messages';
 import { MessengerMappingService } from './messenger-mapping.service';
 import { MessengerLinkContextService } from './messenger-link-context.service';
 import { MessengerOutboundService } from './messenger-outbound.service';
@@ -63,6 +42,8 @@ import type {
   MessengerLinkAttemptResult,
   MessengerLinkVerifyFailureReason,
 } from '../../domain/types/messenger-link-verify.types';
+import { MessengerReportDeliveryService } from './messenger-report-delivery.service';
+import { MessengerReminderDeliveryService } from './messenger-reminder-delivery.service';
 
 export { MessengerApiError } from './messenger-outbound.service';
 
@@ -78,9 +59,8 @@ export class MessengerService {
     private readonly messengerMappingService: MessengerMappingService,
     private readonly messengerLinkContextService: MessengerLinkContextService,
     private readonly messengerChatQueueService: MessengerChatQueueService,
-    private readonly studentReportService: StudentReportService,
-    private readonly studyReminderService: StudyReminderService,
-    private readonly studyReminderScheduleService: StudyReminderScheduleService,
+    private readonly reportDeliveryService: MessengerReportDeliveryService,
+    private readonly reminderDeliveryService: MessengerReminderDeliveryService,
     private readonly userDisplayNameService: UserDisplayNameService,
     private readonly chatRateLimitConfig: ChatRateLimitConfigService,
     private readonly rescheduleConfirmationService: MessengerRescheduleConfirmationService,
@@ -147,11 +127,6 @@ export class MessengerService {
     return { processed, failures };
   }
 
-  /**
-   * Replay a single stored dead-letter event.
-   * Calls handleEvent directly — failures are NOT re-saved to dead-letter
-   * (the caller, typically the retry cron, is responsible for tracking retries).
-   */
   async replayWebhookEvent(
     rawPayload: object,
   ): Promise<{ handled: boolean; error?: string }> {
@@ -165,207 +140,6 @@ export class MessengerService {
         error: error instanceof Error ? error.message : String(error),
       };
     }
-  }
-
-  async registerForScheduledReports(
-    psid: string,
-    context: MessengerLinkContext,
-  ): Promise<void> {
-    const existing = await this.repository.findActiveMappingByPsid(psid);
-
-    if (
-      existing?.cadence === context.cadence &&
-      existing?.topic === context.topic
-    ) {
-      await this.outbound.sendTextViaPsid({
-        psid,
-        userId: existing.userId ?? context.userId,
-        text: getPocAlreadySubscribedMessage(),
-        messageType: 'SUBSCRIPTION_ALREADY_ACTIVE',
-      });
-      return;
-    }
-
-    await this.repository.upsertPocSubscription({
-      psid,
-      userId: context.userId,
-      cadence: context.cadence,
-      topic: context.topic,
-      notificationMessagesToken: buildPocPsidToken(psid),
-    });
-
-    this.logger.log(
-      `Registered PSID ${psid} (userId=${context.userId}, topic=${context.topic}, cadence=${context.cadence})`,
-    );
-
-    await this.outbound.sendTextViaPsid({
-      psid,
-      userId: context.userId,
-      text: getPocSubscriptionConfirmationMessage(),
-      messageType: 'SUBSCRIPTION_CONFIRMATION',
-    });
-  }
-
-  async sendScheduledReportForMapping(
-    mapping: UserMessengerMapping,
-  ): Promise<string> {
-    if (!mapping.psid) {
-      throw new InternalServerErrorException(
-        `Mapping ${mapping.id} has no PSID for Send API delivery`,
-      );
-    }
-
-    try {
-      const report = await this.studentReportService.generateReport(
-        mapping.psid,
-      );
-      await this.sendReportBubbles({
-        psid: mapping.psid,
-        userId: mapping.userId,
-        text: report,
-        messageType: 'SCHEDULED_LEARNING_REPORT',
-      });
-      return report;
-    } catch (error) {
-      if (error instanceof StudentReportRetryableError) {
-        throw error;
-      }
-
-      if (error instanceof ProactiveMessenger24hSkippedError) {
-        return '';
-      }
-
-      throw error;
-    }
-  }
-
-  async sendLearningProgressReport(psid: string): Promise<string> {
-    const userId = await this.resolveUserId(psid);
-
-    try {
-      const report = await this.studentReportService.generateReport(psid);
-      await this.sendReportBubbles({
-        psid,
-        userId,
-        text: report,
-        messageType: 'LEARNING_PROGRESS',
-      });
-      return report;
-    } catch (error) {
-      if (error instanceof StudentReportRetryableError) {
-        const retryMessage = buildStudentReportApiRetryMessage();
-        await this.sendReportBubbles({
-          psid,
-          userId,
-          text: retryMessage,
-          messageType: 'LEARNING_PROGRESS_API_DEFERRED',
-        });
-        return retryMessage;
-      }
-
-      if (error instanceof ProactiveMessenger24hSkippedError) {
-        return '';
-      }
-
-      throw error;
-    }
-  }
-
-  private async sendReportBubbles(params: {
-    psid: string;
-    userId?: number;
-    text: string;
-    messageType: string;
-  }): Promise<void> {
-    const { maxBubbles, maxCharsPerBubble } = readMessengerBubbleLimits(
-      this.configService,
-    );
-
-    try {
-      await this.outbound.sendTextBubblesViaPsid({
-        psid: params.psid,
-        userId: params.userId,
-        text: params.text,
-        messageType: params.messageType,
-        maxBubbles,
-        maxCharsPerBubble,
-      });
-    } catch (error) {
-      if (isProactiveMessenger24hError(error)) {
-        this.logger.warn(
-          `MESSENGER_24H_WINDOW psid=${params.psid} messageType=${params.messageType}`,
-        );
-        throw new ProactiveMessenger24hSkippedError(
-          params.psid,
-          params.messageType,
-        );
-      }
-
-      throw error;
-    }
-  }
-
-  async sendUpcomingStudySessionReminderPreview(
-    psid: string,
-    userId?: number,
-  ): Promise<string> {
-    const resolvedUserId = userId ?? (await this.resolveUserId(psid));
-    const session = await this.studyReminderService.getNextUpcomingSession(
-      psid,
-      resolvedUserId,
-    );
-
-    if (!session) {
-      const emptyMessage = getNoUpcomingStudySessionMessage(
-        this.studyReminderScheduleService.getOutboxSettings().minutesBefore,
-      );
-      await this.outbound.sendTextViaPsid({
-        psid,
-        userId: resolvedUserId,
-        text: emptyMessage,
-        messageType: 'STUDY_SESSION_REMINDER_EMPTY',
-      });
-      return emptyMessage;
-    }
-
-    return this.sendStudySessionReminder({
-      psid,
-      userId: resolvedUserId,
-      session,
-      messageType: 'STUDY_SESSION_REMINDER_PREVIEW',
-    });
-  }
-
-  async sendStudySessionReminder(params: {
-    psid: string;
-    session: NormalizedStudySession;
-    messageType: string;
-    userId?: number;
-    displayName?: string;
-  }): Promise<string> {
-    const reminder = await this.studyReminderService.generateReminderForSession(
-      params.psid,
-      params.session,
-      { userId: params.userId, displayName: params.displayName },
-    );
-
-    await this.outbound.sendTextViaPsid({
-      psid: params.psid,
-      userId: params.userId,
-      text: reminder,
-      messageType: params.messageType,
-    });
-
-    return reminder;
-  }
-
-  async sendTextViaPsid(params: {
-    psid: string;
-    text: string;
-    messageType: string;
-    userId?: number;
-  }): Promise<void> {
-    return this.outbound.sendTextViaPsid(params);
   }
 
   private logIncomingWebhookEvent(event: MessengerWebhookEvent): void {
@@ -707,7 +481,10 @@ export class MessengerService {
       }
 
       await this.signalTyping(psid);
-      await this.registerForScheduledReports(psid, context);
+      await this.reportDeliveryService.registerForScheduledReports(
+        psid,
+        context,
+      );
       return true;
     }
 
@@ -716,7 +493,8 @@ export class MessengerService {
       payload === 'GET_LEARNING_PROGRESS'
     ) {
       await this.signalTyping(psid);
-      await this.sendLearningProgressReport(psid);
+      const userId = await this.resolveUserId(psid);
+      await this.reportDeliveryService.sendReport(psid, userId);
       return true;
     }
 
@@ -725,7 +503,10 @@ export class MessengerService {
       payload === 'PREVIEW_STUDY_REMINDER'
     ) {
       await this.signalTyping(psid);
-      await this.sendUpcomingStudySessionReminderPreview(psid, context?.userId);
+      await this.reminderDeliveryService.sendReminderPreview(
+        psid,
+        context?.userId,
+      );
       return true;
     }
 
@@ -794,15 +575,14 @@ export class MessengerService {
       return;
     }
 
-    const minutesBefore =
-      this.studyReminderScheduleService.getOutboxSettings().minutesBefore;
-
     await this.outbound.sendTextViaPsid({
       psid,
       userId,
       text: [
         `Mình đã dời buổi học sang ${result.scheduledTimeLabel} cho bạn rồi nhé ✅`,
-        getStudyReminderLeadTimeNotice(minutesBefore),
+        getStudyReminderLeadTimeNotice(
+          this.configService.get<number>('STUDY_REMINDER_MINUTES_BEFORE') ?? 30,
+        ),
       ].join('\n\n'),
       messageType: 'RESCHEDULE_CONFIRMED',
     });

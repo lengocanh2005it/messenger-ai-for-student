@@ -1,4 +1,5 @@
 import {
+  Inject,
   Injectable,
   Logger,
   OnModuleDestroy,
@@ -9,7 +10,10 @@ import { Cron, SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { ADVISORY_LOCK } from '../../../../shared/common/advisory-lock-ids';
 import { PgAdvisoryLockService } from '../../../../shared/common/pg-advisory-lock.service';
-import { StudyReminderCleanupService } from './study-reminder-cleanup.service';
+import {
+  STUDY_REMINDER_JOB_REPOSITORY,
+  type StudyReminderJobRepositoryPort,
+} from '../../domain/repositories/study-reminder-job.repository.port';
 import { StudyReminderDispatchService } from './study-reminder-dispatch.service';
 import { StudyReminderScheduleService } from './study-reminder-schedule.service';
 import { StudyReminderSyncService } from './study-reminder-sync.service';
@@ -26,7 +30,8 @@ export class StudyReminderWorkerService
   constructor(
     private readonly studyReminderSyncService: StudyReminderSyncService,
     private readonly studyReminderDispatchService: StudyReminderDispatchService,
-    private readonly studyReminderCleanupService: StudyReminderCleanupService,
+    @Inject(STUDY_REMINDER_JOB_REPOSITORY)
+    private readonly studyReminderJobRepository: StudyReminderJobRepositoryPort,
     private readonly studyReminderScheduleService: StudyReminderScheduleService,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly pgLock: PgAdvisoryLockService,
@@ -171,7 +176,7 @@ export class StudyReminderWorkerService
       ADVISORY_LOCK.STUDY_REMINDER_CLEANUP,
       async () => {
         try {
-          await this.studyReminderCleanupService.purgeExpiredJobs();
+          await this.runCleanup();
         } catch (error) {
           this.logger.error('Study reminder job cleanup failed', error);
         }
@@ -214,7 +219,7 @@ export class StudyReminderWorkerService
   }
 
   runCleanup() {
-    return this.studyReminderCleanupService.purgeExpiredJobs();
+    return this.purgeExpiredJobs();
   }
 
   async runEveningRollover(): Promise<{
@@ -228,8 +233,7 @@ export class StudyReminderWorkerService
       `Evening rollover: purge sent jobs, then sync next ${syncHorizonHours}h horizon`,
     );
 
-    const { deleted: deletedSent } =
-      await this.studyReminderCleanupService.purgeSentJobs();
+    const { deleted: deletedSent } = await this.purgeSentJobs();
     const sync = await this.studyReminderSyncService.syncUpcomingSessions();
 
     this.logger.log(
@@ -237,6 +241,35 @@ export class StudyReminderWorkerService
     );
 
     return { deletedSent, sync };
+  }
+
+  async purgeSentJobs(): Promise<{ deleted: number }> {
+    const deleted = await this.studyReminderJobRepository.deleteSentJobs();
+
+    if (deleted > 0) {
+      this.logger.log(`Purged ${deleted} sent study reminder job(s)`);
+    }
+
+    return { deleted };
+  }
+
+  async purgeExpiredJobs(): Promise<{ deleted: number; cutoff: string }> {
+    const { jobRetentionDays } =
+      this.studyReminderScheduleService.getOutboxSettings();
+    const cutoff = new Date(
+      Date.now() - jobRetentionDays * 24 * 60 * 60 * 1000,
+    );
+
+    const deleted =
+      await this.studyReminderJobRepository.deleteTerminalJobsOlderThan(cutoff);
+
+    if (deleted > 0) {
+      this.logger.log(
+        `Purged ${deleted} terminal study reminder job(s) (cancelled/failed) older than ${jobRetentionDays} day(s) (before ${cutoff.toISOString()})`,
+      );
+    }
+
+    return { deleted, cutoff: cutoff.toISOString() };
   }
 
   async runSyncAndDispatch(): Promise<{

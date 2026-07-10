@@ -27,6 +27,8 @@ import { MessengerLinkContextService } from './application/services/messenger-li
 import { MessengerLinkStartupService } from './application/services/messenger-link-startup.service';
 import { MessengerWebhookStartupService } from './application/services/messenger-webhook-startup.service';
 import { MessengerRescheduleConfirmationService } from './application/services/messenger-reschedule-confirmation.service';
+import { MessengerReportDeliveryService } from './application/services/messenger-report-delivery.service';
+import { MessengerReminderDeliveryService } from './application/services/messenger-reminder-delivery.service';
 import { MessengerService } from './application/services/messenger.service';
 import { MessengerProfileService } from './infrastructure/meta/messenger-profile.service';
 import { WispaceMessengerTokenVerifyService } from './infrastructure/wispace/wispace-messenger-token-verify.service';
@@ -93,6 +95,8 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     MessengerLinkStartupService,
     MessengerWebhookStartupService,
     MessengerRescheduleConfirmationService,
+    MessengerReportDeliveryService,
+    MessengerReminderDeliveryService,
     WispaceMessengerTokenVerifyService,
     MessengerWebhookDeadLetterRepository,
     {
@@ -103,6 +107,11 @@ import { MessengerController } from './presentation/controllers/messenger.contro
     MessengerMessageLogCleanupService,
     MessengerMessageLogCleanupCronService,
   ],
-  exports: [MessengerOutboundModule, MessengerService, MessengerMappingService],
+  exports: [
+    MessengerOutboundModule,
+    MessengerService,
+    MessengerMappingService,
+    MessengerReportDeliveryService,
+  ],
 })
 export class MessengerModule {}

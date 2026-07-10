@@ -41,8 +41,8 @@ describe('ReportCronService.sendScheduledReports (R5 ops)', () => {
       }),
     };
 
-    const messengerService = {
-      sendScheduledReportForMapping: jest.fn().mockResolvedValue('report text'),
+    const messengerReportDeliveryService = {
+      sendReportForMapping: jest.fn().mockResolvedValue('report text'),
     };
 
     const reportSendJobRepository = {
@@ -52,7 +52,7 @@ describe('ReportCronService.sendScheduledReports (R5 ops)', () => {
 
     const service = new ReportCronService(
       messengerRepository as never,
-      messengerService as never,
+      messengerReportDeliveryService as never,
       reportScheduleService as never,
       {} as never,
       {} as never,
@@ -64,13 +64,15 @@ describe('ReportCronService.sendScheduledReports (R5 ops)', () => {
     return {
       service,
       messengerRepository,
-      messengerService,
+      messengerReportDeliveryService,
       reportSendJobRepository,
     };
   };
 
   it('forceSend skips user who already received scheduled report today', async () => {
-    const { service, messengerService } = buildService({ alreadySent: true });
+    const { service, messengerReportDeliveryService } = buildService({
+      alreadySent: true,
+    });
 
     const result = await service.sendScheduledReports({
       forceSend: true,
@@ -80,12 +82,14 @@ describe('ReportCronService.sendScheduledReports (R5 ops)', () => {
     expect(result.skipped).toBe(1);
     expect(result.sent).toBe(0);
     expect(
-      messengerService.sendScheduledReportForMapping,
+      messengerReportDeliveryService.sendReportForMapping,
     ).not.toHaveBeenCalled();
   });
 
   it('forceSend sends when allowDuplicate bypasses skip', async () => {
-    const { service, messengerService } = buildService({ alreadySent: true });
+    const { service, messengerReportDeliveryService } = buildService({
+      alreadySent: true,
+    });
 
     const result = await service.sendScheduledReports({
       forceSend: true,
@@ -94,7 +98,9 @@ describe('ReportCronService.sendScheduledReports (R5 ops)', () => {
     });
 
     expect(result.sent).toBe(1);
-    expect(messengerService.sendScheduledReportForMapping).toHaveBeenCalled();
+    expect(
+      messengerReportDeliveryService.sendReportForMapping,
+    ).toHaveBeenCalled();
   });
 
   it('forceSend marks outbox sent when skipping already-sent user', async () => {
