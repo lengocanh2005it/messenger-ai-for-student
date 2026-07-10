@@ -303,10 +303,32 @@ describe('LlmAgentService', () => {
       expect(result.toolSummary).toBeUndefined();
     });
 
-    it('returns graceful exhaustion reply after maxToolRounds (default = 6)', async () => {
+    it('stops early and returns graceful exhaustion reply when the model repeats an identical tool call', async () => {
       const toolResponse = makeToolCallResponse('get_user_goals');
       const adapter = makeAdapter([toolResponse]);
       const execute = jest.fn().mockResolvedValue({ goals: [] });
+
+      const { service } = buildService({ adapter, execute });
+
+      const result = await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(result.exhausted).toBe(true);
+      expect(result.text).toMatch(/thử lại/);
+      // Duplicate-tool-call detection breaks out after the repeat is seen
+      // (round 0 executes, round 1 detects the same call and stops) —
+      // well before the default maxToolRounds=6 ceiling.
+      expect(adapter.chatWithTools).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns graceful exhaustion reply after maxToolRounds (default = 6) when tool args genuinely differ each round', async () => {
+      const responses = Array.from({ length: 6 }, (_, i) =>
+        makeToolCallResponse(
+          'list_study_calendar_entries',
+          `{"limit":${i + 1}}`,
+        ),
+      );
+      const adapter = makeAdapter(responses);
+      const execute = jest.fn().mockResolvedValue({ entries: [] });
 
       const { service } = buildService({ adapter, execute });
 

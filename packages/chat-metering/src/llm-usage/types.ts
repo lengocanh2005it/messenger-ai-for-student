@@ -8,6 +8,7 @@ export interface RecordLlmUsageInput {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens?: number;
   openaiResponseId?: string;
   correlationId?: string;
   toolRound?: number;
@@ -23,9 +24,11 @@ export interface LlmUsageAggregateRow {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens: number;
   storedCostUsd: string | null;
   unstoredPromptTokens: number;
   unstoredCompletionTokens: number;
+  unstoredCachedTokens: number;
 }
 
 export interface LlmUsageQueryFilter {

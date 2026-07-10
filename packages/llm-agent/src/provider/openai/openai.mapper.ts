@@ -91,5 +91,6 @@ export function fromOpenAiUsage(
     promptTokens: usage.prompt_tokens ?? 0,
     completionTokens: usage.completion_tokens ?? 0,
     totalTokens: usage.total_tokens ?? 0,
+    cachedTokens: usage.prompt_tokens_details?.cached_tokens,
   };
 }

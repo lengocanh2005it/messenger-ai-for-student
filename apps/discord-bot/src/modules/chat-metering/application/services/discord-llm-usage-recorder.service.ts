@@ -67,11 +67,12 @@ export class DiscordLlmUsageRecorderService {
 
       this.core = new LlmUsageRecorderCore(
         writer,
-        (model, promptTokens, completionTokens) =>
+        (model, promptTokens, completionTokens, cachedTokens) =>
           this.configService.estimateCostUsdForModel(
             model,
             promptTokens,
             completionTokens,
+            cachedTokens,
           ),
         () => this.configService.todayUsageDate(),
         { warn: (m) => this.logger.warn(m) },

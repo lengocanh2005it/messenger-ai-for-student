@@ -15,6 +15,8 @@ export interface LlmAgentConfig {
   maxLlmRetries?: number;
   /** Base delay for retry backoff in ms. Default: 100. */
   retryBaseDelayMs?: number;
+  /** Cap on completion tokens per LLM call, to bound cost on runaway output. Default: 1024. */
+  maxOutputTokens?: number;
 }
 
 export interface LlmAgentInput {

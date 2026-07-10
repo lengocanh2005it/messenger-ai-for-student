@@ -60,6 +60,12 @@ export class OpenAiAdapter implements LlmProviderAdapter {
         { role: 'system', content: request.systemPrompt },
         { role: 'user', content: request.userContent },
       ],
+      ...(request.temperature !== undefined && {
+        temperature: request.temperature,
+      }),
+      ...(request.maxOutputTokens !== undefined && {
+        max_completion_tokens: request.maxOutputTokens,
+      }),
     });
 
     const content = response.choices[0]?.message?.content;
@@ -93,6 +99,12 @@ export class OpenAiAdapter implements LlmProviderAdapter {
       messages: toOpenAiMessages(request.messages),
       tools: toOpenAiTools(request.tools),
       tool_choice: request.toolChoice ?? 'auto',
+      ...(request.temperature !== undefined && {
+        temperature: request.temperature,
+      }),
+      ...(request.maxOutputTokens !== undefined && {
+        max_completion_tokens: request.maxOutputTokens,
+      }),
     });
 
     return fromOpenAiCompletion(response, this.providerName, model);
@@ -115,6 +127,12 @@ export class OpenAiAdapter implements LlmProviderAdapter {
       tool_choice: request.toolChoice ?? 'auto',
       stream: true,
       stream_options: { include_usage: true },
+      ...(request.temperature !== undefined && {
+        temperature: request.temperature,
+      }),
+      ...(request.maxOutputTokens !== undefined && {
+        max_completion_tokens: request.maxOutputTokens,
+      }),
     });
 
     // Accumulator for the final response

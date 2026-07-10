@@ -32,6 +32,7 @@ import type {
 
 const DEFAULT_MAX_TOOL_ROUNDS = 6;
 const DEFAULT_MAX_CONTEXT_CHARS = 24_000;
+const DEFAULT_MAX_OUTPUT_TOKENS = 1024;
 const FEATURE = 'FREE_FORM_CHAT';
 
 // Injected after the platform system prompt to guide the model's reasoning.
@@ -107,49 +108,15 @@ export class LlmAgentService<TToolContext> {
     const metrics = this.ports.metrics ?? NOOP_METRICS_PORT;
     const adapter = this.ports.adapter;
 
-    if (!adapter.isConfigured()) {
-      logger.warn('LLM provider missing, using fallback chat reply');
-      return { text: this.buildFallbackReply(input.userText) };
-    }
-
-    const injectionCheck = detectPromptInjection(input.userText);
-    if (injectionCheck.isInjection) {
-      logger.warn(
-        `Prompt injection blocked externalUserId=${input.externalUserId} reason=${injectionCheck.reason}`,
-      );
-      return { text: buildPromptInjectionBlockedMessage() };
-    }
-
-    if (isObviouslyOffTopic(input.userText)) {
-      return { text: buildWispaceScopeRedirectMessage() };
-    }
+    const earlyReturn = this.checkEarlyReturns(input);
+    if (earlyReturn) return earlyReturn.reply;
 
     const model = adapter.getDefaultModel();
-    const safeHistory = this.buildSafeHistory(
-      input.history ?? [],
-      input.systemPrompt,
-      input.userText,
-      input.externalUserId,
-      logger,
-    );
-
-    const messages: LlmMessage[] = [
-      {
-        role: 'system',
-        content: `${input.systemPrompt}\n\n${REASONING_INSTRUCTION}`,
-      },
-      ...safeHistory.map((entry) => ({
-        // tool_summary entries become assistant messages so the LLM can
-        // see what it looked up in previous turns without re-calling tools.
-        role:
-          entry.role === 'tool_summary' ? ('assistant' as const) : entry.role,
-        content: entry.content,
-      })),
-      { role: 'user', content: input.userText.trim() },
-    ];
+    const messages = this.buildMessages(input);
 
     const toolsCalledThisTurn = new Set<string>();
     const maxToolRounds = this.getMaxToolRounds();
+    let previousToolCallSignature: string | null = null;
 
     for (let round = 0; round < maxToolRounds; round++) {
       const response = await metrics.timeLlmCall(FEATURE, model, round, () =>
@@ -164,6 +131,7 @@ export class LlmAgentService<TToolContext> {
                   tools: AGENT_TOOLS,
                   toolChoice: 'auto',
                   correlationId: input.correlationId,
+                  maxOutputTokens: this.getMaxOutputTokens(),
                 }),
               round,
               logger,
@@ -184,6 +152,10 @@ export class LlmAgentService<TToolContext> {
                 prompt_tokens: response.metadata.usage.promptTokens,
                 completion_tokens: response.metadata.usage.completionTokens,
                 total_tokens: response.metadata.usage.totalTokens,
+                prompt_tokens_details:
+                  response.metadata.usage.cachedTokens !== undefined
+                    ? { cached_tokens: response.metadata.usage.cachedTokens }
+                    : undefined,
               }
             : null,
         },
@@ -223,70 +195,26 @@ export class LlmAgentService<TToolContext> {
         return { text: sanitizeReplyText(text), toolSummary };
       }
 
+      const signature = this.buildToolCallSignature(toolCalls);
+      if (signature === previousToolCallSignature) {
+        metrics.llmRoundOutcomeInc(FEATURE, 'duplicate_tool_calls');
+        logger.warn(
+          `LLM agent detected duplicate tool calls, stopping early round=${round} externalUserId=${input.externalUserId} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
+        );
+        break;
+      }
+      previousToolCallSignature = signature;
+
       metrics.llmRoundOutcomeInc(FEATURE, 'tool_call');
 
       // Push the assistant message (with tool calls) for the next round
       messages.push(response.message);
 
-      const cache = this.ports.toolResultCache ?? NOOP_TOOL_RESULT_CACHE;
-      const cacheTtlMs = this.getToolCacheTtlMs();
-
-      // Execute all tool calls in this round in parallel
-      const toolResults = await Promise.all(
-        toolCalls.map(async (toolCall) => {
-          const toolName = toolCall.name;
-          toolsCalledThisTurn.add(toolName);
-          const argsJson = toolCall.arguments || '{}';
-          const cacheKey = `${input.externalUserId}:${toolName}:${stableHash(argsJson)}`;
-
-          let content: string;
-          try {
-            const cached = cacheTtlMs > 0 ? cache.get(cacheKey) : undefined;
-            let result: unknown;
-            if (cached !== undefined) {
-              logger.debug(
-                `Tool cache hit externalUserId=${input.externalUserId} tool=${toolName}`,
-              );
-              result = cached;
-            } else {
-              result = await metrics.timeTool(toolName, () =>
-                this.ports.toolExecutor.execute(
-                  toolName,
-                  argsJson,
-                  toolContext,
-                ),
-              );
-              if (cacheTtlMs > 0) {
-                cache.set(cacheKey, result, cacheTtlMs);
-                if (toolName === RESCHEDULE_TOOL) {
-                  cache.invalidatePrefix(
-                    `${input.externalUserId}:${CALENDAR_TOOL}:`,
-                  );
-                  logger.debug(
-                    `Cache invalidated ${CALENDAR_TOOL} for externalUserId=${input.externalUserId} after reschedule`,
-                  );
-                }
-              }
-            }
-            const raw = JSON.stringify({ ok: true, data: result });
-            const sanitized = sanitizeToolResultContent(raw);
-            if (sanitized.wasSanitized) {
-              logger.warn(
-                `Tool result sanitized externalUserId=${input.externalUserId} tool=${toolName} reason=${sanitized.reason}`,
-              );
-            }
-            content = sanitized.content;
-          } catch (err) {
-            const message =
-              err instanceof Error ? err.message : 'unknown error';
-            logger.warn(
-              `Tool execution failed externalUserId=${input.externalUserId} tool=${toolName} error=${message}`,
-            );
-            content = JSON.stringify({ ok: false, error: message });
-          }
-
-          return { toolCallId: toolCall.id, content };
-        }),
+      const toolResults = await this.executeToolCalls(
+        toolCalls,
+        input,
+        toolContext,
+        toolsCalledThisTurn,
       );
 
       for (const { toolCallId, content } of toolResults) {
@@ -326,70 +254,21 @@ export class LlmAgentService<TToolContext> {
     const metrics = this.ports.metrics ?? NOOP_METRICS_PORT;
     const adapter = this.ports.adapter;
 
-    if (!adapter.isConfigured()) {
-      logger.warn('LLM provider missing, using fallback chat reply (stream)');
-      const text = this.buildFallbackReply(input.userText);
-      yield { type: 'done', reply: { text } };
-      return;
-    }
-
-    const injectionCheck = detectPromptInjection(input.userText);
-    if (injectionCheck.isInjection) {
-      logger.warn(
-        `Prompt injection blocked externalUserId=${input.externalUserId} reason=${injectionCheck.reason}`,
-      );
-      yield {
-        type: 'done',
-        reply: { text: buildPromptInjectionBlockedMessage() },
-      };
-      return;
-    }
-
-    if (isObviouslyOffTopic(input.userText)) {
-      yield {
-        type: 'done',
-        reply: { text: buildWispaceScopeRedirectMessage() },
-      };
+    const earlyReturn = this.checkEarlyReturns(input);
+    if (earlyReturn) {
+      yield { type: 'done', reply: earlyReturn.reply };
       return;
     }
 
     const model = adapter.getDefaultModel();
-    const safeHistory = this.buildSafeHistory(
-      input.history ?? [],
-      input.systemPrompt,
-      input.userText,
-      input.externalUserId,
-      logger,
-    );
-
-    const messages: LlmMessage[] = [
-      {
-        role: 'system',
-        content: `${input.systemPrompt}\n\n${REASONING_INSTRUCTION}`,
-      },
-      ...safeHistory.map((entry) => ({
-        role:
-          entry.role === 'tool_summary' ? ('assistant' as const) : entry.role,
-        content: entry.content,
-      })),
-      { role: 'user', content: input.userText.trim() },
-    ];
+    const messages = this.buildMessages(input);
 
     const toolsCalledThisTurn = new Set<string>();
     const maxToolRounds = this.getMaxToolRounds();
-    const cache = this.ports.toolResultCache ?? NOOP_TOOL_RESULT_CACHE;
-    const cacheTtlMs = this.getToolCacheTtlMs();
+    let previousToolCallSignature: string | null = null;
 
     for (let round = 0; round < maxToolRounds; round++) {
       try {
-        // ---- Non-streaming tool-call rounds ----
-        // We don't know yet whether this round will call tools or produce text,
-        // so we use chatWithTools for all rounds except we detect "no tool calls"
-        // below and switch to streaming for the final text delivery.
-        //
-        // Strategy: do the non-stream call. If no tool calls → stream the answer
-        // by calling chatStream with the same messages (re-request). This avoids
-        // buffering the entire stream before we know whether tools are needed.
         const response = await metrics.timeLlmCall(FEATURE, model, round, () =>
           this.ports.llmExecution.run(
             () =>
@@ -402,6 +281,7 @@ export class LlmAgentService<TToolContext> {
                     tools: AGENT_TOOLS,
                     toolChoice: 'auto',
                     correlationId: input.correlationId,
+                    maxOutputTokens: this.getMaxOutputTokens(),
                   }),
                 round,
                 logger,
@@ -432,7 +312,6 @@ export class LlmAgentService<TToolContext> {
         const toolCalls = response.message.toolCalls;
 
         if (!toolCalls?.length) {
-          // Final text round — re-request with streaming to yield deltas.
           metrics.llmRoundOutcomeInc(FEATURE, 'direct_reply');
 
           const text = response.content;
@@ -444,7 +323,6 @@ export class LlmAgentService<TToolContext> {
             return;
           }
 
-          // Check grounding before yielding
           const groundingCheck = checkLlmGrounding(text, toolsCalledThisTurn);
           if (groundingCheck.suspicious) {
             logger.warn(
@@ -461,15 +339,6 @@ export class LlmAgentService<TToolContext> {
             });
           }
 
-          // Stream the final response using chatStream so callers get deltas.
-          // We push the assistant message first (from the non-stream response above)
-          // so the model has full context, then stream the same reply anew.
-          // Actually: the non-stream response already gave us the full text.
-          // Emit it as individual character-split deltas would be artificial.
-          // Instead, yield a single delta with the full text (transparent to caller)
-          // then done. True token-level streaming is in chatStream(); to keep
-          // the logic simple here we emit one delta per non-stream final response.
-          // Callers wanting true token streaming should use chatStream() directly.
           const sanitized = sanitizeReplyText(text);
           yield { type: 'delta', textDelta: sanitized };
 
@@ -481,6 +350,16 @@ export class LlmAgentService<TToolContext> {
           return;
         }
 
+        const signature = this.buildToolCallSignature(toolCalls);
+        if (signature === previousToolCallSignature) {
+          metrics.llmRoundOutcomeInc(FEATURE, 'duplicate_tool_calls');
+          logger.warn(
+            `LLM agent detected duplicate tool calls, stopping early (stream) round=${round} externalUserId=${input.externalUserId} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
+          );
+          break;
+        }
+        previousToolCallSignature = signature;
+
         metrics.llmRoundOutcomeInc(FEATURE, 'tool_call');
         messages.push(response.message);
 
@@ -490,57 +369,11 @@ export class LlmAgentService<TToolContext> {
           yield { type: 'tool_start' as const, toolName: toolCall.name };
         }
 
-        const toolResults = await Promise.all(
-          toolCalls.map(async (toolCall) => {
-            const toolName = toolCall.name;
-            const argsJson = toolCall.arguments || '{}';
-            const cacheKey = `${input.externalUserId}:${toolName}:${stableHash(argsJson)}`;
-
-            let content: string;
-            try {
-              const cached = cacheTtlMs > 0 ? cache.get(cacheKey) : undefined;
-              let result: unknown;
-              if (cached !== undefined) {
-                logger.debug(
-                  `Tool cache hit externalUserId=${input.externalUserId} tool=${toolName}`,
-                );
-                result = cached;
-              } else {
-                result = await metrics.timeTool(toolName, () =>
-                  this.ports.toolExecutor.execute(
-                    toolName,
-                    argsJson,
-                    toolContext,
-                  ),
-                );
-                if (cacheTtlMs > 0) {
-                  cache.set(cacheKey, result, cacheTtlMs);
-                  if (toolName === RESCHEDULE_TOOL) {
-                    cache.invalidatePrefix(
-                      `${input.externalUserId}:${CALENDAR_TOOL}:`,
-                    );
-                  }
-                }
-              }
-              const raw = JSON.stringify({ ok: true, data: result });
-              const sanitizedResult = sanitizeToolResultContent(raw);
-              if (sanitizedResult.wasSanitized) {
-                logger.warn(
-                  `Tool result sanitized externalUserId=${input.externalUserId} tool=${toolName} reason=${sanitizedResult.reason}`,
-                );
-              }
-              content = sanitizedResult.content;
-            } catch (err) {
-              const message =
-                err instanceof Error ? err.message : 'unknown error';
-              logger.warn(
-                `Tool execution failed externalUserId=${input.externalUserId} tool=${toolName} error=${message}`,
-              );
-              content = JSON.stringify({ ok: false, error: message });
-            }
-
-            return { toolCallId: toolCall.id, content };
-          }),
+        const toolResults = await this.executeToolCalls(
+          toolCalls,
+          input,
+          toolContext,
+          toolsCalledThisTurn,
         );
 
         for (const result of toolResults) {
@@ -700,5 +533,148 @@ export class LlmAgentService<TToolContext> {
       this.config.maxToolRounds > 0
       ? Math.floor(this.config.maxToolRounds)
       : DEFAULT_MAX_TOOL_ROUNDS;
+  }
+
+  private getMaxOutputTokens(): number {
+    return this.config.maxOutputTokens &&
+      Number.isFinite(this.config.maxOutputTokens) &&
+      this.config.maxOutputTokens > 0
+      ? Math.floor(this.config.maxOutputTokens)
+      : DEFAULT_MAX_OUTPUT_TOKENS;
+  }
+
+  /** Detects the model repeating an identical tool call across rounds (stuck loop). */
+  private buildToolCallSignature(
+    toolCalls: Array<{ name: string; arguments: string }>,
+  ): string {
+    return toolCalls
+      .map((tc) => `${tc.name}:${tc.arguments}`)
+      .sort()
+      .join('|');
+  }
+
+  // ─── Shared helpers for reply() and replyStream() ───────────────────────
+
+  private checkEarlyReturns(input: LlmAgentInput): {
+    blocked: true;
+    reply: LlmAgentReply;
+  } | null {
+    const logger = this.ports.logger ?? NOOP_LOGGER;
+    const adapter = this.ports.adapter;
+
+    if (!adapter.isConfigured()) {
+      return {
+        blocked: true,
+        reply: { text: this.buildFallbackReply(input.userText) },
+      };
+    }
+
+    const injectionCheck = detectPromptInjection(input.userText);
+    if (injectionCheck.isInjection) {
+      logger.warn(
+        `Prompt injection blocked externalUserId=${input.externalUserId} reason=${injectionCheck.reason}`,
+      );
+      return {
+        blocked: true,
+        reply: { text: buildPromptInjectionBlockedMessage() },
+      };
+    }
+
+    if (isObviouslyOffTopic(input.userText)) {
+      return {
+        blocked: true,
+        reply: { text: buildWispaceScopeRedirectMessage() },
+      };
+    }
+
+    return null;
+  }
+
+  private buildMessages(input: LlmAgentInput): LlmMessage[] {
+    const logger = this.ports.logger ?? NOOP_LOGGER;
+    const safeHistory = this.buildSafeHistory(
+      input.history ?? [],
+      input.systemPrompt,
+      input.userText,
+      input.externalUserId,
+      logger,
+    );
+
+    return [
+      {
+        role: 'system',
+        content: `${input.systemPrompt}\n\n${REASONING_INSTRUCTION}`,
+      },
+      ...safeHistory.map((entry) => ({
+        role:
+          entry.role === 'tool_summary' ? ('assistant' as const) : entry.role,
+        content: entry.content,
+      })),
+      { role: 'user', content: input.userText.trim() },
+    ];
+  }
+
+  private async executeToolCalls(
+    toolCalls: Array<{ id: string; name: string; arguments: string }>,
+    input: LlmAgentInput,
+    toolContext: TToolContext,
+    toolsCalledThisTurn: Set<string>,
+  ): Promise<Array<{ toolCallId: string; content: string }>> {
+    const logger = this.ports.logger ?? NOOP_LOGGER;
+    const metrics = this.ports.metrics ?? NOOP_METRICS_PORT;
+    const cache = this.ports.toolResultCache ?? NOOP_TOOL_RESULT_CACHE;
+    const cacheTtlMs = this.getToolCacheTtlMs();
+
+    return Promise.all(
+      toolCalls.map(async (toolCall) => {
+        const toolName = toolCall.name;
+        toolsCalledThisTurn.add(toolName);
+        const argsJson = toolCall.arguments || '{}';
+        const cacheKey = `${input.externalUserId}:${toolName}:${stableHash(argsJson)}`;
+
+        let content: string;
+        try {
+          const cached = cacheTtlMs > 0 ? cache.get(cacheKey) : undefined;
+          let result: unknown;
+          if (cached !== undefined) {
+            logger.debug(
+              `Tool cache hit externalUserId=${input.externalUserId} tool=${toolName}`,
+            );
+            result = cached;
+          } else {
+            result = await metrics.timeTool(toolName, () =>
+              this.ports.toolExecutor.execute(toolName, argsJson, toolContext),
+            );
+            if (cacheTtlMs > 0) {
+              cache.set(cacheKey, result, cacheTtlMs);
+              if (toolName === RESCHEDULE_TOOL) {
+                cache.invalidatePrefix(
+                  `${input.externalUserId}:${CALENDAR_TOOL}:`,
+                );
+                logger.debug(
+                  `Cache invalidated ${CALENDAR_TOOL} for externalUserId=${input.externalUserId} after reschedule`,
+                );
+              }
+            }
+          }
+          const raw = JSON.stringify({ ok: true, data: result });
+          const sanitized = sanitizeToolResultContent(raw);
+          if (sanitized.wasSanitized) {
+            logger.warn(
+              `Tool result sanitized externalUserId=${input.externalUserId} tool=${toolName} reason=${sanitized.reason}`,
+            );
+          }
+          content = sanitized.content;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'unknown error';
+          logger.warn(
+            `Tool execution failed externalUserId=${input.externalUserId} tool=${toolName} error=${message}`,
+          );
+          content = JSON.stringify({ ok: false, error: message });
+        }
+
+        return { toolCallId: toolCall.id, content };
+      }),
+    );
   }
 }

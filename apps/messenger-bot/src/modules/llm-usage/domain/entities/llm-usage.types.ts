@@ -13,6 +13,7 @@ export interface RecordLlmUsageInput {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens?: number;
   openaiResponseId?: string;
   correlationId?: string;
   toolRound?: number;

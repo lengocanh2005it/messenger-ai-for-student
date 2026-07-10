@@ -58,6 +58,8 @@ export interface LlmUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** Tokens served from OpenAI's automatic prompt cache (subset of promptTokens), if reported. */
+  cachedTokens?: number;
 }
 
 export interface LlmProviderMetadata {

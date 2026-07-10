@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   buildInputCostEnvKey,
   buildOutputCostEnvKey,
+  buildCachedInputCostEnvKey,
   estimateCostUsd,
   todayUsageDate,
 } from '@wispace/chat-metering';
@@ -106,16 +107,23 @@ export class LlmUsageConfigService {
     return this.readPositiveNumber(buildOutputCostEnvKey(model));
   }
 
+  getModelCachedInputUsdPer1M(model: string): number | null {
+    return this.readPositiveNumber(buildCachedInputCostEnvKey(model));
+  }
+
   estimateCostUsdForModel(
     model: string,
     promptTokens: number,
     completionTokens: number,
+    cachedTokens = 0,
   ): string | null {
     return estimateCostUsd(
       promptTokens,
       completionTokens,
       this.getModelInputUsdPer1M(model),
       this.getModelOutputUsdPer1M(model),
+      cachedTokens,
+      this.getModelCachedInputUsdPer1M(model),
     );
   }
 

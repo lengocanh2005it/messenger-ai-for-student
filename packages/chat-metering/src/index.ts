@@ -34,6 +34,7 @@ export {
   normalizeModelForEnvKey,
   buildInputCostEnvKey,
   buildOutputCostEnvKey,
+  buildCachedInputCostEnvKey,
   estimateCostUsd,
   addCostUsdStrings,
 } from './llm-usage/cost.utils';
