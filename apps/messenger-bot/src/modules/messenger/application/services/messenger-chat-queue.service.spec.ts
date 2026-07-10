@@ -54,9 +54,11 @@ describe('MessengerChatQueueService', () => {
 
     const getHistory = jest.fn(() => []);
     const appendTurn = jest.fn();
+    const appendToolSummary = jest.fn();
     const chatHistory = {
       getHistory,
       appendTurn,
+      appendToolSummary,
     } as unknown as ChatHistoryStorePort;
 
     const reserveFreeFormSlot = jest.fn(() => Promise.resolve(quotaAllowed()));

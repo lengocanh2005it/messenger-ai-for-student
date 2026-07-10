@@ -358,9 +358,12 @@ export class MessengerChatQueueService implements OnModuleDestroy {
 
       const assistantText = reply.text.trim();
       if (assistantText) {
-        await this.metrics.timeStep('history_append', () =>
-          this.chatHistory.appendTurn(psid, mergedText, assistantText),
-        );
+        await this.metrics.timeStep('history_append', async () => {
+          await this.chatHistory.appendTurn(psid, mergedText, assistantText);
+          if (reply.toolSummary) {
+            await this.chatHistory.appendToolSummary(psid, reply.toolSummary);
+          }
+        });
         mainReplyDelivered = await this.metrics.timeStep('meta_send', () =>
           this.deliverMainReplyBubbles({ psid, userId, text: assistantText }),
         );

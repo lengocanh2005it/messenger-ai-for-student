@@ -138,7 +138,10 @@ export class LlmAgentService<TToolContext> {
         content: `${input.systemPrompt}\n\n${REASONING_INSTRUCTION}`,
       },
       ...safeHistory.map((entry) => ({
-        role: entry.role,
+        // tool_summary entries become assistant messages so the LLM can
+        // see what it looked up in previous turns without re-calling tools.
+        role:
+          entry.role === 'tool_summary' ? ('assistant' as const) : entry.role,
         content: entry.content,
       })),
       { role: 'user', content: input.userText.trim() },
@@ -212,7 +215,11 @@ export class LlmAgentService<TToolContext> {
           });
         }
 
-        return { text: sanitizeReplyText(text) };
+        const toolSummary =
+          toolsCalledThisTurn.size > 0
+            ? `[Đã tra cứu: ${[...toolsCalledThisTurn].join('; ')}]`
+            : undefined;
+        return { text: sanitizeReplyText(text), toolSummary };
       }
 
       metrics.llmRoundOutcomeInc(FEATURE, 'tool_call');
@@ -291,9 +298,14 @@ export class LlmAgentService<TToolContext> {
       `LLM agent exhausted maxToolRounds=${this.getMaxToolRounds()} externalUserId=${input.externalUserId} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
     );
     const toolList = [...toolsCalledThisTurn].join(', ') || 'không có';
+    const toolSummary =
+      toolsCalledThisTurn.size > 0
+        ? `[Đã tra cứu: ${[...toolsCalledThisTurn].join('; ')}]`
+        : undefined;
     return {
       text: `Trợ lý đã tra cứu thông tin (${toolList}) nhưng chưa thể tổng hợp kết quả. Bạn vui lòng thử lại hoặc đặt câu hỏi cụ thể hơn nhé.`,
       exhausted: true,
+      toolSummary,
     };
   }
 

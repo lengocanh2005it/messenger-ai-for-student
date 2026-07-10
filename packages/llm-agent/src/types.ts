@@ -1,5 +1,5 @@
 export interface ChatHistoryMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'tool_summary';
   content: string;
 }
 
@@ -34,4 +34,10 @@ export interface LlmAgentReply {
   text: string;
   /** True when the agent exhausted maxToolRounds without reaching a final reply. */
   exhausted?: boolean;
+  /**
+   * Human-readable summary of tools invoked this turn (e.g. "[Đã tra cứu: tool1; tool2]").
+   * Present only when at least one tool was called. Callers should persist this as a
+   * `tool_summary` history entry so the model knows what it looked up in previous turns.
+   */
+  toolSummary?: string;
 }

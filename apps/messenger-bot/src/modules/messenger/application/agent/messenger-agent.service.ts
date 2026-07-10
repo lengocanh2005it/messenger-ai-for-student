@@ -26,6 +26,7 @@ export interface MessengerAgentReply {
   text: string;
   richFollowUps: MessengerRichFollowUp[];
   exhausted?: boolean;
+  toolSummary?: string;
 }
 
 export interface MessengerAgentInput {
@@ -111,6 +112,7 @@ export class MessengerAgentService {
       text: result.text,
       richFollowUps: toolContext.richFollowUps,
       exhausted: result.exhausted,
+      toolSummary: result.toolSummary,
     };
   }
 

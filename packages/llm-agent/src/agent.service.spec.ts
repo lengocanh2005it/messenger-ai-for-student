@@ -279,6 +279,30 @@ describe('LlmAgentService', () => {
       expect(adapter.chatWithTools).toHaveBeenCalledTimes(2);
     });
 
+    it('includes toolSummary listing tools called when tool round completes', async () => {
+      const toolResponse = makeToolCallResponse('get_learning_progress_report');
+      const textResponse = makeTextResponse('Đây là kết quả.');
+      const adapter = makeAdapter([toolResponse, textResponse]);
+      const execute = jest.fn().mockResolvedValue({});
+
+      const { service } = buildService({ adapter, execute });
+
+      const result = await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(result.toolSummary).toContain('get_learning_progress_report');
+    });
+
+    it('omits toolSummary when no tools were called', async () => {
+      const response = makeTextResponse('Câu trả lời trực tiếp.');
+      const adapter = makeAdapter([response]);
+
+      const { service } = buildService({ adapter });
+
+      const result = await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(result.toolSummary).toBeUndefined();
+    });
+
     it('returns graceful exhaustion reply after maxToolRounds (default = 6)', async () => {
       const toolResponse = makeToolCallResponse('get_user_goals');
       const adapter = makeAdapter([toolResponse]);
@@ -441,6 +465,41 @@ describe('LlmAgentService', () => {
             expect.objectContaining({
               role: 'user',
               content: 'Cho mình xem tiến độ học',
+            }),
+          ]),
+        }),
+      );
+    });
+  });
+
+  describe('reply() — tool_summary in history', () => {
+    it('maps tool_summary history entry to assistant role in LLM request', async () => {
+      const response = makeTextResponse('Dựa trên tra cứu trước...');
+      const adapter = makeAdapter([response]);
+
+      const { service } = buildService({ adapter });
+
+      await service.reply(
+        {
+          ...BASE_INPUT,
+          history: [
+            { role: 'user', content: 'Hỏi lịch' },
+            { role: 'assistant', content: 'Lịch của bạn như sau...' },
+            {
+              role: 'tool_summary',
+              content: '[Đã tra cứu: get_upcoming_study_sessions]',
+            },
+          ],
+        },
+        TOOL_CONTEXT,
+      );
+
+      expect(adapter.chatWithTools).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              role: 'assistant',
+              content: '[Đã tra cứu: get_upcoming_study_sessions]',
             }),
           ]),
         }),
