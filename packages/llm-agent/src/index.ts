@@ -1,4 +1,4 @@
-export { LlmAgentService } from './agent.service';
+export { LlmAgentService, LlmRetryExhaustedError } from './agent.service';
 export type { LlmAgentPorts } from './agent.service';
 export {
   AGENT_TOOLS,

@@ -1,5 +1,9 @@
 /* eslint-disable @typescript-eslint/unbound-method, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
-import { LlmAgentService, LlmAgentPorts } from './agent.service';
+import {
+  LlmAgentService,
+  LlmAgentPorts,
+  LlmRetryExhaustedError,
+} from './agent.service';
 import { NOOP_METRICS_PORT } from './ports';
 import type { LlmAgentInput } from './types';
 import type { LlmProviderAdapter } from './provider/llm-provider.adapter';
@@ -688,6 +692,107 @@ describe('LlmAgentService', () => {
       expect(toolResultCache.get).not.toHaveBeenCalled();
       expect(toolResultCache.set).not.toHaveBeenCalled();
       expect(execute).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('reply() — LLM retry with jitter backoff', () => {
+    function buildRetryService(
+      overrides: {
+        isRetryableError?: (e: unknown) => boolean;
+        chatWithToolsImpl?: jest.Mock;
+      } = {},
+    ) {
+      const rateLimitErr = Object.assign(new Error('rate limit'), {
+        status: 429,
+      });
+      const adapter: LlmProviderAdapter = {
+        providerName: 'openai',
+        isConfigured: () => true,
+        getDefaultModel: () => 'gpt-5.4',
+        generateJson: jest.fn(),
+        chatWithTools: overrides.chatWithToolsImpl ?? jest.fn(),
+        chatStream: jest.fn(),
+        isRetryableError: overrides.isRetryableError ?? (() => true),
+        isRateLimitError: () => false,
+        normalizeError: () => ({
+          provider: 'openai',
+          retryable: true,
+          reason: 'rate_limit',
+        }),
+      };
+
+      const ports: LlmAgentPorts<StubToolContext> = {
+        llmExecution: {
+          run: jest
+            .fn()
+            .mockImplementation((_fn: () => Promise<unknown>) => _fn()),
+        },
+        usageRecorder: { recordFromCompletion: jest.fn() },
+        safetyEvents: { recordGroundingWarning: jest.fn() },
+        toolExecutor: { execute: jest.fn().mockResolvedValue({}) },
+        adapter,
+        metrics: NOOP_METRICS_PORT,
+        logger: { warn: jest.fn(), debug: jest.fn() },
+      };
+
+      const service = new LlmAgentService<StubToolContext>(
+        { maxLlmRetries: 2, retryBaseDelayMs: 1 }, // 1ms delay for fast tests
+        ports,
+      );
+
+      return { service, adapter, rateLimitErr };
+    }
+
+    it('retries on retryable error and succeeds on later attempt', async () => {
+      const successResponse = makeTextResponse('Thành công sau retry.');
+      const rateLimitErr = Object.assign(new Error('rate limit'), {
+        status: 429,
+      });
+
+      let call = 0;
+      const chatWithToolsImpl = jest.fn().mockImplementation(() => {
+        call++;
+        if (call < 3) throw rateLimitErr;
+        return Promise.resolve(successResponse);
+      });
+
+      const { service } = buildRetryService({ chatWithToolsImpl });
+
+      const result = await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(result.text).toBe('Thành công sau retry.');
+      expect(chatWithToolsImpl).toHaveBeenCalledTimes(3);
+    });
+
+    it('throws LlmRetryExhaustedError after maxLlmRetries exhausted', async () => {
+      const rateLimitErr = Object.assign(new Error('rate limit'), {
+        status: 429,
+      });
+      const chatWithToolsImpl = jest.fn().mockRejectedValue(rateLimitErr);
+
+      const { service } = buildRetryService({ chatWithToolsImpl });
+
+      await expect(service.reply(BASE_INPUT, TOOL_CONTEXT)).rejects.toThrow(
+        LlmRetryExhaustedError,
+      );
+      // maxLlmRetries=2 → 3 total attempts (0,1,2)
+      expect(chatWithToolsImpl).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not retry non-retryable errors', async () => {
+      const authErr = Object.assign(new Error('unauthorized'), { status: 401 });
+      const chatWithToolsImpl = jest.fn().mockRejectedValue(authErr);
+
+      const { service } = buildRetryService({
+        chatWithToolsImpl,
+        isRetryableError: () => false,
+      });
+
+      await expect(service.reply(BASE_INPUT, TOOL_CONTEXT)).rejects.toThrow(
+        LlmRetryExhaustedError,
+      );
+      // Non-retryable → only 1 attempt, still wrapped in LlmRetryExhaustedError
+      expect(chatWithToolsImpl).toHaveBeenCalledTimes(1);
     });
   });
 });

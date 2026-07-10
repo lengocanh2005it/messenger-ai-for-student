@@ -71,6 +71,19 @@ function stableHash(str: string): string {
 const DEFAULT_TOOL_CACHE_TTL_MS = 300_000; // 5 minutes
 const RESCHEDULE_TOOL = 'reschedule_study_session';
 const CALENDAR_TOOL = 'list_study_calendar_entries';
+const DEFAULT_MAX_LLM_RETRIES = 3;
+const DEFAULT_RETRY_BASE_DELAY_MS = 100;
+const MAX_RETRY_DELAY_MS = 10_000;
+
+export class LlmRetryExhaustedError extends Error {
+  constructor(
+    public readonly attempts: number,
+    cause: unknown,
+  ) {
+    super(`LLM call failed after ${attempts} attempts`);
+    this.cause = cause;
+  }
+}
 
 /**
  * Framework-agnostic LLM function-calling orchestration loop, shared across
@@ -138,14 +151,19 @@ export class LlmAgentService<TToolContext> {
       const response = await metrics.timeLlmCall(FEATURE, model, round, () =>
         this.ports.llmExecution.run(
           () =>
-            adapter.chatWithTools({
-              feature: FEATURE,
-              model,
-              messages,
-              tools: AGENT_TOOLS,
-              toolChoice: 'auto',
-              correlationId: input.correlationId,
-            }),
+            this.withRetry(
+              () =>
+                adapter.chatWithTools({
+                  feature: FEATURE,
+                  model,
+                  messages,
+                  tools: AGENT_TOOLS,
+                  toolChoice: 'auto',
+                  correlationId: input.correlationId,
+                }),
+              round,
+              logger,
+            ),
           { feature: FEATURE, correlationId: input.correlationId },
         ),
       );
@@ -345,6 +363,52 @@ export class LlmAgentService<TToolContext> {
       this.config.maxContextChars > 0
       ? Math.floor(this.config.maxContextChars)
       : DEFAULT_MAX_CONTEXT_CHARS;
+  }
+
+  private async withRetry<T>(
+    fn: () => Promise<T>,
+    round: number,
+    logger: { warn: (msg: string) => void },
+  ): Promise<T> {
+    const maxRetries = this.getMaxLlmRetries();
+    const baseDelay = this.getRetryBaseDelayMs();
+    let lastErr: unknown;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        if (
+          !this.ports.adapter.isRetryableError(err) ||
+          attempt === maxRetries
+        ) {
+          break;
+        }
+        const delay = Math.min(
+          baseDelay * Math.pow(2, attempt) * (0.5 + Math.random() * 0.5),
+          MAX_RETRY_DELAY_MS,
+        );
+        logger.warn(
+          `LLM_RETRY attempt=${attempt + 1}/${maxRetries} round=${round} delay=${Math.round(delay)}ms`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    throw new LlmRetryExhaustedError(maxRetries + 1, lastErr);
+  }
+
+  private getMaxLlmRetries(): number {
+    const v = this.config.maxLlmRetries;
+    if (v && Number.isFinite(v) && v > 0) return Math.floor(v);
+    return DEFAULT_MAX_LLM_RETRIES;
+  }
+
+  private getRetryBaseDelayMs(): number {
+    const v = this.config.retryBaseDelayMs;
+    if (v && Number.isFinite(v) && v > 0) return Math.floor(v);
+    return DEFAULT_RETRY_BASE_DELAY_MS;
   }
 
   private getToolCacheTtlMs(): number {
