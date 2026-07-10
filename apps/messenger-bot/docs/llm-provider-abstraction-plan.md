@@ -1,10 +1,11 @@
 # LLM Provider Abstraction Plan
 
+> **Trạng thái:** ✅ Phase 0–6 đã implement xong (xem PR [#32](https://github.com/lengocanh2005it/messenger-ai-for-student/pull/32)).
+> Adapter pattern: `LlmProviderAdapter` interface, OpenAI adapter, OpenAI-compatible adapter, factory. Mọi consumer (messenger-bot, discord-bot) đã migrate.
+
 ## 1. Mục tiêu tài liệu
 
 Tài liệu này phân tích việc codebase hiện đang phụ thuộc cứng vào OpenAI SDK và đề xuất một interface trung gian để sau này có thể đổi sang LLM provider khác với ít thay đổi nhất.
-
-Phạm vi của tài liệu là phân tích và kế hoạch implement. Chưa thay đổi code runtime trong phase này.
 
 Mục tiêu chính:
 
@@ -1182,7 +1183,9 @@ Với phase chỉ thêm interface và vẫn dùng `OPENAI_*`, chưa cần đổi
 
 ## 9. Phase implement đề xuất
 
-### Phase 0: Design document
+> **Trạng thái:** Tất cả Phase 0–6 đã implement xong. Code nằm trong `packages/llm-agent/src/provider/`.
+
+### Phase 0: Design document ✅ DONE
 
 Mục tiêu:
 
@@ -1198,7 +1201,7 @@ Risk:
 
 - Không có risk runtime vì chưa sửa code.
 
-### Phase 1: Tách JSON generation cho Student Report và Study Reminder
+### Phase 1: Tách JSON generation cho Student Report và Study Reminder ✅ DONE
 
 Mục tiêu:
 
@@ -1238,7 +1241,7 @@ Rủi ro:
 - Nhỏ đến vừa.
 - Nên làm trước vì ít rủi ro hơn agent.
 
-### Phase 2: Tách tool schema và Messenger Agent
+### Phase 2: Tách tool schema và Messenger Agent ✅ DONE
 
 Mục tiêu:
 
@@ -1277,7 +1280,7 @@ Rủi ro:
 - Vừa đến lớn.
 - Nên làm sau Phase 1 để giảm blast radius.
 
-### Phase 3: Normalize usage, retry, metrics wording
+### Phase 3: Normalize usage, retry, metrics wording ✅ DONE
 
 Mục tiêu:
 
@@ -1306,7 +1309,7 @@ Rủi ro:
 - Dashboard/alert nếu đổi metric name. Khuyến nghị không đổi metric name trong phase này, chỉ đổi description/comment.
 - DB column `openaiResponseId` vẫn là naming cũ. Nếu rename cần migration riêng, chưa nên làm vội.
 
-### Phase 4: Thêm OpenAI-compatible provider config
+### Phase 4: Thêm OpenAI-compatible provider config ✅ DONE
 
 Mục tiêu:
 
@@ -1355,7 +1358,7 @@ Gợi ý:
   - Nếu provider không trả usage, log warning và ghi 0 token hoặc skip usage tùy policy hiện tại.
   - Nếu JSON mode unsupported, có thể config `LLM_JSON_MODE=prompt` ở phase sau.
 
-### Phase 5: Thêm provider không OpenAI-compatible
+### Phase 5: Thêm provider không OpenAI-compatible (future)
 
 Mục tiêu:
 

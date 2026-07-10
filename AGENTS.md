@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Hướng dẫn cho AI coding agents làm việc trong repo **wispace-bots** — Turborepo monorepo cho các bot học viên WISPACE (báo cáo AI + nhắc lịch học + chat AI rate limit). Hiện có `apps/messenger-bot` (đầy đủ tính năng), `apps/discord-bot` (chat + quota/usage/safety qua `packages/chat-metering` + account-linking OAuth2 + 6/7 tool handlers thật qua `packages/wispace-client` xong, kể cả `reschedule_study_session` qua Discord button confirm/cancel — còn `register_exam_report_notifications` stub — Messenger cần nó để lách giới hạn 24h nhắn tin của Meta (Discord không có giới hạn này) và Discord chưa port cron báo cáo định kỳ để dùng tới, xem `docs/turborepo-migration-plan.md` Phase 3), `apps/zalo-bot` (placeholder, chưa triển khai), `packages/llm-agent` (function-calling + gọi OpenAI API dùng chung mọi bot), `packages/chat-metering` (quota/rate-limit + LLM usage/safety event tracking dùng chung mọi bot), `packages/wispace-client` (Wispace API HTTP client goals/scores/calendar dùng chung mọi bot), `packages/chat-history` (in-memory chat history store TTL + turn cap dùng chung mọi bot), `packages/student-report` (sinh báo cáo năng lực học viên — fetch capacity + gọi LLM + fallback + format — dùng chung mọi bot), `packages/chat-queue-core` (debounce/merge state machine theo user, dùng chung mọi bot — idempotency key do từng platform tự resolve ở tầng ingestion), và `packages/study-reminder-core` (hàm thuần tính lịch nhắc học: remind_at, session-started, time label).
+Hướng dẫn cho AI coding agents làm việc trong repo **wispace-bots** — Turborepo monorepo cho các bot học viên WISPACE (báo cáo AI + nhắc lịch học + chat AI rate limit). Hiện có `apps/messenger-bot` (đầy đủ tính năng), `apps/discord-bot` (chat + quota/usage/safety qua `packages/chat-metering` + account-linking OAuth2 + 6/7 tool handlers thật qua `packages/wispace-client` xong, kể cả `reschedule_study_session` qua Discord button confirm/cancel — còn `register_exam_report_notifications` stub — Messenger cần nó để lách giới hạn 24h nhắn tin của Meta (Discord không có giới hạn này) và Discord chưa port cron báo cáo định kỳ để dùng tới, xem `docs/turborepo-migration-plan.md` Phase 3), `apps/zalo-bot` (placeholder, chưa triển khai), `packages/llm-agent` (LLM function-calling + provider abstraction dùng chung mọi bot), `packages/chat-metering` (quota/rate-limit + LLM usage/safety event tracking dùng chung mọi bot), `packages/wispace-client` (Wispace API HTTP client goals/scores/calendar dùng chung mọi bot), `packages/chat-history` (in-memory chat history store TTL + turn cap dùng chung mọi bot), `packages/student-report` (sinh báo cáo năng lực học viên — fetch capacity + gọi LLM + fallback + format — dùng chung mọi bot), `packages/chat-queue-core` (debounce/merge state machine theo user, dùng chung mọi bot — idempotency key do từng platform tự resolve ở tầng ingestion), và `packages/study-reminder-core` (hàm thuần tính lịch nhắc học: remind_at, session-started, time label).
 
 Đọc file này trước khi sửa code. Chi tiết sâu nằm trong `docs/` — chỉ đọc khi task liên quan. Lộ trình monorepo đầy đủ (Discord/Zalo, DB đa nền tảng, CI/CD độc lập): [docs/turborepo-migration-plan.md](docs/turborepo-migration-plan.md).
 
@@ -12,7 +12,7 @@ Hướng dẫn cho AI coding agents làm việc trong repo **wispace-bots** — 
 
 | | |
 |---|---|
-| **Stack** | NestJS 11, TypeScript, TypeORM, PostgreSQL, OpenAI |
+| **Stack** | NestJS 11, TypeScript, TypeORM, PostgreSQL, LLM Provider Abstraction (adapter pattern) |
 | **Mục tiêu** | Học viên IELTS liên kết `m.me` ↔ WISPACE, nhận báo cáo tiến độ và nhắc buổi học qua Messenger |
 | **Phạm vi** | Backend service nhỏ — **không** full-stack, **không** microservice riêng |
 | **DB** | PostgreSQL **`ai_chat_bot_db`** (dedicated POC); Wispace data qua **HTTP API**; cache tên user: bảng `users` + view `"Users"` |
@@ -34,8 +34,8 @@ Hướng dẫn cho AI coding agents làm việc trong repo **wispace-bots** — 
 - Debug jobs nhắc lịch: `npm run study-reminder:jobs` (`--failed`, `--stuck`, `--summary`).
 - Tra quota chat: `npm run chat-quota:status` (`--psid`, `--user-id`, `--date`, `--ops`); rebuild counter: `chat-quota:rebuild` (`--dry-run`).
 - Tra token LLM: `npm run llm-usage:status` (`--psid`, `--feature`, `--ops`); HTTP ops `GET /messenger/ops/llm-usage/summary` (`psid` \| `userId`, `from`, `to`) và `GET /messenger/ops/llm-usage/fleet` (`date`); USD: `LLM_COST_USD_PER_1M_*_GPT_5_4` = `2.50` / `15.00` (OpenAI Standard gpt-5.4); persist qua BullMQ queue `llm-usage-write` khi `REDIS_ENABLED=true`.
-- Cap concurrent OpenAI (1 instance): `LLM_EXECUTION_ENABLED=true`, `LLM_MAX_CONCURRENT` (mặc định `3`) — `LlmExecutionModule`; tắt nhanh: `LLM_EXECUTION_ENABLED=false`.
-- LLM safety: chat free-form chặn prompt-injection trước khi gọi OpenAI, sanitize history/tool results; dữ liệu ngoài cho reminder/report phải đi qua `prompt-injection.utils` / validate JSON output (`llm-json-output.utils`) trước khi format/gửi.
+- Cap concurrent LLM calls (1 instance): `LLM_EXECUTION_ENABLED=true`, `LLM_MAX_CONCURRENT` (mặc định `3`) — `LlmExecutionModule`; tắt nhanh: `LLM_EXECUTION_ENABLED=false`.
+- LLM safety: chat free-form chặn prompt-injection trước khi gọi LLM, sanitize history/tool results; dữ liệu ngoài cho reminder/report phải đi qua `prompt-injection.utils` / validate JSON output (`llm-json-output.utils`) trước khi format/gửi.
 - Ops health I1+S1: `npm run ops:health` (cron 09:00 ICT trong app khi `OPS_HEALTH_ALERT_ENABLED=true`).
 - Doppler webhook prod: sửa secret `prd` → `POST /messenger/ops/doppler-sync` tự sync `.env` + restart container ([doppler-secrets.md](apps/messenger-bot/docs/doppler-secrets.md) §4).
 - Audit log cleanup: cron `messenger-message-log-cleanup` — 03:00 ICT mỗi thứ Hai hàng tuần; `MESSENGER_MESSAGE_LOG_RETENTION_DAYS=90` (tắt: `MESSENGER_MESSAGE_LOG_CLEANUP_ENABLED=false`).
@@ -193,7 +193,7 @@ Repo dùng **feature modules + 4 tầng** (presentation → application → doma
 
 - **Domain** — types thuần, repository interfaces (không NestJS/TypeORM).
 - **Application** — services / use cases, ports cross-module (`Symbol` + `@Inject`).
-- **Infrastructure** — TypeORM repo impl, Wispace/Meta HTTP, OpenAI callers.
+- **Infrastructure** — TypeORM repo impl, Wispace/Meta HTTP, LLM provider adapters.
 - **Presentation** — controllers (mỏng, delegate xuống application).
 
 ### Ports cross-module
@@ -339,11 +339,11 @@ Wispace **phải** gọi sync API sau POST/DELETE `/api/UserCalendar`. Cron 30 p
 
 ## Security
 
-- **Không** commit secrets: `.env`, token Meta/OpenAI, `INTERNAL_API_KEY`, DB password.
+- **Không** commit secrets: `.env`, token Meta/OpenAI/LLM provider, `INTERNAL_API_KEY`, DB password.
 - Ops endpoints bảo vệ bởi `InternalApiKeyGuard` — không bỏ guard khi thêm endpoint vận hành.
 - Wispace API: chỉ header `x-psid`, không lưu/log full access token user.
 - Meta webhook: xác thực qua `VERIFY_TOKEN` (GET `/webhook`); POST `/webhook` verify `X-Hub-Signature-256` với `MESSENGER_APP_SECRET` (tắt: `MESSENGER_WEBHOOK_SIGNATURE_VERIFY=false`). `ENFORCE_PROD_CHAT_QUOTA=true` hoặc `NODE_ENV=production` → startup fail nếu thiếu secret / verify tắt / `CHAT_RATE_LIMIT_ENABLED=false`.
-- LLM prompt-injection: không đưa user/Wispace string thẳng vào prompt hoặc tool result. Dùng `sanitizeUntrustedTextForLlm` / `sanitizeToolResultContent`; output JSON từ OpenAI phải parse + validate shape, lỗi thì fallback template.
+- LLM prompt-injection: không đưa user/Wispace string thẳng vào prompt hoặc tool result. Dùng `sanitizeUntrustedTextForLlm` / `sanitizeToolResultContent`; output JSON từ LLM provider phải parse + validate shape, lỗi thì fallback template.
 
 ---
 
@@ -389,6 +389,7 @@ Cursor dùng `AGENTS.md` + `.cursor/rules/` (rule `change-workflow`) + skills gl
 | Multi-pod cron báo cáo 08:00 (R4) | ✓ Claim table + advisory lock + `CRON_LEADER_ENABLED` |
 | Chat hai chiều + rate limit V1 | ✓ Reserve/refund/burst/whitelist/hint |
 | Rate limit hardening H1–H7 | ✓ H2–H7 code; H1 = bật `CHAT_RATE_LIMIT_ENABLED` trên env prod |
+| LLM Provider Abstraction | ✓ Adapter pattern (`LlmProviderAdapter`), OpenAI adapter, OpenAI-compatible adapter, factory — PR #32 |
 | Tier / event store (Phase 7–8) | ✗ Optional — master plan [c2-master-implementation-plan.md](apps/messenger-bot/docs/c2-master-implementation-plan.md); full §5.8 [chat-rate-limit-quota.md](apps/messenger-bot/docs/chat-rate-limit-quota.md) |
 | Gap toàn dự án (link, báo cáo, nhắc, ops) | Roadmap — [edge-cases-roadmap.md](apps/messenger-bot/docs/edge-cases-roadmap.md) |
 
