@@ -47,7 +47,7 @@ flowchart TB
     FB["Facebook Messenger\nWebhook + Send API"]
     WISPACE["WISPACE Backend"]
     WAPI["WISPACE API\nUserCalendar, goals, scores\nx-psid"]
-    OAI["OpenAI"]
+    OAI["LLM Provider\n(OpenAI adapter)"]
   end
 
   subgraph App["demo_send_message_fb (NestJS)"]

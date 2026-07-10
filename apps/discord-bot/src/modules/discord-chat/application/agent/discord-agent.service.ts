@@ -1,11 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   LlmAgentService,
   LlmAgentPorts,
   NOOP_METRICS_PORT,
   ToolExecutorPort,
-  isOpenAiRetryableError,
+  type LlmProviderAdapter,
   loadSystemPromptFile,
 } from '@wispace/llm-agent';
 import { join } from 'path';
@@ -45,6 +45,8 @@ export class DiscordAgentService {
     private readonly historyService: DiscordChatHistoryService,
     private readonly usageRecorder: DiscordLlmUsageRecorderService,
     private readonly safetyEventService: DiscordLlmSafetyEventService,
+    @Inject('LLM_PROVIDER_ADAPTER')
+    private readonly adapter: LlmProviderAdapter,
   ) {}
 
   async reply(input: DiscordAgentInput): Promise<DiscordAgentReply> {
@@ -123,6 +125,7 @@ export class DiscordAgentService {
       },
       metrics: NOOP_METRICS_PORT,
       toolExecutor,
+      adapter: this.adapter,
       logger: {
         warn: (message) => this.logger.warn(message),
         debug: (message) => this.logger.debug(message),
@@ -131,8 +134,6 @@ export class DiscordAgentService {
 
     return new LlmAgentService<DiscordAgentToolContext>(
       {
-        apiKey: this.configService.get<string>('OPENAI_API_KEY'),
-        model: this.configService.get<string>('OPENAI_MODEL'),
         maxToolRounds: Number(
           this.configService.get<string>('OPENAI_MAX_TOOL_ROUNDS'),
         ),
@@ -153,13 +154,16 @@ export class DiscordAgentService {
       } catch (error) {
         lastError = error;
 
-        if (!isOpenAiRetryableError(error) || attempt >= RETRY_MAX_ATTEMPTS) {
+        if (
+          !this.adapter.isRetryableError(error) ||
+          attempt >= RETRY_MAX_ATTEMPTS
+        ) {
           throw error;
         }
 
         const backoffMs = RETRY_BASE_BACKOFF_MS * attempt;
         this.logger.warn(
-          `OpenAI retry attempt=${attempt}/${RETRY_MAX_ATTEMPTS} backoffMs=${backoffMs}: ${
+          `LLM provider retry attempt=${attempt}/${RETRY_MAX_ATTEMPTS} backoffMs=${backoffMs}: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );

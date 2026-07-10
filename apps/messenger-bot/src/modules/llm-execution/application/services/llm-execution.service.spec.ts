@@ -6,6 +6,19 @@ const noopMetrics = {
   timeLlmExecution: <T>(_feature: string, fn: () => Promise<T>) => fn(),
 } as unknown as MetricsService;
 
+const mockAdapter = {
+  isConfigured: () => true,
+  getDefaultModel: () => 'gpt-5.4',
+  isRetryableError: (error: unknown) => {
+    if (typeof error !== 'object' || error === null) return false;
+    const e = error as Record<string, unknown>;
+    if (e['name'] === 'RateLimitError') return true;
+    const status = e['status'];
+    if (status === 429) return true;
+    return false;
+  },
+} as never;
+
 function createConfig(overrides: {
   enabled?: boolean;
   maxConcurrent?: number;
@@ -34,7 +47,7 @@ function createConfig(overrides: {
 describe('LlmExecutionService', () => {
   it('bypasses the limiter when execution gate is disabled', async () => {
     const config = createConfig({ enabled: false, maxConcurrent: 1 });
-    const service = new LlmExecutionService(config, noopMetrics);
+    const service = new LlmExecutionService(config, noopMetrics, mockAdapter);
     let concurrent = 0;
     let maxConcurrent = 0;
 
@@ -54,7 +67,7 @@ describe('LlmExecutionService', () => {
 
   it('caps concurrent runs when enabled', async () => {
     const config = createConfig({ enabled: true, maxConcurrent: 1 });
-    const service = new LlmExecutionService(config, noopMetrics);
+    const service = new LlmExecutionService(config, noopMetrics, mockAdapter);
     let concurrent = 0;
     let maxConcurrent = 0;
 
@@ -79,7 +92,7 @@ describe('LlmExecutionService', () => {
       retryMaxAttempts: 3,
       retryBackoffMs: 1,
     });
-    const service = new LlmExecutionService(config, noopMetrics);
+    const service = new LlmExecutionService(config, noopMetrics, mockAdapter);
     let attempts = 0;
 
     const result = await service.run(() => {
@@ -104,7 +117,7 @@ describe('LlmExecutionService', () => {
       retryMaxAttempts: 3,
       retryBackoffMs: 1,
     });
-    const service = new LlmExecutionService(config, noopMetrics);
+    const service = new LlmExecutionService(config, noopMetrics, mockAdapter);
     let attempts = 0;
 
     await expect(
@@ -128,7 +141,7 @@ describe('LlmExecutionService', () => {
         <T>(_feature: string, fn: () => Promise<T>) => fn(),
       );
       const metrics = { timeLlmExecution } as unknown as MetricsService;
-      const service = new LlmExecutionService(config, metrics);
+      const service = new LlmExecutionService(config, metrics, mockAdapter);
 
       await service.run(() => Promise.resolve('ok'), {
         feature: 'STUDY_REMINDER',
@@ -150,7 +163,7 @@ describe('LlmExecutionService', () => {
         <T>(_feature: string, fn: () => Promise<T>) => fn(),
       );
       const metrics = { timeLlmExecution } as unknown as MetricsService;
-      const service = new LlmExecutionService(config, metrics);
+      const service = new LlmExecutionService(config, metrics, mockAdapter);
 
       await service.run(() => Promise.resolve('ok'));
 
@@ -171,7 +184,7 @@ describe('LlmExecutionService', () => {
         <T>(_feature: string, fn: () => Promise<T>) => fn(),
       );
       const metrics = { timeLlmExecution } as unknown as MetricsService;
-      const service = new LlmExecutionService(config, metrics);
+      const service = new LlmExecutionService(config, metrics, mockAdapter);
       let attempts = 0;
 
       await service.run(

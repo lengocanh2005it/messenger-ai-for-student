@@ -1,6 +1,6 @@
 import { InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ChatCompletion } from 'openai/resources/chat/completions';
+import type { LlmJsonResponse, LlmProviderAdapter } from '@wispace/llm-agent';
 import { StudentReportNoScoreDataError } from '../../domain/errors/student-report-no-score-data.error';
 import {
   StudentReportRetryableError,
@@ -12,6 +12,11 @@ import {
 } from '../messages/student-report.messages';
 import { StudentCapacityService } from './student-capacity.service';
 import { StudentReportService } from './student-report.service';
+
+const mockAdapter = {
+  isConfigured: () => true,
+  getDefaultModel: () => 'gpt-5.4',
+} as unknown as LlmProviderAdapter;
 
 describe('StudentReportService', () => {
   const capacityInput = {
@@ -27,11 +32,16 @@ describe('StudentReportService', () => {
     total_essays_task2: 5,
   };
 
-  function makeCompletion(content: string): ChatCompletion {
+  function makeJsonResponse(content: string): LlmJsonResponse {
     return {
-      choices: [{ message: { content } }],
-      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-    } as unknown as ChatCompletion;
+      content,
+      metadata: {
+        provider: 'openai',
+        model: 'gpt-5.4',
+        responseId: 'resp-1',
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+      },
+    };
   }
 
   it('returns friendly message when Wispace has no score data (R1)', async () => {
@@ -46,6 +56,7 @@ describe('StudentReportService', () => {
       studentCapacityService,
       { recordFromCompletion: jest.fn() } as never,
       { run: jest.fn((fn: () => unknown) => fn()) } as never,
+      mockAdapter,
     );
 
     await expect(service.generateReport('psid-1')).resolves.toBe(
@@ -65,6 +76,7 @@ describe('StudentReportService', () => {
       studentCapacityService,
       { recordFromCompletion: jest.fn() } as never,
       { run: jest.fn((fn: () => unknown) => fn()) } as never,
+      mockAdapter,
     );
 
     await expect(service.generateReport('psid-1')).rejects.toBeInstanceOf(
@@ -91,6 +103,7 @@ describe('StudentReportService', () => {
       studentCapacityService,
       { recordFromCompletion: jest.fn() } as never,
       { run: jest.fn((fn: () => unknown) => fn()) } as never,
+      mockAdapter,
     );
 
     await expect(service.generateReport('psid-1')).rejects.toBeInstanceOf(
@@ -112,6 +125,7 @@ describe('StudentReportService', () => {
       studentCapacityService,
       { recordFromCompletion: jest.fn() } as never,
       { run: jest.fn((fn: () => unknown) => fn()) } as never,
+      mockAdapter,
     );
 
     await expect(service.generateReport('psid-1')).resolves.toBe(
@@ -134,9 +148,10 @@ describe('StudentReportService', () => {
       { recordFromCompletion: jest.fn() } as never,
       {
         run: jest.fn(() =>
-          Promise.resolve(makeCompletion('{"headline":"ok"}')),
+          Promise.resolve(makeJsonResponse('{"headline":"ok"}')),
         ),
       } as never,
+      mockAdapter,
     );
 
     await expect(service.generateReport('psid-1')).resolves.toContain(

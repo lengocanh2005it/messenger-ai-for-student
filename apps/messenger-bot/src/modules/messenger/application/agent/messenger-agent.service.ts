@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   LlmAgentService,
   LlmAgentPorts,
   ToolExecutorPort,
   loadSystemPromptFile,
+  type LlmProviderAdapter,
 } from '@wispace/llm-agent';
 import { join } from 'path';
 import { trace } from '@opentelemetry/api';
@@ -24,7 +25,16 @@ import { MetricsService } from '../../../metrics/metrics.service';
 export interface MessengerAgentReply {
   text: string;
   richFollowUps: MessengerRichFollowUp[];
+  exhausted?: boolean;
+  toolSummary?: string;
 }
+
+/** Stream events from MessengerAgentService.replyStream() — done carries full MessengerAgentReply. */
+export type MessengerAgentStreamEvent =
+  | { type: 'delta'; textDelta: string }
+  | { type: 'tool_start'; toolName: string }
+  | { type: 'done'; reply: MessengerAgentReply }
+  | { type: 'error'; error: unknown };
 
 export interface MessengerAgentInput {
   psid: string;
@@ -56,6 +66,8 @@ export class MessengerAgentService {
     private readonly llmExecution: LlmExecutionService,
     private readonly llmSafetyEventService: LlmSafetyEventService,
     private readonly metrics: MetricsService,
+    @Inject('LLM_PROVIDER_ADAPTER')
+    private readonly adapter: LlmProviderAdapter,
   ) {}
 
   async reply(input: MessengerAgentInput): Promise<MessengerAgentReply> {
@@ -103,7 +115,76 @@ export class MessengerAgentService {
       toolContext,
     );
 
-    return { text: result.text, richFollowUps: toolContext.richFollowUps };
+    return {
+      text: result.text,
+      richFollowUps: toolContext.richFollowUps,
+      exhausted: result.exhausted,
+      toolSummary: result.toolSummary,
+    };
+  }
+
+  async *replyStream(
+    input: MessengerAgentInput,
+  ): AsyncIterable<MessengerAgentStreamEvent> {
+    const toolContext: MessengerAgentToolContext = {
+      psid: input.psid,
+      userId: input.userId,
+      linkContext: input.linkContext,
+      richFollowUps: [],
+    };
+
+    const fastReschedule = await this.toolsService.tryFastDefaultReschedule(
+      toolContext,
+      input.userText,
+    );
+    if (fastReschedule) {
+      yield { type: 'delta', textDelta: fastReschedule.text };
+      yield {
+        type: 'done',
+        reply: {
+          text: fastReschedule.text,
+          richFollowUps: toolContext.richFollowUps,
+          exhausted: fastReschedule.exhausted,
+          toolSummary: fastReschedule.toolSummary,
+        },
+      };
+      return;
+    }
+
+    const displayName = await this.userDisplayNameService.resolveDisplayName({
+      psid: input.psid,
+      userId: input.userId,
+    });
+
+    if (!this.agent) {
+      this.agent = this.buildAgent();
+    }
+
+    for await (const event of this.agent.replyStream(
+      {
+        externalUserId: input.psid,
+        userId: input.userId,
+        userText: input.userText,
+        systemPrompt: this.buildSystemPrompt(displayName, input.userId),
+        history: input.history,
+        correlationId: input.correlationId,
+      },
+      toolContext,
+    )) {
+      if (event.type === 'done') {
+        yield {
+          type: 'done',
+          reply: {
+            text: event.reply.text,
+            richFollowUps: toolContext.richFollowUps,
+            exhausted: event.reply.exhausted,
+            toolSummary: event.reply.toolSummary,
+          },
+        };
+      } else {
+        yield event;
+      }
+    }
   }
 
   private buildAgent(): LlmAgentService<MessengerAgentToolContext> {
@@ -153,6 +234,7 @@ export class MessengerAgentService {
           this.metrics.llmRoundOutcome.inc({ feature, outcome }),
       },
       toolExecutor,
+      adapter: this.adapter,
       logger: {
         warn: (message) => this.logger.warn(message),
         debug: (message) => this.logger.debug(message),
@@ -161,8 +243,6 @@ export class MessengerAgentService {
 
     return new LlmAgentService<MessengerAgentToolContext>(
       {
-        apiKey: this.configService.get<string>('OPENAI_API_KEY'),
-        model: this.configService.get<string>('OPENAI_MODEL'),
         maxToolRounds: Number(
           this.configService.get<string>('OPENAI_MAX_TOOL_ROUNDS'),
         ),

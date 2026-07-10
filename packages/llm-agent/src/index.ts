@@ -1,4 +1,4 @@
-export { LlmAgentService } from './agent.service';
+export { LlmAgentService, LlmRetryExhaustedError } from './agent.service';
 export type { LlmAgentPorts } from './agent.service';
 export {
   AGENT_TOOLS,
@@ -30,6 +30,7 @@ export type {
   LlmAgentConfig,
   LlmAgentInput,
   LlmAgentReply,
+  LlmAgentStreamEvent,
 } from './types';
 export {
   buildPromptInjectionBlockedMessage,
@@ -51,3 +52,30 @@ export {
 export { isObviouslyOffTopic } from './utils/scope.utils';
 export { sanitizeReplyText } from './utils/text.utils';
 export { loadSystemPromptFile } from './utils/load-system-prompt';
+
+// --- Provider abstraction (new) ---
+export type {
+  LlmProvider,
+  LlmFeature,
+  LlmToolDefinition,
+  LlmMessageRole,
+  LlmToolCall,
+  LlmMessage,
+  LlmUsage,
+  LlmProviderMetadata,
+  LlmJsonRequest,
+  LlmJsonResponse,
+  LlmToolChatRequest,
+  LlmToolChatResponse,
+  LlmStreamEvent,
+  LlmProviderError,
+} from './provider/types';
+export type { LlmProviderAdapter } from './provider/llm-provider.adapter';
+export { OpenAiAdapter } from './provider/openai/openai-adapter';
+export { OpenAiCompatibleAdapter } from './provider/openai-compatible/openai-compatible-adapter';
+export { createLlmProviderAdapter } from './provider/factory';
+
+// --- Tool result cache ---
+export type { ToolResultCachePort } from './tool-cache/tool-result-cache.port';
+export { NOOP_TOOL_RESULT_CACHE } from './tool-cache/tool-result-cache.port';
+export { InMemoryToolResultCache } from './tool-cache/in-memory-tool-result-cache';

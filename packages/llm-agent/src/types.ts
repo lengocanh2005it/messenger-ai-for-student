@@ -1,13 +1,20 @@
 export interface ChatHistoryMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'tool_summary';
   content: string;
 }
 
 export interface LlmAgentConfig {
+  /** @deprecated Use adapter.isConfigured() instead. Kept for backward compat. */
   apiKey?: string;
   model?: string;
   maxToolRounds?: number;
   maxContextChars?: number;
+  /** TTL for tool result cache in ms. Default: 300_000 (5 min). 0 = disable cache. */
+  toolCacheTtlMs?: number;
+  /** Max LLM call retries on retryable errors. Default: 3. */
+  maxLlmRetries?: number;
+  /** Base delay for retry backoff in ms. Default: 100. */
+  retryBaseDelayMs?: number;
 }
 
 export interface LlmAgentInput {
@@ -25,4 +32,25 @@ export interface LlmAgentInput {
 
 export interface LlmAgentReply {
   text: string;
+  /** True when the agent exhausted maxToolRounds without reaching a final reply. */
+  exhausted?: boolean;
+  /**
+   * Human-readable summary of tools invoked this turn (e.g. "[Đã tra cứu: tool1; tool2]").
+   * Present only when at least one tool was called. Callers should persist this as a
+   * `tool_summary` history entry so the model knows what it looked up in previous turns.
+   */
+  toolSummary?: string;
 }
+
+/**
+ * Events emitted by `LlmAgentService.replyStream()`.
+ * - `delta` — incremental text token from the final LLM reply round.
+ * - `tool_start` — a tool call is about to be executed (non-streaming round).
+ * - `done` — stream complete; full reply is in `reply`.
+ * - `error` — unrecoverable error; stream terminates after this event.
+ */
+export type LlmAgentStreamEvent =
+  | { type: 'delta'; textDelta: string }
+  | { type: 'tool_start'; toolName: string }
+  | { type: 'done'; reply: LlmAgentReply }
+  | { type: 'error'; error: unknown };

@@ -37,6 +37,38 @@ describe('MemoryChatHistoryStore', () => {
     await expect(store.getHistory('psid-1')).resolves.toEqual([]);
   });
 
+  it('appends tool summary visible in getHistory', async () => {
+    const store = createStore();
+    await store.appendTurn('psid-1', 'hỏi lịch', 'Lịch của bạn như sau...');
+    await store.appendToolSummary(
+      'psid-1',
+      '[Đã tra cứu: get_upcoming_study_sessions]',
+    );
+
+    const history = await store.getHistory('psid-1');
+    expect(history).toEqual([
+      { role: 'user', content: 'hỏi lịch' },
+      { role: 'assistant', content: 'Lịch của bạn như sau...' },
+      {
+        role: 'tool_summary',
+        content: '[Đã tra cứu: get_upcoming_study_sessions]',
+      },
+    ]);
+  });
+
+  it('clears tool summaries when appendTurn is called next', async () => {
+    const store = createStore();
+    await store.appendTurn('psid-1', 'hỏi lịch', 'Lịch của bạn như sau...');
+    await store.appendToolSummary(
+      'psid-1',
+      '[Đã tra cứu: get_upcoming_study_sessions]',
+    );
+    await store.appendTurn('psid-1', 'cảm ơn', 'Không có gì!');
+
+    const history = await store.getHistory('psid-1');
+    expect(history.some((m) => m.role === 'tool_summary')).toBe(false);
+  });
+
   it('expires stale history by ttl', async () => {
     const store = createStore(1_000);
     await store.appendTurn('psid-1', 'hi', 'hello');

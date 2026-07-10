@@ -45,10 +45,17 @@ export class RedisChatHistoryStore implements ChatHistoryStorePort {
         return [];
       }
 
-      return parsed.messages.map((message) => ({
-        role: message.role,
-        content: message.content,
-      }));
+      return parsed.messages
+        .filter(
+          (m) =>
+            m.role === 'user' ||
+            m.role === 'assistant' ||
+            m.role === 'tool_summary',
+        )
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        }));
     } catch (error) {
       this.logger.warn(
         `Redis chat history read failed psid=${psid}: ${
@@ -93,6 +100,35 @@ export class RedisChatHistoryStore implements ChatHistoryStorePort {
     } catch (error) {
       this.logger.warn(
         `Redis chat history write failed psid=${psid}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  async appendToolSummary(psid: string, summary: string): Promise<void> {
+    const client = this.redisClient.getNativeClient();
+    if (!client) {
+      return;
+    }
+
+    try {
+      const existing = await this.getHistory(psid);
+      const messages = [
+        ...existing,
+        { role: 'tool_summary' as const, content: summary },
+      ].slice(-this.sharedConfig.getHistoryMaxMessages());
+
+      const payload: RedisChatHistoryPayload = { messages };
+      await client.set(
+        this.key(psid),
+        JSON.stringify(payload),
+        'EX',
+        this.ttlSeconds(),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Redis chat history tool summary write failed psid=${psid}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );

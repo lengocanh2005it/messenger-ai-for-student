@@ -4,9 +4,9 @@ Repo dùng **feature modules + 4 tầng** theo chuẩn NestJS Clean Architecture
 
 ## Ranh giới monorepo: `packages/llm-agent`
 
-`packages/llm-agent` (`@wispace/llm-agent`) là package **framework-agnostic** dùng chung cho mọi bot (Messenger, Discord, Zalo) — chứa orchestration LLM function-calling (`LlmAgentService`), tool schema (`AGENT_TOOLS`), safety utils (prompt injection, grounding, OpenAI error), và text/scope utils domain WISPACE.
+`packages/llm-agent` (`@wispace/llm-agent`) là package **framework-agnostic** dùng chung cho mọi bot (Messenger, Discord, Zalo) — chứa orchestration LLM function-calling (`LlmAgentService`), provider abstraction (`LlmProviderAdapter` interface + OpenAI/OpenAI-compatible adapters), tool schema (`AGENT_TOOLS`), safety utils (prompt injection, grounding, LLM error), và text/scope utils domain WISPACE.
 
-- **Không** import NestJS/TypeORM/Express trong `packages/llm-agent` — chỉ dependency `openai`.
+- **Không** import NestJS/TypeORM/Express trong `packages/llm-agent` — `openai` npm package vẫn là dependency (dùng trong OpenAI adapter).
 - **Không** đặt business logic gọi Wispace API / DB trong package này — đó là tool handler (`ToolExecutorPort`), sống trong từng app (`apps/messenger-bot/src/modules/messenger/application/agent/messenger-agent-tools.service.ts`).
 - Mỗi app implement các port (`LlmExecutionPort`, `LlmUsageRecorderPort`, `LlmSafetyEventPort`, `AgentMetricsPort`, `ToolExecutorPort<T>`) bằng service NestJS thật, rồi gọi `new LlmAgentService(config, ports)` — xem `apps/messenger-bot/src/modules/messenger/application/agent/messenger-agent.service.ts` làm ví dụ adapter mỏng.
 - Sửa package → phải rebuild + test cả app phụ thuộc (`npx turbo run build test --filter=@wispace/messenger-bot...`).
@@ -76,7 +76,7 @@ presentation → application → domain ← infrastructure
 
 | Tầng | Thư mục | Được phép | Không được |
 |------|---------|-----------|------------|
-| **Domain** | `domain/` | Types, entities thuần, repository **interface** | Import NestJS, TypeORM, HTTP, OpenAI, service khác module |
+| **Domain** | `domain/` | Types, entities thuần, repository **interface** | Import NestJS, TypeORM, HTTP, LLM provider, service khác module |
 | **Application** | `application/` | Use cases / services, ports (interface + Symbol token) | Controller, TypeORM entity, `fetch` trực tiếp |
 | **Infrastructure** | `infrastructure/` | Repository impl, API client, Meta profile | Import `presentation/` |
 | **Presentation** | `presentation/` | Controller, (DTO nếu có) | Logic nghiệp vụ — chỉ delegate xuống `application/` |
@@ -143,7 +143,7 @@ apps/messenger-bot/src/modules/<feature>/
 3. **TypeORM entity** → `apps/messenger-bot/src/infrastructure/database/entities/` + migration.
 4. **Repository** — interface trong `domain/repositories/`; class trong `infrastructure/persistence/`; bind token trong `*.module.ts`.
 5. **HTTP** → `presentation/controllers/` — gọi application service, không gọi repository trực tiếp.
-6. **Wispace / Meta / OpenAI** → `infrastructure/` của module tương ứng (trong app), hoặc `packages/llm-agent` nếu là orchestration/schema dùng chung cho mọi bot.
+6. **Wispace / Meta / LLM provider** → `infrastructure/` của module tương ứng (trong app), hoặc `packages/llm-agent` nếu là orchestration/schema dùng chung cho mọi bot.
 7. **Prompt LLM đặc thù platform** → `apps/<bot>/src/shared/prompts/`; load qua `loadSystemPromptFile()` từ `@wispace/llm-agent`. **Thông báo dùng chung** (không đặc thù platform) → `packages/llm-agent/src/messages.ts`.
 8. Sau sửa prompt: `npx turbo run build --filter=@wispace/messenger-bot...` (assets → `apps/messenger-bot/dist/shared/prompts/`).
 

@@ -25,6 +25,10 @@ export class ChatHistoryStoreResolver implements ChatHistoryStorePort {
     return this.resolveStore().appendTurn(psid, userText, assistantText);
   }
 
+  appendToolSummary(psid: string, summary: string): Promise<void> {
+    return this.resolveStore().appendToolSummary(psid, summary);
+  }
+
   clear(psid: string): Promise<void> {
     return this.resolveStore().clear(psid);
   }

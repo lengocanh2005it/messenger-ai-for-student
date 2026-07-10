@@ -29,7 +29,7 @@ flowchart LR
 
   subgraph Dispatch["Bước 2 — Dispatch"]
     Worker["Adaptive poll loop"]
-    LLM["OpenAI"]
+    LLM["LLM Provider\n(OpenAI adapter)"]
     FB["Messenger"]
     Worker --> Jobs
     Worker --> LLM

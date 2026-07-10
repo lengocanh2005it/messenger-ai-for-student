@@ -7,6 +7,8 @@ import { MessengerChatSharedConfigService } from '../../application/services/mes
 @Injectable()
 export class MemoryChatHistoryStore implements ChatHistoryStorePort {
   private readonly core: MemoryChatHistoryStoreCore;
+  /** Pending tool summaries inserted after the latest appendTurn. */
+  private readonly pendingSummaries = new Map<string, string[]>();
 
   constructor(sharedConfig: MessengerChatSharedConfigService) {
     this.core = new MemoryChatHistoryStoreCore({
@@ -15,19 +17,35 @@ export class MemoryChatHistoryStore implements ChatHistoryStorePort {
     });
   }
 
-  getHistory(psid: string): Promise<ChatHistoryMessage[]> {
-    return this.core.getHistory(psid);
+  async getHistory(psid: string): Promise<ChatHistoryMessage[]> {
+    const base = await this.core.getHistory(psid);
+    const summaries = this.pendingSummaries.get(psid) ?? [];
+    if (summaries.length === 0) return base;
+    return [
+      ...base,
+      ...summaries.map((s) => ({ role: 'tool_summary' as const, content: s })),
+    ];
   }
 
-  appendTurn(
+  async appendTurn(
     psid: string,
     userText: string,
     assistantText: string,
   ): Promise<void> {
+    // Summaries were visible via getHistory(); discard once the turn is committed.
+    this.pendingSummaries.delete(psid);
     return this.core.appendTurn(psid, userText, assistantText);
   }
 
-  clear(psid: string): Promise<void> {
+  appendToolSummary(psid: string, summary: string): Promise<void> {
+    const list = this.pendingSummaries.get(psid) ?? [];
+    list.push(summary);
+    this.pendingSummaries.set(psid, list);
+    return Promise.resolve();
+  }
+
+  async clear(psid: string): Promise<void> {
+    this.pendingSummaries.delete(psid);
     return this.core.clear(psid);
   }
 }

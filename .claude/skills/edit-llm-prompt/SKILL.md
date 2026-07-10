@@ -1,6 +1,6 @@
 ---
 name: edit-llm-prompt
-description: Edit OpenAI system prompts for student reports or study reminders. Use when user asks to change nội dung báo cáo, nhắc lịch, LLM prompt, or tone of Messenger messages.
+description: Edit LLM system prompts for student reports or study reminders. Use when user asks to change nội dung báo cáo, nhắc lịch, LLM prompt, or tone of Messenger messages.
 ---
 
 # Edit LLM prompt

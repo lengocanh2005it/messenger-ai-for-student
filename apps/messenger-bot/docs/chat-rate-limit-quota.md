@@ -124,7 +124,7 @@ sequenceDiagram
   participant U as User
   participant WH as Webhook
   participant Q as Daily usage DB
-  participant LLM as OpenAI
+  participant LLM as LLM Provider
   participant FB as Messenger
 
   U->>WH: text message
@@ -465,7 +465,7 @@ sequenceDiagram
   participant WH as Webhook
   participant Q as Chat queue flush
   participant DB as Postgres
-  participant LLM as OpenAI
+  participant LLM as LLM Provider
 
   WH->>WH: isDuplicateMessageMid RAM
   WH->>Q: enqueue

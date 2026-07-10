@@ -4,6 +4,7 @@ import {
   type RetryableApiError,
 } from './errors';
 import type { StudentCapacityInput } from './types';
+import type { LlmProviderAdapter, LlmJsonResponse } from '@wispace/llm-agent';
 
 const baseInput: StudentCapacityInput = {
   exam_date: '2026-08-01',
@@ -35,9 +36,13 @@ describe('StudentReportCore', () => {
         .fn()
         .mockRejectedValue(new StudentReportNoScoreDataError('user-1')),
     };
+    const adapter = {
+      isConfigured: () => false,
+      getDefaultModel: () => 'gpt-5.4',
+    } as unknown as LlmProviderAdapter;
 
     const core = new StudentReportCore(
-      { systemPrompt: 'prompt' },
+      { adapter, systemPrompt: 'prompt' },
       { llmExecution, usageRecorder, capacityData },
     );
 
@@ -47,15 +52,19 @@ describe('StudentReportCore', () => {
     expect(llmExecution.run).not.toHaveBeenCalled();
   });
 
-  it('returns a fallback report when OPENAI_API_KEY is missing', async () => {
+  it('returns a fallback report when adapter is not configured', async () => {
     const llmExecution = { run: jest.fn() };
     const usageRecorder = { recordFromCompletion: jest.fn() };
     const capacityData = {
       getCapacityData: jest.fn().mockResolvedValue(baseInput),
     };
+    const adapter = {
+      isConfigured: () => false,
+      getDefaultModel: () => 'gpt-5.4',
+    } as unknown as LlmProviderAdapter;
 
     const core = new StudentReportCore(
-      { systemPrompt: 'prompt' },
+      { adapter, systemPrompt: 'prompt' },
       { llmExecution, usageRecorder, capacityData },
     );
 
@@ -71,9 +80,13 @@ describe('StudentReportCore', () => {
     const capacityData = {
       getCapacityData: jest.fn().mockRejectedValue(makeRetryableError(503)),
     };
+    const adapter = {
+      isConfigured: () => false,
+      getDefaultModel: () => 'gpt-5.4',
+    } as unknown as LlmProviderAdapter;
 
     const core = new StudentReportCore(
-      { systemPrompt: 'prompt' },
+      { adapter, systemPrompt: 'prompt' },
       { llmExecution, usageRecorder, capacityData },
     );
 
@@ -89,9 +102,13 @@ describe('StudentReportCore', () => {
     const capacityData = {
       getCapacityData: jest.fn().mockRejectedValue(makeRetryableError(404)),
     };
+    const adapter = {
+      isConfigured: () => false,
+      getDefaultModel: () => 'gpt-5.4',
+    } as unknown as LlmProviderAdapter;
 
     const core = new StudentReportCore(
-      { systemPrompt: 'prompt' },
+      { adapter, systemPrompt: 'prompt' },
       { llmExecution, usageRecorder, capacityData },
     );
 
@@ -99,32 +116,37 @@ describe('StudentReportCore', () => {
     expect(result).toContain('chưa lấy được đủ dữ liệu học tập');
   });
 
-  it('calls the LLM and records usage when apiKey is configured', async () => {
-    const completion = {
-      id: 'resp-1',
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              headline: 'Headline',
-              streak: 'Streak',
-              'tình trạng task 2': 'T2',
-              'tình trạng task 1': 'T1',
-            }),
-          },
-        },
-      ],
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+  it('calls the LLM and records usage when adapter is configured', async () => {
+    const response: LlmJsonResponse = {
+      content: JSON.stringify({
+        headline: 'Headline',
+        streak: 'Streak',
+        'tình trạng task 2': 'T2',
+        'tình trạng task 1': 'T1',
+      }),
+      metadata: {
+        provider: 'openai',
+        model: 'gpt-5.4',
+        responseId: 'resp-1',
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      },
     };
 
-    const llmExecution = { run: jest.fn().mockResolvedValue(completion) };
+    const llmExecution = {
+      run: jest.fn().mockResolvedValue(response),
+    };
     const usageRecorder = { recordFromCompletion: jest.fn() };
     const capacityData = {
       getCapacityData: jest.fn().mockResolvedValue(baseInput),
     };
+    const adapter = {
+      isConfigured: () => true,
+      getDefaultModel: () => 'gpt-5.4',
+      generateJson: jest.fn().mockResolvedValue(response),
+    } as unknown as LlmProviderAdapter;
 
     const core = new StudentReportCore(
-      { apiKey: 'sk-test', systemPrompt: 'prompt' },
+      { adapter, systemPrompt: 'prompt' },
       { llmExecution, usageRecorder, capacityData },
     );
 
@@ -135,26 +157,36 @@ describe('StudentReportCore', () => {
       expect.objectContaining({
         feature: 'STUDENT_REPORT',
         externalUserId: 'user-1',
-        response: completion,
       }),
     );
   });
 
   it('falls back to a deterministic report when the LLM output is invalid', async () => {
-    const completion = {
-      id: 'resp-1',
-      choices: [{ message: { content: '{}' } }],
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    const response: LlmJsonResponse = {
+      content: '{}',
+      metadata: {
+        provider: 'openai',
+        model: 'gpt-5.4',
+        responseId: 'resp-1',
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      },
     };
 
-    const llmExecution = { run: jest.fn().mockResolvedValue(completion) };
+    const llmExecution = {
+      run: jest.fn().mockResolvedValue(response),
+    };
     const usageRecorder = { recordFromCompletion: jest.fn() };
     const capacityData = {
       getCapacityData: jest.fn().mockResolvedValue(baseInput),
     };
+    const adapter = {
+      isConfigured: () => true,
+      getDefaultModel: () => 'gpt-5.4',
+      generateJson: jest.fn().mockResolvedValue(response),
+    } as unknown as LlmProviderAdapter;
 
     const core = new StudentReportCore(
-      { apiKey: 'sk-test', systemPrompt: 'prompt' },
+      { adapter, systemPrompt: 'prompt' },
       { llmExecution, usageRecorder, capacityData },
     );
 

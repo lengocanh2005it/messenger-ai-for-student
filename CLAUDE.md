@@ -13,7 +13,7 @@ packages/llm-agent/    @wispace/llm-agent — orchestration LLM function-calling
 
 ## Stack
 
-NestJS 11 · TypeScript · TypeORM · PostgreSQL (`ai_chat_bot_db`, dùng chung giữa các bot) · Redis (optional R0–R4) · OpenAI · Meta Graph API · Turborepo + npm workspaces
+NestJS 11 · TypeScript · TypeORM · PostgreSQL (`ai_chat_bot_db`, dùng chung giữa các bot) · Redis (optional R0–R4) · LLM Provider Abstraction (adapter pattern) · Meta Graph API · Turborepo + npm workspaces
 
 ## Lệnh thường dùng
 

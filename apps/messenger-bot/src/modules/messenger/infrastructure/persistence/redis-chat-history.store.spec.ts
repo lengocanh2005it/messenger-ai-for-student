@@ -66,6 +66,42 @@ describe('RedisChatHistoryStore', () => {
     ]);
   });
 
+  it('appends tool_summary entry to Redis', async () => {
+    const existingPayload = JSON.stringify({
+      messages: [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'hello' },
+      ],
+    });
+    const client = {
+      get: jest.fn().mockResolvedValue(existingPayload),
+      set: jest.fn().mockResolvedValue('OK'),
+      del: jest.fn(),
+    };
+
+    const store = createStore(client);
+    await store.appendToolSummary(
+      'psid-1',
+      '[Đã tra cứu: get_upcoming_study_sessions]',
+    );
+
+    expect(client.set).toHaveBeenCalledWith(
+      'chat:history:psid-1',
+      JSON.stringify({
+        messages: [
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: 'hello' },
+          {
+            role: 'tool_summary',
+            content: '[Đã tra cứu: get_upcoming_study_sessions]',
+          },
+        ],
+      }),
+      'EX',
+      1800,
+    );
+  });
+
   it('clears history key', async () => {
     const client = {
       get: jest.fn(),

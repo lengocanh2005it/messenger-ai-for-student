@@ -1,10 +1,11 @@
 import {
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
+import { type LlmProviderAdapter } from '@wispace/llm-agent';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
 import {
   DEFAULT_TOPIC,
@@ -32,7 +33,6 @@ import { StudySessionSourceService } from './study-session-source.service';
 @Injectable()
 export class StudyReminderService {
   private readonly logger = new Logger(StudyReminderService.name);
-  private openai?: OpenAI;
 
   constructor(
     private readonly configService: ConfigService,
@@ -43,6 +43,8 @@ export class StudyReminderService {
     private readonly userDisplayNameService: UserDisplayNameService,
     private readonly llmUsageRecorder: LlmUsageRecorderService,
     private readonly llmExecution: LlmExecutionService,
+    @Inject('LLM_PROVIDER_ADAPTER')
+    private readonly adapter: LlmProviderAdapter,
   ) {}
 
   async generateReminderForSession(
@@ -153,31 +155,22 @@ export class StudyReminderService {
     input: StudyReminderLlmInput,
     context: { psid: string; userId?: number; jobId?: number },
   ): Promise<StudyReminderLlmOutput> {
-    const client = this.getOpenAI();
-    if (!client) {
+    if (!this.adapter.isConfigured()) {
       return this.buildFallbackReminder(input);
     }
 
-    const model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-5.4';
-
+    const model = this.adapter.getDefaultModel();
     const correlationId =
       context.jobId !== undefined ? String(context.jobId) : context.psid;
 
     const response = await this.llmExecution.run(
       () =>
-        client.chat.completions.create({
+        this.adapter.generateJson({
+          feature: 'STUDY_REMINDER',
           model,
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content: loadSystemPrompt('studyReminder'),
-            },
-            {
-              role: 'user',
-              content: JSON.stringify(input),
-            },
-          ],
+          systemPrompt: loadSystemPrompt('studyReminder'),
+          userContent: JSON.stringify(input),
+          correlationId,
         }),
       {
         feature: 'STUDY_REMINDER',
@@ -190,13 +183,24 @@ export class StudyReminderService {
       psid: context.psid,
       userId: context.userId,
       model,
-      response,
+      response: {
+        id: response.metadata.responseId ?? '',
+        usage: response.metadata.usage
+          ? {
+              prompt_tokens: response.metadata.usage.promptTokens,
+              completion_tokens: response.metadata.usage.completionTokens,
+              total_tokens: response.metadata.usage.totalTokens,
+            }
+          : undefined,
+      },
       correlationId,
     });
 
-    const content = response.choices[0]?.message?.content;
+    const content = response.content;
     if (!content) {
-      throw new InternalServerErrorException('OpenAI returned empty content');
+      throw new InternalServerErrorException(
+        'LLM provider returned empty content',
+      );
     }
 
     try {
@@ -257,21 +261,6 @@ export class StudyReminderService {
     }
 
     return sanitized.text || DEFAULT_TOPIC;
-  }
-
-  private getOpenAI(): OpenAI | undefined {
-    if (this.openai) {
-      return this.openai;
-    }
-
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-    if (!apiKey) {
-      this.logger.warn('OPENAI_API_KEY missing, using fallback study reminder');
-      return undefined;
-    }
-
-    this.openai = new OpenAI({ apiKey });
-    return this.openai;
   }
 
   private buildFallbackReminder(
