@@ -16,24 +16,13 @@ import type {
   ReserveIdempotencyInput,
 } from '../../domain/entities/chat-idempotency.types';
 import { ChatQuotaEventRecorderService } from '../../application/services/chat-quota-event-recorder.service';
-import { ChatRateLimitRepositoryPort } from '../../domain/repositories/chat-rate-limit.repository.port';
-import type { ChatUsagePort } from '../../domain/repositories/chat-usage.port';
-import type { ChatReservationPort } from '../../domain/repositories/chat-reservation.port';
-import type { ChatRecoveryPort } from '../../domain/repositories/chat-recovery.port';
-import type { ChatOpsPort } from '../../domain/repositories/chat-ops.port';
+import type { ChatQuotaRepositoryPort } from '../../domain/repositories/chat-quota.repository.port';
 
 /** This repository only ever writes rows for the Messenger bot. */
 const PLATFORM = 'messenger' as const;
 
 @Injectable()
-export class ChatRateLimitRepository
-  implements
-    ChatRateLimitRepositoryPort,
-    ChatUsagePort,
-    ChatReservationPort,
-    ChatRecoveryPort,
-    ChatOpsPort
-{
+export class ChatRateLimitRepository implements ChatQuotaRepositoryPort {
   private readonly core: ChatMeteringRepository;
 
   constructor(

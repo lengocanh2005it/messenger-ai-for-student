@@ -3,15 +3,15 @@ import { todayUsageDate } from '@wispace/chat-metering';
 import { ChatQuotaOpsSummary } from '../../domain/entities/chat-quota-ops.types';
 import { ChatRateLimitConfigService } from './chat-rate-limit-config.service';
 import {
-  CHAT_OPS_PORT,
-  type ChatOpsPort,
-} from '../../domain/repositories/chat-ops.port';
+  CHAT_QUOTA_REPOSITORY,
+  type ChatQuotaRepositoryPort,
+} from '../../domain/repositories/chat-quota.repository.port';
 
 @Injectable()
 export class ChatQuotaOpsService {
   constructor(
-    @Inject(CHAT_OPS_PORT)
-    private readonly opsPort: ChatOpsPort,
+    @Inject(CHAT_QUOTA_REPOSITORY)
+    private readonly repository: ChatQuotaRepositoryPort,
     private readonly chatRateLimitConfigService: ChatRateLimitConfigService,
   ) {}
 
@@ -22,9 +22,9 @@ export class ChatQuotaOpsService {
 
     const [stuckReserved, idempotencyByStatus, usersAtDailyLimit] =
       await Promise.all([
-        this.opsPort.countStuckReserved(stuckBefore),
-        this.opsPort.countIdempotencyByStatusForUsageDate(usageDate),
-        this.opsPort.countUsersAtOrAboveDailyLimit(
+        this.repository.countStuckReserved(stuckBefore),
+        this.repository.countIdempotencyByStatusForUsageDate(usageDate),
+        this.repository.countUsersAtOrAboveDailyLimit(
           usageDate,
           settings.freeFormDailyLimit,
         ),

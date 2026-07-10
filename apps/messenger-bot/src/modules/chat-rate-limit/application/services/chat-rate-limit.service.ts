@@ -5,21 +5,9 @@ import type {
 } from '../../domain/entities/chat-quota.types';
 import type { RecoverIdempotencyOutcome } from '../../domain/entities/chat-idempotency.types';
 import {
-  CHAT_RATE_LIMIT_REPOSITORY,
-  type ChatRateLimitRepositoryPort,
-} from '../../domain/repositories/chat-rate-limit.repository.port';
-import {
-  CHAT_USAGE_PORT,
-  type ChatUsagePort,
-} from '../../domain/repositories/chat-usage.port';
-import {
-  CHAT_RESERVATION_PORT,
-  type ChatReservationPort,
-} from '../../domain/repositories/chat-reservation.port';
-import {
-  CHAT_RECOVERY_PORT,
-  type ChatRecoveryPort,
-} from '../../domain/repositories/chat-recovery.port';
+  CHAT_QUOTA_REPOSITORY,
+  type ChatQuotaRepositoryPort,
+} from '../../domain/repositories/chat-quota.repository.port';
 import {
   CHAT_BURST_COUNTER,
   type ChatBurstCounterPort,
@@ -39,14 +27,8 @@ export class ChatRateLimitService {
 
   constructor(
     private readonly configService: ChatRateLimitConfigService,
-    @Inject(CHAT_RATE_LIMIT_REPOSITORY)
-    private readonly repository: ChatRateLimitRepositoryPort,
-    @Inject(CHAT_USAGE_PORT)
-    private readonly usagePort: ChatUsagePort,
-    @Inject(CHAT_RESERVATION_PORT)
-    private readonly reservationPort: ChatReservationPort,
-    @Inject(CHAT_RECOVERY_PORT)
-    private readonly recoveryPort: ChatRecoveryPort,
+    @Inject(CHAT_QUOTA_REPOSITORY)
+    private readonly repository: ChatQuotaRepositoryPort,
     @Inject(CHAT_BURST_COUNTER)
     private readonly burstCounter: ChatBurstCounterPort,
     private readonly quotaEventRecorder: ChatQuotaEventRecorderService,
@@ -80,12 +62,12 @@ export class ChatRateLimitService {
 
     if (!this.configService.shouldEnforceForPsid(psid)) {
       const used = this.configService.isEnabled()
-        ? await this.usagePort.getDailyUsageCount(psid, usageDate)
+        ? await this.repository.getDailyUsageCount(psid, usageDate)
         : 0;
       return this.buildBypassResult(used, freeFormDailyLimit, usageDate);
     }
 
-    const used = await this.usagePort.getDailyUsageCount(psid, usageDate);
+    const used = await this.repository.getDailyUsageCount(psid, usageDate);
     return this.buildQuotaResult(used, freeFormDailyLimit, usageDate);
   }
 
@@ -99,7 +81,7 @@ export class ChatRateLimitService {
 
     if (!this.configService.shouldEnforceForPsid(psid)) {
       const used = this.configService.isEnabled()
-        ? await this.usagePort.getDailyUsageCount(psid, usageDate)
+        ? await this.repository.getDailyUsageCount(psid, usageDate)
         : 0;
       return this.buildBypassResult(used, freeFormDailyLimit, usageDate);
     }
@@ -233,7 +215,7 @@ export class ChatRateLimitService {
       return;
     }
 
-    const refunded = await this.reservationPort.refundReservedSlot({
+    const refunded = await this.repository.refundReservedSlot({
       psid,
       usageDate,
       idempotencyKey,
@@ -257,7 +239,7 @@ export class ChatRateLimitService {
       return;
     }
 
-    await this.reservationPort.completeReservedSlot(idempotencyKey);
+    await this.repository.completeReservedSlot(idempotencyKey);
   }
 
   /**
@@ -270,7 +252,7 @@ export class ChatRateLimitService {
 
     const stuckBefore = this.stuckReservedCutoff();
     const recovered =
-      await this.recoveryPort.recoverAllStuckReserved(stuckBefore);
+      await this.repository.recoverAllStuckReserved(stuckBefore);
 
     if (recovered.length > 0) {
       this.logger.warn(
@@ -294,7 +276,7 @@ export class ChatRateLimitService {
       dailyLimit: number;
     },
   ) {
-    let outcome = await this.reservationPort.reserveFreeFormSlotInTransaction({
+    let outcome = await this.repository.reserveFreeFormSlotInTransaction({
       psid,
       userId: input.userId,
       usageDate: input.usageDate,
@@ -313,7 +295,7 @@ export class ChatRateLimitService {
       return outcome;
     }
 
-    const recovery = await this.recoveryPort.recoverIdempotencyForRetry(
+    const recovery = await this.repository.recoverIdempotencyForRetry(
       input.idempotencyKey,
       this.stuckReservedCutoff(),
     );
@@ -322,7 +304,7 @@ export class ChatRateLimitService {
       this.logger.log(
         `Reopened idempotency mid=${input.idempotencyKey} psid=${psid} for retry (H2)`,
       );
-      outcome = await this.reservationPort.reserveFreeFormSlotInTransaction({
+      outcome = await this.repository.reserveFreeFormSlotInTransaction({
         psid,
         userId: input.userId,
         usageDate: input.usageDate,
