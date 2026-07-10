@@ -1,5 +1,7 @@
 import type { LlmProviderAdapter } from './provider/llm-provider.adapter';
 import type { LlmMessage } from './provider/types';
+import type { ToolResultCachePort } from './tool-cache/tool-result-cache.port';
+import { NOOP_TOOL_RESULT_CACHE } from './tool-cache/tool-result-cache.port';
 import { AGENT_TOOLS } from './agent.tools';
 import { checkLlmGrounding } from './utils/llm-grounding.utils';
 import {
@@ -31,12 +33,22 @@ const DEFAULT_MAX_TOOL_ROUNDS = 6;
 const DEFAULT_MAX_CONTEXT_CHARS = 24_000;
 const FEATURE = 'FREE_FORM_CHAT';
 
+// Injected after the platform system prompt to guide the model's reasoning.
+const REASONING_INSTRUCTION = `
+---
+Trước khi trả lời, hãy:
+1. Xác định ý định của học viên (tiến độ học, lịch học, đổi lịch, hay câu hỏi chung).
+2. Nếu cần dữ liệu từ nhiều tool, hãy gọi tất cả trong cùng một lượt để tiết kiệm thời gian.
+3. Chỉ trả lời bằng văn bản sau khi đã có đủ dữ liệu cần thiết.
+`.trim();
+
 export interface LlmAgentPorts<TToolContext> {
   llmExecution: LlmExecutionPort;
   usageRecorder: LlmUsageRecorderPort;
   safetyEvents: LlmSafetyEventPort;
   toolExecutor: ToolExecutorPort<TToolContext>;
   adapter: LlmProviderAdapter;
+  toolResultCache?: ToolResultCachePort;
   metrics?: AgentMetricsPort;
   logger?: {
     warn: (message: string) => void;
@@ -45,6 +57,20 @@ export interface LlmAgentPorts<TToolContext> {
 }
 
 const NOOP_LOGGER = { warn: () => undefined, debug: () => undefined };
+
+/** djb2 hash — sufficient to distinguish different tool args. */
+function stableHash(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) ^ str.charCodeAt(i);
+    hash = hash >>> 0;
+  }
+  return hash.toString(36);
+}
+
+const DEFAULT_TOOL_CACHE_TTL_MS = 300_000; // 5 minutes
+const RESCHEDULE_TOOL = 'reschedule_study_session';
+const CALENDAR_TOOL = 'list_study_calendar_entries';
 
 /**
  * Framework-agnostic LLM function-calling orchestration loop, shared across
@@ -94,7 +120,10 @@ export class LlmAgentService<TToolContext> {
     );
 
     const messages: LlmMessage[] = [
-      { role: 'system', content: input.systemPrompt },
+      {
+        role: 'system',
+        content: `${input.systemPrompt}\n\n${REASONING_INSTRUCTION}`,
+      },
       ...safeHistory.map((entry) => ({
         role: entry.role,
         content: entry.content,
@@ -173,36 +202,81 @@ export class LlmAgentService<TToolContext> {
       // Push the assistant message (with tool calls) for the next round
       messages.push(response.message);
 
-      for (const toolCall of toolCalls) {
-        const toolName = toolCall.name;
-        toolsCalledThisTurn.add(toolName);
+      const cache = this.ports.toolResultCache ?? NOOP_TOOL_RESULT_CACHE;
+      const cacheTtlMs = this.getToolCacheTtlMs();
 
-        const result = await metrics.timeTool(toolName, () =>
-          this.ports.toolExecutor.execute(
-            toolName,
-            toolCall.arguments || '{}',
-            toolContext,
-          ),
-        );
+      // Execute all tool calls in this round in parallel
+      const toolResults = await Promise.all(
+        toolCalls.map(async (toolCall) => {
+          const toolName = toolCall.name;
+          toolsCalledThisTurn.add(toolName);
+          const argsJson = toolCall.arguments || '{}';
+          const cacheKey = `${input.externalUserId}:${toolName}:${stableHash(argsJson)}`;
 
-        const raw = JSON.stringify(result);
-        const sanitized = sanitizeToolResultContent(raw);
-        if (sanitized.wasSanitized) {
-          logger.warn(
-            `Tool result sanitized externalUserId=${input.externalUserId} tool=${toolName} reason=${sanitized.reason}`,
-          );
-        }
+          let content: string;
+          try {
+            const cached = cacheTtlMs > 0 ? cache.get(cacheKey) : undefined;
+            let result: unknown;
+            if (cached !== undefined) {
+              logger.debug(
+                `Tool cache hit externalUserId=${input.externalUserId} tool=${toolName}`,
+              );
+              result = cached;
+            } else {
+              result = await metrics.timeTool(toolName, () =>
+                this.ports.toolExecutor.execute(
+                  toolName,
+                  argsJson,
+                  toolContext,
+                ),
+              );
+              if (cacheTtlMs > 0) {
+                cache.set(cacheKey, result, cacheTtlMs);
+                if (toolName === RESCHEDULE_TOOL) {
+                  cache.invalidatePrefix(
+                    `${input.externalUserId}:${CALENDAR_TOOL}:`,
+                  );
+                  logger.debug(
+                    `Cache invalidated ${CALENDAR_TOOL} for externalUserId=${input.externalUserId} after reschedule`,
+                  );
+                }
+              }
+            }
+            const raw = JSON.stringify({ ok: true, data: result });
+            const sanitized = sanitizeToolResultContent(raw);
+            if (sanitized.wasSanitized) {
+              logger.warn(
+                `Tool result sanitized externalUserId=${input.externalUserId} tool=${toolName} reason=${sanitized.reason}`,
+              );
+            }
+            content = sanitized.content;
+          } catch (err) {
+            const message =
+              err instanceof Error ? err.message : 'unknown error';
+            logger.warn(
+              `Tool execution failed externalUserId=${input.externalUserId} tool=${toolName} error=${message}`,
+            );
+            content = JSON.stringify({ ok: false, error: message });
+          }
 
-        messages.push({
-          role: 'tool',
-          toolCallId: toolCall.id,
-          content: sanitized.content,
-        });
+          return { toolCallId: toolCall.id, content };
+        }),
+      );
+
+      for (const { toolCallId, content } of toolResults) {
+        messages.push({ role: 'tool', toolCallId, content });
       }
     }
 
     metrics.llmRoundOutcomeInc(FEATURE, 'exhausted');
-    throw new Error('LLM agent exceeded maximum tool rounds');
+    logger.warn(
+      `LLM agent exhausted maxToolRounds=${this.getMaxToolRounds()} externalUserId=${input.externalUserId} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
+    );
+    const toolList = [...toolsCalledThisTurn].join(', ') || 'không có';
+    return {
+      text: `Trợ lý đã tra cứu thông tin (${toolList}) nhưng chưa thể tổng hợp kết quả. Bạn vui lòng thử lại hoặc đặt câu hỏi cụ thể hơn nhé.`,
+      exhausted: true,
+    };
   }
 
   private buildFallbackReply(userText: string): string {
@@ -271,6 +345,13 @@ export class LlmAgentService<TToolContext> {
       this.config.maxContextChars > 0
       ? Math.floor(this.config.maxContextChars)
       : DEFAULT_MAX_CONTEXT_CHARS;
+  }
+
+  private getToolCacheTtlMs(): number {
+    const v = this.config.toolCacheTtlMs;
+    if (v === 0) return 0;
+    if (v && Number.isFinite(v) && v > 0) return Math.floor(v);
+    return DEFAULT_TOOL_CACHE_TTL_MS;
   }
 
   private getMaxToolRounds(): number {

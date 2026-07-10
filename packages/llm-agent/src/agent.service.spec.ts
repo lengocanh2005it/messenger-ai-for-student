@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/unbound-method, @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/unbound-method, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
 import { LlmAgentService, LlmAgentPorts } from './agent.service';
 import { NOOP_METRICS_PORT } from './ports';
 import type { LlmAgentInput } from './types';
@@ -38,6 +38,28 @@ function makeToolCallResponse(
           arguments: argsJson,
         },
       ],
+    },
+    content: undefined,
+    metadata: {
+      provider: 'openai',
+      model: 'gpt-5.4',
+      responseId: 'chatcmpl_test',
+      usage: { promptTokens: 20, completionTokens: 8, totalTokens: 28 },
+    },
+  };
+}
+
+function makeMultiToolCallResponse(
+  tools: Array<{ name: string; id?: string; argsJson?: string }>,
+): LlmToolChatResponse {
+  return {
+    message: {
+      role: 'assistant',
+      toolCalls: tools.map((t, i) => ({
+        id: t.id ?? `call-${i + 1}`,
+        name: t.name,
+        arguments: t.argsJson ?? '{}',
+      })),
     },
     content: undefined,
     metadata: {
@@ -253,20 +275,21 @@ describe('LlmAgentService', () => {
       expect(adapter.chatWithTools).toHaveBeenCalledTimes(2);
     });
 
-    it('throws after exhausting max tool rounds (default = 6)', async () => {
+    it('returns graceful exhaustion reply after maxToolRounds (default = 6)', async () => {
       const toolResponse = makeToolCallResponse('get_user_goals');
       const adapter = makeAdapter([toolResponse]);
       const execute = jest.fn().mockResolvedValue({ goals: [] });
 
       const { service } = buildService({ adapter, execute });
 
-      await expect(service.reply(BASE_INPUT, TOOL_CONTEXT)).rejects.toThrow(
-        'LLM agent exceeded maximum tool rounds',
-      );
+      const result = await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(result.exhausted).toBe(true);
+      expect(result.text).toMatch(/thử lại/);
       expect(adapter.chatWithTools).toHaveBeenCalledTimes(6);
     });
 
-    it('respects maxToolRounds config override', async () => {
+    it('respects maxToolRounds config override and returns graceful reply', async () => {
       const toolResponse = makeToolCallResponse('get_user_goals');
       const adapter = makeAdapter([toolResponse]);
       const execute = jest.fn().mockResolvedValue({});
@@ -290,10 +313,90 @@ describe('LlmAgentService', () => {
         ports,
       );
 
-      await expect(service.reply(BASE_INPUT, TOOL_CONTEXT)).rejects.toThrow(
-        'LLM agent exceeded maximum tool rounds',
+      const result = await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(result.exhausted).toBe(true);
+      expect(adapter.chatWithTools).toHaveBeenCalledTimes(2);
+    });
+
+    it('executes multiple tool calls in one round in parallel', async () => {
+      const multiToolResponse = makeMultiToolCallResponse([
+        { name: 'get_user_goals', id: 'call-1' },
+        { name: 'get_upcoming_study_sessions', id: 'call-2' },
+      ]);
+      const textResponse = makeTextResponse('Tổng hợp kết quả.');
+      const adapter = makeAdapter([multiToolResponse, textResponse]);
+
+      const callOrder: string[] = [];
+      const execute = jest.fn().mockImplementation((toolName: string) => {
+        callOrder.push(toolName);
+        return Promise.resolve({ ok: true });
+      });
+
+      const { service } = buildService({ adapter, execute });
+
+      const result = await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(result.text).toBe('Tổng hợp kết quả.');
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(execute).toHaveBeenCalledWith(
+        'get_user_goals',
+        '{}',
+        TOOL_CONTEXT,
+      );
+      expect(execute).toHaveBeenCalledWith(
+        'get_upcoming_study_sessions',
+        '{}',
+        TOOL_CONTEXT,
       );
       expect(adapter.chatWithTools).toHaveBeenCalledTimes(2);
+    });
+
+    it('wraps tool result in { ok: true, data } contract', async () => {
+      const toolResponse = makeToolCallResponse('get_user_goals');
+      const textResponse = makeTextResponse('Kết quả.');
+      const adapter = makeAdapter([toolResponse, textResponse]);
+      const execute = jest
+        .fn()
+        .mockResolvedValue({ band: 7, examDate: '2026-09-01' });
+
+      const { service } = buildService({ adapter, execute });
+
+      await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      const secondCall = (adapter.chatWithTools as jest.Mock).mock.calls[1];
+      const toolMsg = secondCall[0].messages.find(
+        (m: { role: string }) => m.role === 'tool',
+      );
+      const parsed = JSON.parse(toolMsg.content) as {
+        ok: boolean;
+        data: unknown;
+      };
+      expect(parsed.ok).toBe(true);
+      expect(parsed.data).toEqual({ band: 7, examDate: '2026-09-01' });
+    });
+
+    it('wraps tool execution error in { ok: false, error } and continues', async () => {
+      const toolResponse = makeToolCallResponse('get_user_goals');
+      const textResponse = makeTextResponse('Xin lỗi, không lấy được dữ liệu.');
+      const adapter = makeAdapter([toolResponse, textResponse]);
+      const execute = jest.fn().mockRejectedValue(new Error('API timeout'));
+
+      const { service } = buildService({ adapter, execute });
+
+      const result = await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(result.text).toBe('Xin lỗi, không lấy được dữ liệu.');
+      const secondCall = (adapter.chatWithTools as jest.Mock).mock.calls[1];
+      const toolMsg = secondCall[0].messages.find(
+        (m: { role: string }) => m.role === 'tool',
+      );
+      const parsed = JSON.parse(toolMsg.content) as {
+        ok: boolean;
+        error: string;
+      };
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toBe('API timeout');
     });
   });
 
@@ -321,7 +424,7 @@ describe('LlmAgentService', () => {
           messages: expect.arrayContaining([
             expect.objectContaining({
               role: 'system',
-              content: 'SYSTEM_PROMPT_STUB',
+              content: expect.stringContaining('SYSTEM_PROMPT_STUB'),
             }),
             expect.objectContaining({
               role: 'user',
@@ -442,6 +545,149 @@ describe('LlmAgentService', () => {
       );
 
       expect(result.text).toBeTruthy();
+    });
+  });
+
+  describe('reply() — tool result cache', () => {
+    function buildServiceWithCache(
+      overrides: {
+        execute?: jest.Mock;
+        adapter?: LlmProviderAdapter;
+        toolCacheTtlMs?: number;
+      } = {},
+    ) {
+      const usageRecorder = { recordFromCompletion: jest.fn() };
+      const safetyEvents = { recordGroundingWarning: jest.fn() };
+      const llmExecution = {
+        run: jest
+          .fn()
+          .mockImplementation((_fn: () => Promise<unknown>) => _fn()),
+      };
+      const toolExecutor = {
+        execute: overrides.execute ?? jest.fn().mockResolvedValue({ ok: true }),
+      };
+      const toolResultCache = {
+        get: jest.fn().mockReturnValue(undefined),
+        set: jest.fn(),
+        invalidate: jest.fn(),
+        invalidatePrefix: jest.fn(),
+      };
+
+      const ports: LlmAgentPorts<StubToolContext> = {
+        llmExecution,
+        usageRecorder,
+        safetyEvents,
+        toolExecutor,
+        adapter: overrides.adapter ?? makeAdapter([makeTextResponse('stub')]),
+        metrics: NOOP_METRICS_PORT,
+        logger: { warn: jest.fn(), debug: jest.fn() },
+        toolResultCache,
+      };
+
+      const service = new LlmAgentService<StubToolContext>(
+        { toolCacheTtlMs: overrides.toolCacheTtlMs ?? 60_000 },
+        ports,
+      );
+
+      return { service, toolExecutor, toolResultCache };
+    }
+
+    it('skips execute on cache hit and reuses cached result', async () => {
+      const cachedData = { goals: 'cached' };
+      const toolResponse = makeToolCallResponse('get_user_goals');
+      const textResponse = makeTextResponse('Kết quả từ cache.');
+      const adapter = makeAdapter([toolResponse, textResponse]);
+      const execute = jest.fn();
+
+      const { service, toolResultCache } = buildServiceWithCache({
+        adapter,
+        execute,
+      });
+      toolResultCache.get.mockReturnValue(cachedData);
+
+      await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('calls execute on cache miss and stores result', async () => {
+      const toolResponse = makeToolCallResponse('get_user_goals');
+      const textResponse = makeTextResponse('Kết quả.');
+      const adapter = makeAdapter([toolResponse, textResponse]);
+      const execute = jest.fn().mockResolvedValue({ goals: [] });
+
+      const { service, toolResultCache } = buildServiceWithCache({
+        adapter,
+        execute,
+      });
+      toolResultCache.get.mockReturnValue(undefined);
+
+      await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(toolResultCache.set).toHaveBeenCalledWith(
+        expect.stringContaining('get_user_goals'),
+        { goals: [] },
+        60_000,
+      );
+    });
+
+    it('invalidates list_study_calendar_entries after reschedule_study_session', async () => {
+      const toolResponse = makeToolCallResponse(
+        'reschedule_study_session',
+        '{"calendarId":1,"schedulingMode":"default_next_day_same_time"}',
+      );
+      const textResponse = makeTextResponse('Đã đổi lịch.');
+      const adapter = makeAdapter([toolResponse, textResponse]);
+      const execute = jest.fn().mockResolvedValue({ success: true });
+
+      const { service, toolResultCache } = buildServiceWithCache({
+        adapter,
+        execute,
+      });
+      toolResultCache.get.mockReturnValue(undefined);
+
+      await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(toolResultCache.invalidatePrefix).toHaveBeenCalledWith(
+        `${BASE_INPUT.externalUserId}:list_study_calendar_entries:`,
+      );
+    });
+
+    it('does not cache error results', async () => {
+      const toolResponse = makeToolCallResponse('get_user_goals');
+      const textResponse = makeTextResponse('Lỗi.');
+      const adapter = makeAdapter([toolResponse, textResponse]);
+      const execute = jest.fn().mockRejectedValue(new Error('timeout'));
+
+      const { service, toolResultCache } = buildServiceWithCache({
+        adapter,
+        execute,
+      });
+      toolResultCache.get.mockReturnValue(undefined);
+
+      await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(toolResultCache.set).not.toHaveBeenCalled();
+    });
+
+    it('skips cache entirely when toolCacheTtlMs is 0', async () => {
+      const toolResponse = makeToolCallResponse('get_user_goals');
+      const textResponse = makeTextResponse('Kết quả.');
+      const adapter = makeAdapter([toolResponse, textResponse]);
+      const execute = jest.fn().mockResolvedValue({ goals: [] });
+
+      const { service, toolResultCache } = buildServiceWithCache({
+        adapter,
+        execute,
+        toolCacheTtlMs: 0,
+      });
+
+      await service.reply(BASE_INPUT, TOOL_CONTEXT);
+
+      expect(toolResultCache.get).not.toHaveBeenCalled();
+      expect(toolResultCache.set).not.toHaveBeenCalled();
+      expect(execute).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -9,6 +9,8 @@ export interface LlmAgentConfig {
   model?: string;
   maxToolRounds?: number;
   maxContextChars?: number;
+  /** TTL for tool result cache in ms. Default: 300_000 (5 min). 0 = disable cache. */
+  toolCacheTtlMs?: number;
 }
 
 export interface LlmAgentInput {
@@ -26,4 +28,6 @@ export interface LlmAgentInput {
 
 export interface LlmAgentReply {
   text: string;
+  /** True when the agent exhausted maxToolRounds without reaching a final reply. */
+  exhausted?: boolean;
 }

@@ -316,7 +316,7 @@ describe('MessengerAgentService', () => {
       expect(llmRun).toHaveBeenCalledTimes(2);
     });
 
-    it('throws after exhausting max tool rounds', async () => {
+    it('returns graceful exhaustion reply after maxToolRounds (default = 6)', async () => {
       const toolCompletion = makeToolCallCompletion('get_user_goals');
       // Always return tool calls → never resolves with text
       const llmRun = jest.fn().mockResolvedValue(toolCompletion);
@@ -328,13 +328,13 @@ describe('MessengerAgentService', () => {
         { llmRun, execute },
       );
 
-      await expect(service.reply(BASE_INPUT)).rejects.toThrow(
-        'LLM agent exceeded maximum tool rounds',
-      );
+      const result = await service.reply(BASE_INPUT);
+      expect(result.exhausted).toBe(true);
+      expect(result.text).toMatch(/thử lại/);
       expect(llmRun).toHaveBeenCalledTimes(6);
     });
 
-    it('respects OPENAI_MAX_TOOL_ROUNDS env override', async () => {
+    it('respects OPENAI_MAX_TOOL_ROUNDS env override and returns graceful reply', async () => {
       const toolCompletion = makeToolCallCompletion('get_user_goals');
       const llmRun = jest.fn().mockResolvedValue(toolCompletion);
       const execute = jest.fn().mockResolvedValue({});
@@ -344,9 +344,8 @@ describe('MessengerAgentService', () => {
         { llmRun, execute },
       );
 
-      await expect(service.reply(BASE_INPUT)).rejects.toThrow(
-        'LLM agent exceeded maximum tool rounds',
-      );
+      const result = await service.reply(BASE_INPUT);
+      expect(result.exhausted).toBe(true);
       expect(llmRun).toHaveBeenCalledTimes(2);
     });
   });

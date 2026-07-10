@@ -50,7 +50,7 @@ export const AGENT_TOOLS: LlmToolDefinition[] = [
   {
     name: 'get_upcoming_study_sessions',
     description:
-      'Danh sách buổi học IELTS Writing sắp tới từ lịch UserCalendar của học viên.',
+      'Danh sách buổi học IELTS Writing sắp tới từ lịch UserCalendar của học viên. Dùng để hiển thị lịch. Nếu cần calendarId để đổi lịch, dùng list_study_calendar_entries thay thế.',
     parameters: {
       type: 'object',
       properties: {
@@ -91,7 +91,7 @@ export const AGENT_TOOLS: LlmToolDefinition[] = [
   {
     name: 'reschedule_study_session',
     description:
-      'Chuẩn bị dời buổi học (gửi nút xác nhận cho học viên; chỉ thực hiện sau khi bấm Xác nhận). default_next_day_same_time = cùng giờ, +1 ngày so với buổi đang dời (buổi ngày mai → ngày kia). explicit khi học viên nêu rõ ngày/giờ mới.',
+      'Luôn gọi list_study_calendar_entries trước để lấy calendarId. Sau đó chuẩn bị dời buổi học (gửi nút xác nhận cho học viên; chỉ thực hiện sau khi bấm Xác nhận). default_next_day_same_time = cùng giờ, +1 ngày so với buổi đang dời (buổi ngày mai → ngày kia). explicit khi học viên nêu rõ ngày/giờ mới.',
     parameters: {
       type: 'object',
       properties: {

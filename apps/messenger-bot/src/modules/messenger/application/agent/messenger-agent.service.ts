@@ -25,6 +25,7 @@ import { MetricsService } from '../../../metrics/metrics.service';
 export interface MessengerAgentReply {
   text: string;
   richFollowUps: MessengerRichFollowUp[];
+  exhausted?: boolean;
 }
 
 export interface MessengerAgentInput {
@@ -106,7 +107,11 @@ export class MessengerAgentService {
       toolContext,
     );
 
-    return { text: result.text, richFollowUps: toolContext.richFollowUps };
+    return {
+      text: result.text,
+      richFollowUps: toolContext.richFollowUps,
+      exhausted: result.exhausted,
+    };
   }
 
   private buildAgent(): LlmAgentService<MessengerAgentToolContext> {
