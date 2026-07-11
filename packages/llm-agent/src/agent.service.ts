@@ -28,7 +28,6 @@ import type {
   LlmAgentInput,
   LlmAgentReply,
   LlmAgentStreamEvent,
-  LlmAgentExecuteCallbacks,
 } from './types';
 
 const DEFAULT_MAX_TOOL_ROUNDS = 6;
@@ -105,20 +104,145 @@ export class LlmAgentService<TToolContext> {
     input: LlmAgentInput,
     toolContext: TToolContext,
   ): Promise<LlmAgentReply> {
+    const logger = this.ports.logger ?? NOOP_LOGGER;
+    const metrics = this.ports.metrics ?? NOOP_METRICS_PORT;
+    const adapter = this.ports.adapter;
+
     const earlyReturn = this.checkEarlyReturns(input);
     if (earlyReturn) return earlyReturn.reply;
 
-    const result = await this.execute(input, toolContext, {});
-    if (!result) {
-      throw new Error('LLM provider returned empty content');
+    const model = adapter.getDefaultModel();
+    const messages = this.buildMessages(input);
+
+    const toolsCalledThisTurn = new Set<string>();
+    const maxToolRounds = this.getMaxToolRounds();
+    let previousToolCallSignature: string | null = null;
+
+    for (let round = 0; round < maxToolRounds; round++) {
+      const response = await metrics.timeLlmCall(FEATURE, model, round, () =>
+        this.ports.llmExecution.run(
+          () =>
+            this.withRetry(
+              () =>
+                adapter.chatWithTools({
+                  feature: FEATURE,
+                  model,
+                  messages,
+                  tools: AGENT_TOOLS,
+                  toolChoice: 'auto',
+                  correlationId: input.correlationId,
+                  maxOutputTokens: this.getMaxOutputTokens(),
+                }),
+              round,
+              logger,
+            ),
+          { feature: FEATURE, correlationId: input.correlationId },
+        ),
+      );
+
+      this.ports.usageRecorder.recordFromCompletion({
+        feature: FEATURE,
+        externalUserId: input.externalUserId,
+        userId: input.userId,
+        model,
+        response: {
+          id: response.metadata.responseId ?? '',
+          usage: response.metadata.usage
+            ? {
+                prompt_tokens: response.metadata.usage.promptTokens,
+                completion_tokens: response.metadata.usage.completionTokens,
+                total_tokens: response.metadata.usage.totalTokens,
+                prompt_tokens_details:
+                  response.metadata.usage.cachedTokens !== undefined
+                    ? { cached_tokens: response.metadata.usage.cachedTokens }
+                    : undefined,
+              }
+            : null,
+        },
+        correlationId: input.correlationId,
+        toolRound: round,
+      });
+
+      const toolCalls = response.message.toolCalls;
+      if (!toolCalls?.length) {
+        metrics.llmRoundOutcomeInc(FEATURE, 'direct_reply');
+
+        const text = response.content;
+        if (!text) {
+          throw new Error('LLM provider returned empty content');
+        }
+
+        const groundingCheck = checkLlmGrounding(text, toolsCalledThisTurn);
+        if (groundingCheck.suspicious) {
+          logger.warn(
+            `LLM_GROUNDING_WARNING feature=${FEATURE} externalUserId=${input.externalUserId} reason=${groundingCheck.reason} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
+          );
+          this.ports.safetyEvents.recordGroundingWarning({
+            externalUserId: input.externalUserId,
+            userId: input.userId,
+            correlationId: input.correlationId,
+            reason: groundingCheck.reason ?? 'unknown',
+            userTextPreview: input.userText,
+            assistantTextPreview: text,
+            toolNamesUsed: [...toolsCalledThisTurn],
+          });
+        }
+
+        const toolSummary =
+          toolsCalledThisTurn.size > 0
+            ? `[Đã tra cứu: ${[...toolsCalledThisTurn].join('; ')}]`
+            : undefined;
+        return { text: sanitizeReplyText(text), toolSummary };
+      }
+
+      const signature = this.buildToolCallSignature(toolCalls);
+      if (signature === previousToolCallSignature) {
+        metrics.llmRoundOutcomeInc(FEATURE, 'duplicate_tool_calls');
+        logger.warn(
+          `LLM agent detected duplicate tool calls, stopping early round=${round} externalUserId=${input.externalUserId} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
+        );
+        break;
+      }
+      previousToolCallSignature = signature;
+
+      metrics.llmRoundOutcomeInc(FEATURE, 'tool_call');
+
+      // Push the assistant message (with tool calls) for the next round
+      messages.push(response.message);
+
+      const toolResults = await this.executeToolCalls(
+        toolCalls,
+        input,
+        toolContext,
+        toolsCalledThisTurn,
+      );
+
+      for (const { toolCallId, content } of toolResults) {
+        messages.push({ role: 'tool', toolCallId, content });
+      }
     }
-    return result.reply;
+
+    metrics.llmRoundOutcomeInc(FEATURE, 'exhausted');
+    logger.warn(
+      `LLM agent exhausted maxToolRounds=${this.getMaxToolRounds()} externalUserId=${input.externalUserId} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
+    );
+    const toolList = [...toolsCalledThisTurn].join(', ') || 'không có';
+    const toolSummary =
+      toolsCalledThisTurn.size > 0
+        ? `[Đã tra cứu: ${[...toolsCalledThisTurn].join('; ')}]`
+        : undefined;
+    return {
+      text: `Trợ lý đã tra cứu thông tin (${toolList}) nhưng chưa thể tổng hợp kết quả. Bạn vui lòng thử lại hoặc đặt câu hỏi cụ thể hơn nhé.`,
+      exhausted: true,
+      toolSummary,
+    };
   }
 
   /**
    * Streaming variant of `reply()`. Tool-calling rounds run as normal (non-streaming)
-   * because the full response is needed to dispatch tool calls. The final text round
-   * yields `delta` events, enabling callers to show progressive output.
+   * because the full response is needed to dispatch tool calls. The **final text round**
+   * uses `chatStream()` and yields `delta` events as tokens arrive, enabling callers to
+   * show progressive output or send early message bubbles.
    *
    * Always ends with a single `done` event (or `error` on unrecoverable failure).
    */
@@ -126,48 +250,160 @@ export class LlmAgentService<TToolContext> {
     input: LlmAgentInput,
     toolContext: TToolContext,
   ): AsyncIterable<LlmAgentStreamEvent> {
+    const logger = this.ports.logger ?? NOOP_LOGGER;
+    const metrics = this.ports.metrics ?? NOOP_METRICS_PORT;
+    const adapter = this.ports.adapter;
+
     const earlyReturn = this.checkEarlyReturns(input);
     if (earlyReturn) {
       yield { type: 'done', reply: earlyReturn.reply };
       return;
     }
 
-    const state: {
-      toolEvents: Array<{ type: 'tool_start'; toolName: string }>;
-      reply?: LlmAgentReply;
-      error?: Error;
-    } = { toolEvents: [] };
+    const model = adapter.getDefaultModel();
+    const messages = this.buildMessages(input);
 
-    try {
-      await this.execute(input, toolContext, {
-        onToolStart: (toolName) => {
-          state.toolEvents.push({ type: 'tool_start', toolName });
-        },
-        onReply: (reply) => {
-          state.reply = reply;
-        },
-        onError: (error) => {
-          state.error = error;
-        },
-      });
+    const toolsCalledThisTurn = new Set<string>();
+    const maxToolRounds = this.getMaxToolRounds();
+    let previousToolCallSignature: string | null = null;
 
-      // Yield accumulated tool_start events
-      for (const evt of state.toolEvents) {
-        yield evt;
-      }
+    for (let round = 0; round < maxToolRounds; round++) {
+      try {
+        const response = await metrics.timeLlmCall(FEATURE, model, round, () =>
+          this.ports.llmExecution.run(
+            () =>
+              this.withRetry(
+                () =>
+                  adapter.chatWithTools({
+                    feature: FEATURE,
+                    model,
+                    messages,
+                    tools: AGENT_TOOLS,
+                    toolChoice: 'auto',
+                    correlationId: input.correlationId,
+                    maxOutputTokens: this.getMaxOutputTokens(),
+                  }),
+                round,
+                logger,
+              ),
+            { feature: FEATURE, correlationId: input.correlationId },
+          ),
+        );
 
-      if (state.error) {
-        yield { type: 'error', error: state.error };
+        this.ports.usageRecorder.recordFromCompletion({
+          feature: FEATURE,
+          externalUserId: input.externalUserId,
+          userId: input.userId,
+          model,
+          response: {
+            id: response.metadata.responseId ?? '',
+            usage: response.metadata.usage
+              ? {
+                  prompt_tokens: response.metadata.usage.promptTokens,
+                  completion_tokens: response.metadata.usage.completionTokens,
+                  total_tokens: response.metadata.usage.totalTokens,
+                }
+              : null,
+          },
+          correlationId: input.correlationId,
+          toolRound: round,
+        });
+
+        const toolCalls = response.message.toolCalls;
+
+        if (!toolCalls?.length) {
+          metrics.llmRoundOutcomeInc(FEATURE, 'direct_reply');
+
+          const text = response.content;
+          if (!text) {
+            yield {
+              type: 'error',
+              error: new Error('LLM provider returned empty content'),
+            };
+            return;
+          }
+
+          const groundingCheck = checkLlmGrounding(text, toolsCalledThisTurn);
+          if (groundingCheck.suspicious) {
+            logger.warn(
+              `LLM_GROUNDING_WARNING feature=${FEATURE} externalUserId=${input.externalUserId} reason=${groundingCheck.reason} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
+            );
+            this.ports.safetyEvents.recordGroundingWarning({
+              externalUserId: input.externalUserId,
+              userId: input.userId,
+              correlationId: input.correlationId,
+              reason: groundingCheck.reason ?? 'unknown',
+              userTextPreview: input.userText,
+              assistantTextPreview: text,
+              toolNamesUsed: [...toolsCalledThisTurn],
+            });
+          }
+
+          const sanitized = sanitizeReplyText(text);
+          yield { type: 'delta', textDelta: sanitized };
+
+          const toolSummary =
+            toolsCalledThisTurn.size > 0
+              ? `[Đã tra cứu: ${[...toolsCalledThisTurn].join('; ')}]`
+              : undefined;
+          yield { type: 'done', reply: { text: sanitized, toolSummary } };
+          return;
+        }
+
+        const signature = this.buildToolCallSignature(toolCalls);
+        if (signature === previousToolCallSignature) {
+          metrics.llmRoundOutcomeInc(FEATURE, 'duplicate_tool_calls');
+          logger.warn(
+            `LLM agent detected duplicate tool calls, stopping early (stream) round=${round} externalUserId=${input.externalUserId} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
+          );
+          break;
+        }
+        previousToolCallSignature = signature;
+
+        metrics.llmRoundOutcomeInc(FEATURE, 'tool_call');
+        messages.push(response.message);
+
+        // Emit tool_start for all calls before parallel execution
+        for (const toolCall of toolCalls) {
+          toolsCalledThisTurn.add(toolCall.name);
+          yield { type: 'tool_start' as const, toolName: toolCall.name };
+        }
+
+        const toolResults = await this.executeToolCalls(
+          toolCalls,
+          input,
+          toolContext,
+          toolsCalledThisTurn,
+        );
+
+        for (const result of toolResults) {
+          messages.push({
+            role: 'tool',
+            toolCallId: result.toolCallId,
+            content: result.content,
+          });
+        }
+      } catch (err) {
+        yield { type: 'error', error: err };
         return;
       }
-
-      if (state.reply) {
-        yield { type: 'delta', textDelta: state.reply.text };
-        yield { type: 'done', reply: state.reply };
-      }
-    } catch (err) {
-      yield { type: 'error', error: err };
     }
+
+    // Exhausted all rounds without a final text reply
+    metrics.llmRoundOutcomeInc(FEATURE, 'exhausted');
+    logger.warn(
+      `LLM agent exhausted (stream) maxToolRounds=${this.getMaxToolRounds()} externalUserId=${input.externalUserId}`,
+    );
+    const toolList = [...toolsCalledThisTurn].join(', ') || 'không có';
+    const toolSummary =
+      toolsCalledThisTurn.size > 0
+        ? `[Đã tra cứu: ${[...toolsCalledThisTurn].join('; ')}]`
+        : undefined;
+    const exhaustedText = `Trợ lý đã tra cứu thông tin (${toolList}) nhưng chưa thể tổng hợp kết quả. Bạn vui lòng thử lại hoặc đặt câu hỏi cụ thể hơn nhé.`;
+    yield {
+      type: 'done',
+      reply: { text: exhaustedText, exhausted: true, toolSummary },
+    };
   }
 
   private buildFallbackReply(userText: string): string {
@@ -317,7 +553,7 @@ export class LlmAgentService<TToolContext> {
       .join('|');
   }
 
-  // ─── Shared helpers ────────────────────────────────────────────────────
+  // ─── Shared helpers for reply() and replyStream() ───────────────────────
 
   private checkEarlyReturns(input: LlmAgentInput): {
     blocked: true;
@@ -376,175 +612,6 @@ export class LlmAgentService<TToolContext> {
       })),
       { role: 'user', content: input.userText.trim() },
     ];
-  }
-
-  // ─── Core orchestration loop ───────────────────────────────────────────
-
-  /**
-   * Shared tool-calling loop for `reply()` and `replyStream()`.
-   *
-   * - `onToolStart(toolName)` is called synchronously before each tool batch executes.
-   * - `onReply(reply)` is called with the final reply on success.
-   * - `onError(error)` is called on unrecoverable errors (empty content, retry exhaustion).
-   *
-   * Returns `{ reply, toolEvents }` on success, or `null` on error (error delivered via callback).
-   * Throws `LlmRetryExhaustedError` when retries are exhausted **and** no `onError` is provided.
-   */
-  private async execute(
-    input: LlmAgentInput,
-    toolContext: TToolContext,
-    callbacks: LlmAgentExecuteCallbacks,
-  ): Promise<{
-    reply: LlmAgentReply;
-    toolEvents: Array<{ type: 'tool_start'; toolName: string }>;
-  } | null> {
-    const logger = this.ports.logger ?? NOOP_LOGGER;
-    const metrics = this.ports.metrics ?? NOOP_METRICS_PORT;
-    const adapter = this.ports.adapter;
-
-    const model = adapter.getDefaultModel();
-    const messages = this.buildMessages(input);
-
-    const toolsCalledThisTurn = new Set<string>();
-    const toolEvents: Array<{ type: 'tool_start'; toolName: string }> = [];
-    const maxToolRounds = this.getMaxToolRounds();
-    let previousToolCallSignature: string | null = null;
-
-    for (let round = 0; round < maxToolRounds; round++) {
-      const response = await metrics.timeLlmCall(FEATURE, model, round, () =>
-        this.ports.llmExecution.run(
-          () =>
-            this.withRetry(
-              () =>
-                adapter.chatWithTools({
-                  feature: FEATURE,
-                  model,
-                  messages,
-                  tools: AGENT_TOOLS,
-                  toolChoice: 'auto',
-                  correlationId: input.correlationId,
-                  maxOutputTokens: this.getMaxOutputTokens(),
-                }),
-              round,
-              logger,
-            ),
-          { feature: FEATURE, correlationId: input.correlationId },
-        ),
-      );
-
-      this.ports.usageRecorder.recordFromCompletion({
-        feature: FEATURE,
-        externalUserId: input.externalUserId,
-        userId: input.userId,
-        model,
-        response: {
-          id: response.metadata.responseId ?? '',
-          usage: response.metadata.usage
-            ? {
-                prompt_tokens: response.metadata.usage.promptTokens,
-                completion_tokens: response.metadata.usage.completionTokens,
-                total_tokens: response.metadata.usage.totalTokens,
-                prompt_tokens_details:
-                  response.metadata.usage.cachedTokens !== undefined
-                    ? { cached_tokens: response.metadata.usage.cachedTokens }
-                    : undefined,
-              }
-            : null,
-        },
-        correlationId: input.correlationId,
-        toolRound: round,
-      });
-
-      const toolCalls = response.message.toolCalls;
-
-      if (!toolCalls?.length) {
-        metrics.llmRoundOutcomeInc(FEATURE, 'direct_reply');
-
-        const text = response.content;
-        if (!text) {
-          const error = new Error('LLM provider returned empty content');
-          callbacks.onError?.(error);
-          if (!callbacks.onError) throw error;
-          return null;
-        }
-
-        const groundingCheck = checkLlmGrounding(text, toolsCalledThisTurn);
-        if (groundingCheck.suspicious) {
-          logger.warn(
-            `LLM_GROUNDING_WARNING feature=${FEATURE} externalUserId=${input.externalUserId} reason=${groundingCheck.reason} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
-          );
-          this.ports.safetyEvents.recordGroundingWarning({
-            externalUserId: input.externalUserId,
-            userId: input.userId,
-            correlationId: input.correlationId,
-            reason: groundingCheck.reason ?? 'unknown',
-            userTextPreview: input.userText,
-            assistantTextPreview: text,
-            toolNamesUsed: [...toolsCalledThisTurn],
-          });
-        }
-
-        const toolSummary =
-          toolsCalledThisTurn.size > 0
-            ? `[Đã tra cứu: ${[...toolsCalledThisTurn].join('; ')}]`
-            : undefined;
-        const reply: LlmAgentReply = {
-          text: sanitizeReplyText(text),
-          toolSummary,
-        };
-        callbacks.onReply?.(reply);
-        return { reply, toolEvents };
-      }
-
-      const signature = this.buildToolCallSignature(toolCalls);
-      if (signature === previousToolCallSignature) {
-        metrics.llmRoundOutcomeInc(FEATURE, 'duplicate_tool_calls');
-        logger.warn(
-          `LLM agent detected duplicate tool calls, stopping early round=${round} externalUserId=${input.externalUserId} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
-        );
-        break;
-      }
-      previousToolCallSignature = signature;
-
-      metrics.llmRoundOutcomeInc(FEATURE, 'tool_call');
-      messages.push(response.message);
-
-      // Notify caller of tool_start events before execution
-      for (const tc of toolCalls) {
-        const evt = { type: 'tool_start' as const, toolName: tc.name };
-        toolEvents.push(evt);
-        callbacks.onToolStart?.(tc.name);
-      }
-
-      const toolResults = await this.executeToolCalls(
-        toolCalls,
-        input,
-        toolContext,
-        toolsCalledThisTurn,
-      );
-
-      for (const { toolCallId, content } of toolResults) {
-        messages.push({ role: 'tool', toolCallId, content });
-      }
-    }
-
-    // Exhausted all rounds — return graceful reply (same as before refactor)
-    metrics.llmRoundOutcomeInc(FEATURE, 'exhausted');
-    logger.warn(
-      `LLM agent exhausted maxToolRounds=${this.getMaxToolRounds()} externalUserId=${input.externalUserId} tools_called=${[...toolsCalledThisTurn].join(',') || 'none'}`,
-    );
-    const toolList = [...toolsCalledThisTurn].join(', ') || 'không có';
-    const toolSummary =
-      toolsCalledThisTurn.size > 0
-        ? `[Đã tra cứu: ${[...toolsCalledThisTurn].join('; ')}]`
-        : undefined;
-    const reply: LlmAgentReply = {
-      text: `Trợ lý đã tra cứu thông tin (${toolList}) nhưng chưa thể tổng hợp kết quả. Bạn vui lòng thử lại hoặc đặt câu hỏi cụ thể hơn nhé.`,
-      exhausted: true,
-      toolSummary,
-    };
-    callbacks.onReply?.(reply);
-    return { reply, toolEvents };
   }
 
   private async executeToolCalls(

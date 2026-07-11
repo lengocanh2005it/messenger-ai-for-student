@@ -1,11 +1,9 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonModule } from '../../shared/common/common.module';
 import {
   ChatDailyUsageEntity,
   ChatIdempotencyEntity,
-  ChatRateLimitCore,
-  ChatRateLimitRepository as ChatMeteringRepository,
 } from '@wispace/chat-metering';
 import { ChatQuotaEventEntity } from '../../infrastructure/database/entities/chat-quota-event.entity';
 import { ChatBurstCounterStartupService } from './application/services/chat-burst-counter-startup.service';
@@ -14,10 +12,7 @@ import { ChatQuotaEventCleanupService } from './application/services/chat-quota-
 import { ChatQuotaEventRecorderService } from './application/services/chat-quota-event-recorder.service';
 import { ChatRateLimitConfigService } from './application/services/chat-rate-limit-config.service';
 import { ChatRateLimitStartupService } from './application/services/chat-rate-limit-startup.service';
-import {
-  ChatRateLimitService,
-  CHAT_RATE_LIMIT_CORE,
-} from './application/services/chat-rate-limit.service';
+import { ChatRateLimitService } from './application/services/chat-rate-limit.service';
 import { ChatQuotaOpsService } from './application/services/chat-quota-ops.service';
 import { CHAT_BURST_COUNTER } from './domain/repositories/chat-burst-counter.port';
 import { CHAT_QUOTA_EVENT_REPOSITORY } from './domain/repositories/chat-quota-event.repository.port';
@@ -64,37 +59,6 @@ import { ChatRateLimitRepository } from './infrastructure/persistence/chat-rate-
     {
       provide: CHAT_QUOTA_REPOSITORY,
       useExisting: ChatRateLimitRepository,
-    },
-    {
-      provide: CHAT_RATE_LIMIT_CORE,
-      inject: [
-        getRepositoryToken(ChatDailyUsageEntity),
-        getRepositoryToken(ChatIdempotencyEntity),
-        CHAT_BURST_COUNTER,
-        ChatRateLimitConfigService,
-      ],
-      useFactory: (
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        dailyUsageRepo: any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        idempotencyRepo: any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        burstCounter: any,
-        configService: ChatRateLimitConfigService,
-      ) => {
-        const settings = configService.getSettings();
-        const repo = new ChatMeteringRepository(
-          dailyUsageRepo as Parameters<typeof ChatMeteringRepository>[0],
-          idempotencyRepo as Parameters<typeof ChatMeteringRepository>[1],
-          'messenger',
-        );
-        return new ChatRateLimitCore(repo, burstCounter as never, {
-          freeFormDailyLimit: settings.freeFormDailyLimit,
-          burstPerMinute: settings.burstPerMinute,
-          timezone: settings.timezone,
-          burstCountsRefunded: settings.burstCountsRefunded,
-        });
-      },
     },
   ],
   exports: [
