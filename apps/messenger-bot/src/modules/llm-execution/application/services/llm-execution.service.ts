@@ -3,16 +3,12 @@ import pLimit from 'p-limit';
 import type { LlmProviderAdapter } from '@wispace/llm-agent';
 import { MetricsService } from '../../../metrics/metrics.service';
 import { LlmExecutionConfigService } from './llm-execution-config.service';
+import type { LlmExecutionContext } from '../types/llm-execution.types';
 
-export type LlmExecutionFeature =
-  | 'FREE_FORM_CHAT'
-  | 'STUDENT_REPORT'
-  | 'STUDY_REMINDER';
-
-export interface LlmExecutionContext {
-  feature: LlmExecutionFeature;
-  correlationId?: string;
-}
+export type {
+  LlmExecutionFeature,
+  LlmExecutionContext,
+} from '../types/llm-execution.types';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {

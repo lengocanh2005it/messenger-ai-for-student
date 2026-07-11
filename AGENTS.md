@@ -111,6 +111,7 @@ npm run test:e2e            # test/app.e2e-spec.ts
 - Sửa upsert job khi đổi lịch → `study-reminder-job.repository.spec.ts`
 - Sửa guard ops API → `internal-api-key.guard.spec.ts`
 - Sửa parse `ref`/link `m.me` → `poc.constants.spec.ts`
+- Sửa webhook event routing → `messenger-webhook.router.spec.ts`
 
 Trước khi kết thúc task (sửa code): **bắt buộc** cập nhật agent docs/skills liên quan (mục *Docs & skills khi đổi code*) và chạy test/build.
 
@@ -146,6 +147,7 @@ Sửa lỗi lint/test/build cho đến khi pass. `npm run test:e2e` cần Postgr
 
 Spec hiện có:
 
+- `apps/messenger-bot/src/modules/messenger/application/messenger-webhook.router.spec.ts` (37 tests — pure function router)
 - `apps/messenger-bot/src/modules/chat-rate-limit/application/services/chat-rate-limit.service.spec.ts`
 - `apps/messenger-bot/src/modules/chat-rate-limit/infrastructure/persistence/chat-rate-limit.repository.spec.ts`
 - `apps/messenger-bot/src/modules/messenger/application/services/messenger-chat-queue.service.spec.ts`
@@ -169,7 +171,7 @@ Cùng PR/task với code — cập nhật hàng **agent** (không chỉ `docs/` 
 
 | Thay đổi | Cập nhật tối thiểu |
 |----------|-------------------|
-| API ops / webhook / menu Messenger | `apps/messenger-bot/docs/project-overview.md`, `AGENTS.md` (API/cron), rule `messenger-chat.md` nếu chat queue |
+| API ops / webhook / menu Messenger | `apps/messenger-bot/docs/project-overview.md`, `AGENTS.md` (API/cron), `application/messenger-webhook.router.ts` nếu đổi event routing, rule `messenger-chat.md` nếu chat queue |
 | Persistent menu / `profile/setup` | `apps/messenger-bot/docs/project-overview.md`, mục menu trong `AGENTS.md` dev tips |
 | Rate limit / quota / idempotency | `apps/messenger-bot/docs/chat-rate-limit-quota.md`, `.claude/rules/chat-rate-limit.md`, skill `/verify` nếu thêm bước ops |
 | Study reminder / sync / dispatch | `apps/messenger-bot/docs/study-session-reminder.md`, `.claude/rules/study-reminder.md`, skill `/study-reminder-debug` |
@@ -203,8 +205,13 @@ Repo dùng **feature modules + 4 tầng** (presentation → application → doma
 | `MESSENGER_REPOSITORY` | Đọc/ghi mapping, logs |
 | `MESSENGER_MAPPING_READER` | Study reminder sync / display name |
 | `MESSAGE_SENDER` | Gửi tin Messenger (dispatch, không import `MessengerService`) |
+| `GOALS_DATA_PORT` | Lấy dữ liệu goals từ WISPACE API (thay `UserGoalsApiService`) |
+| `REPORT_PORT` | Tạo báo cáo học tập qua LLM (thay `StudentReportService`) |
+| `STUDY_DATA_PORT` | Truy xuất dữ liệu lịch học/nhắc lịch (thay 4 services từ study-reminder) |
 
 `StudyReminderModule` import `MessengerOutboundModule` — **không** `forwardRef` với `MessengerModule`.
+
+`ChatPipelineModule` và `UserLinkingModule` tách từ `MessengerModule` — mỗi module self-contained, import trực tiếp các module cần thiết.
 
 ---
 
@@ -221,6 +228,8 @@ src/
 │   └── database/            # TypeORM entities, migrations, DatabaseModule
 └── modules/
     ├── messenger/           # domain | application | infrastructure | presentation
+    │   ├── domain/ports/    # GoalsDataPort, ReportPort, StudyDataPort
+    │   ├── infrastructure/adapters/  # GoalsDataAdapter, ReportAdapter, StudyDataAdapter
     │   └── messenger-outbound.module.ts   # Send API + mapping (tách cycle)
     ├── chat-rate-limit/    # quota ngày + idempotency (H2–H7)
     ├── student-report/
@@ -241,7 +250,9 @@ domain/entities|repositories/ → application/services|ports/ → infrastructure
 | Module | Vai trò |
 |--------|---------|
 | `ChatRateLimitModule` | Quota FREE_FORM: reserve/refund/burst, hard cap H3, ops recover H2 |
-| `MessengerModule` | Webhook, profile menu, chat queue + agent, shared queue H7 |
+| `ChatPipelineModule` | Chat queue debounce + agent LLM + tools + store resolvers (tách từ MessengerModule) |
+| `UserLinkingModule` | Link flow + mapping + token verify (tách từ MessengerModule) |
+| `MessengerModule` | Webhook routing, profile menu, report/reminder delivery, dead letter, cleanup |
 | `MessengerOutboundModule` | Send API, `MessengerRepository`, ports |
 | `StudentReportModule` | Wispace goals/scores → LLM báo cáo |
 | `StudyReminderModule` | Sync/dispatch/cleanup jobs, LLM nhắc học |
@@ -280,7 +291,7 @@ domain/entities|repositories/ → application/services|ports/ → infrastructure
 
 | Task | File chính |
 |------|------------|
-| Thêm menu postback | `infrastructure/meta/messenger-profile.service.ts`, `application/services/messenger.service.ts` |
+| Thêm menu postback | `infrastructure/meta/messenger-profile.service.ts`, `application/messenger-webhook.router.ts` (postback routing), `application/services/messenger.service.ts` (executor) |
 | Đổi nội dung báo cáo AI | `shared/prompts/student-report.system.txt`, `student-report/.../student-report.service.ts` |
 | Đổi nội dung nhắc học | `shared/prompts/study-reminder.system.txt`, `study-reminder/.../study-reminder.service.ts` |
 | Đổi lead time / horizon / retention | `.env`, `study-reminder-schedule.service.ts` |
@@ -292,6 +303,7 @@ domain/entities|repositories/ → application/services|ports/ → infrastructure
 | Rate limit chat | `ChatRateLimitService`, `MessengerChatQueueService`, [chat-rate-limit-quota.md](apps/messenger-bot/docs/chat-rate-limit-quota.md) |
 | Shared queue multi-pod (H7/R4) | `CHAT_QUEUE_STORE` / `CHAT_QUEUE_SHARED`, `CHAT_QUEUE_STORE` port, `MessengerChatQueueWorkerService` |
 | Ops quota scripts | `scripts/chat-quota-status.mjs`, `chat-quota-recover-stuck.mjs`, `chat-quota-cleanup-idempotency.mjs` |
+| Agent tools / cross-module ports | `domain/ports/goals-data.port.ts`, `domain/ports/report.port.ts`, `domain/ports/study-data.port.ts`, `infrastructure/adapters/*.adapter.ts` |
 
 ---
 

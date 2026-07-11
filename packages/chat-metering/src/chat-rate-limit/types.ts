@@ -3,6 +3,7 @@ export type ChatIdempotencyStatus = 'reserved' | 'completed' | 'refunded';
 export type ChatQuotaDenyReason =
   | 'DAILY_LIMIT'
   | 'BURST_LIMIT'
+  | 'NOT_LINKED'
   | 'IDEMPOTENCY_CONFLICT';
 
 export interface ChatQuotaCheckResult {

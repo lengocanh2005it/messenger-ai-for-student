@@ -9,7 +9,6 @@ import { ConfigService } from '@nestjs/config';
 import {
   MessengerLinkContext,
   buildWelcomeMessage,
-  getMissingUserRefMessage,
 } from '../../../../shared/config/poc.constants';
 import { UserDisplayNameService } from '../../../study-reminder/application/services/user-display-name.service';
 import { getStudyReminderLeadTimeNotice } from '../../../study-reminder/application/messages/study-reminder.messages';
@@ -25,18 +24,11 @@ import {
 } from '../../domain/entities/messenger.types';
 import { ChatRateLimitConfigService } from '../../../chat-rate-limit/application/services/chat-rate-limit-config.service';
 import { MessengerChatQueueService } from './messenger-chat-queue.service';
-import { buildChatMissingMidMessage } from '../messages/chat-delivery.messages';
-import { isUnsupportedUserMessage } from '../utils/webhook-message.utils';
-import { buildUnsupportedMessageTypeReply } from '../messages/chat-delivery.messages';
 import { MessengerMappingService } from './messenger-mapping.service';
 import { MessengerLinkContextService } from './messenger-link-context.service';
 import { MessengerOutboundService } from './messenger-outbound.service';
 import { MessengerRescheduleConfirmationService } from './messenger-reschedule-confirmation.service';
 import { buildMessengerLinkVerifyFailedMessage } from '../messages/messenger-link.messages';
-import {
-  CANCEL_RESCHEDULE_POSTBACK,
-  CONFIRM_RESCHEDULE_POSTBACK,
-} from '../constants/messenger-reschedule.constants';
 import { buildRescheduleSuccessRichFollowUp } from '../formatters/messenger-rich-message.builder';
 import type {
   MessengerLinkAttemptResult,
@@ -44,6 +36,11 @@ import type {
 } from '../../domain/types/messenger-link-verify.types';
 import { MessengerReportDeliveryService } from './messenger-report-delivery.service';
 import { MessengerReminderDeliveryService } from './messenger-reminder-delivery.service';
+import {
+  routeWebhookEvent,
+  RouterContext,
+  WebhookAction,
+} from '../messenger-webhook.router';
 
 export { MessengerApiError } from './messenger-outbound.service';
 
@@ -230,56 +227,6 @@ export class MessengerService {
     });
   }
 
-  private async resolveLinkContextAfterAttempt(
-    psid: string,
-    event: MessengerWebhookEvent | undefined,
-    attempt: MessengerLinkAttemptResult,
-  ): Promise<MessengerLinkContext | undefined> {
-    if (attempt.status === 'linked' && attempt.context) {
-      return attempt.context;
-    }
-
-    if (attempt.status === 'blocked' || attempt.status === 'verify_failed') {
-      return this.resolveLinkContextFromMapping(psid);
-    }
-
-    if (attempt.context) {
-      return attempt.context;
-    }
-
-    return this.resolveLinkContext(psid, event);
-  }
-
-  private linkAttemptBlocksWelcome(
-    attempt: MessengerLinkAttemptResult,
-  ): boolean {
-    return attempt.status === 'blocked' || attempt.status === 'verify_failed';
-  }
-
-  private async resolveLinkContext(
-    psid: string,
-    event?: MessengerWebhookEvent,
-  ): Promise<MessengerLinkContext | undefined> {
-    if (event) {
-      const ref = this.extractRefFromEvent(event);
-      if (ref) {
-        const outcome = await this.messengerLinkContextService.resolveFromRef(
-          psid,
-          {
-            ref,
-            topic: event.optin?.topic,
-            cadence: event.optin?.frequency,
-          },
-        );
-        if (outcome.context) {
-          return outcome.context;
-        }
-      }
-    }
-
-    return this.resolveLinkContextFromMapping(psid);
-  }
-
   private async linkPsidFromContext(
     psid: string,
     context: MessengerLinkContext,
@@ -291,19 +238,6 @@ export class MessengerService {
     return !result.blocked;
   }
 
-  private async resolveUserId(
-    psid: string,
-    event?: MessengerWebhookEvent,
-  ): Promise<number | undefined> {
-    const context = await this.resolveLinkContext(psid, event);
-    if (context?.userId) {
-      return context.userId;
-    }
-
-    const mapping = await this.repository.findActiveMappingByPsid(psid);
-    return mapping?.userId;
-  }
-
   private async handleEvent(event: MessengerWebhookEvent): Promise<boolean> {
     const psid = event.sender?.id;
     if (!psid) {
@@ -311,249 +245,177 @@ export class MessengerService {
       return false;
     }
 
-    if (event.optin) {
-      const linkAttempt = await this.attemptLinkFromEvent(psid, event);
+    const ctx = await this.preResolveContext(psid, event);
+    const actions = routeWebhookEvent(event, ctx);
 
-      if (linkAttempt.status === 'linked' && linkAttempt.context) {
-        this.logger.log(
-          `Linked PSID ${psid} from opt-in (ref=${linkAttempt.context.ref}, topic=${linkAttempt.context.topic}, cadence=${linkAttempt.context.cadence})`,
-        );
-      } else if (!this.extractRefFromEvent(event)) {
-        this.logger.warn(
-          `Opt-in for PSID ${psid} missing ref, topic or cadence`,
-        );
-      }
-
-      return true;
+    for (const action of actions) {
+      await this.executeAction(action, event);
     }
 
-    if (event.referral?.ref && !event.postback && !event.message?.text) {
-      await this.attemptLinkFromEvent(psid, event);
-      return true;
-    }
-
-    const postbackPayload = event.postback?.payload;
-    if (postbackPayload) {
-      return this.handlePostbackEvent(psid, postbackPayload, event);
-    }
-
-    if (event.message?.text) {
-      if (event.message.is_echo) {
-        this.logger.log(`Ignored echo message for PSID ${psid}`);
-        return true;
-      }
-
-      const messageMid = event.message.mid;
-      if (messageMid && (await this.isDuplicateMessageMid(messageMid, psid))) {
-        this.logger.log(
-          `Skipping duplicate message mid=${messageMid} for PSID ${psid}`,
-        );
-        return true;
-      }
-
-      const linkAttempt = await this.attemptLinkFromEvent(psid, event);
-      const linkedContext = await this.resolveLinkContextAfterAttempt(
-        psid,
-        event,
-        linkAttempt,
-      );
-      const userId = await this.resolveUserId(psid, event);
-      const userText = event.message.text.trim();
-
-      if (!userId) {
-        this.signalMessageSeen(psid);
-        void this.outbound
-          .sendTextViaPsid({
-            psid,
-            text: getMissingUserRefMessage(),
-            messageType: 'MISSING_USER_REF',
-          })
-          .catch(() => undefined);
-        return true;
-      }
-
-      if (!messageMid && this.chatRateLimitConfig.shouldEnforceForPsid(psid)) {
-        this.logger.warn(
-          `Chat text without message.mid psid=${psid}; not enqueued (H5)`,
-        );
-        this.signalMessageSeen(psid);
-        void this.outbound
-          .sendTextViaPsid({
-            psid,
-            userId,
-            text: buildChatMissingMidMessage(),
-            messageType: 'CHAT_MISSING_MID',
-          })
-          .catch(() => undefined);
-        return true;
-      }
-
-      this.messengerChatQueueService.enqueue({
-        psid,
-        userId,
-        userText,
-        linkContext:
-          linkedContext ??
-          (await this.resolveLinkContextAfterAttempt(psid, event, {
-            status: 'no_ref',
-          })),
-        idempotencyKey: messageMid,
-      });
-      return true;
-    }
-
-    if (event.message && !event.message.is_echo) {
-      if (isUnsupportedUserMessage(event.message) && !event.postback) {
-        const messageMid = event.message.mid;
-        if (
-          messageMid &&
-          (await this.isDuplicateMessageMid(messageMid, psid))
-        ) {
-          this.logger.log(
-            `Skipping duplicate unsupported message mid=${messageMid} for PSID ${psid}`,
-          );
-          return true;
-        }
-
-        this.logger.log(
-          `Unsupported message type (L1) for PSID ${psid}; sending text-only guidance`,
-        );
-        this.signalMessageSeen(psid);
-        const userId = await this.resolveUserId(psid, event);
-        void this.outbound
-          .sendTextViaPsid({
-            psid,
-            userId,
-            text: buildUnsupportedMessageTypeReply(),
-            messageType: 'UNSUPPORTED_MESSAGE_TYPE',
-          })
-          .catch(() => undefined);
-        return true;
-      }
-    }
-
-    this.logger.log(`Ignored unsupported event for PSID ${psid}`);
-    return false;
+    return actions.length > 0 && actions[0].type !== 'ignore';
   }
 
-  private async handlePostbackEvent(
+  private async preResolveContext(
     psid: string,
-    payload: string,
     event: MessengerWebhookEvent,
-  ): Promise<boolean> {
-    if (await this.isDuplicatePostback(psid, payload)) {
-      this.logger.log(
-        `Skipping duplicate postback ${payload} for PSID ${psid}`,
-      );
-      return true;
+  ): Promise<RouterContext> {
+    const isDuplicateMid = event.message?.mid
+      ? await this.isDuplicateMessageMid(event.message.mid, psid)
+      : undefined;
+
+    const isDuplicatePostback = event.postback?.payload
+      ? await this.isDuplicatePostback(psid, event.postback.payload)
+      : undefined;
+
+    const existingMapping = await this.repository.findActiveMappingByPsid(psid);
+
+    const shouldEnforceRateLimit =
+      this.chatRateLimitConfig.shouldEnforceForPsid(psid);
+
+    // For text/postback events: resolve link context (includes mapping fallback)
+    let linkContext: RouterContext['linkContext'] = undefined;
+    const linkAttemptStatus: RouterContext['linkAttemptStatus'] = undefined;
+
+    if (!event.optin && !event.referral?.ref) {
+      const resolved = await this.resolveLinkContextFromMapping(psid);
+      if (resolved) {
+        linkContext = resolved;
+      }
     }
 
-    this.signalMessageSeen(psid);
+    return {
+      isDuplicateMid,
+      isDuplicatePostback,
+      userId: existingMapping?.userId,
+      linkContext,
+      linkAttemptStatus,
+      shouldEnforceRateLimit,
+    };
+  }
 
-    const linkAttempt = await this.attemptLinkFromEvent(psid, event);
-    const context = await this.resolveLinkContextAfterAttempt(
-      psid,
-      event,
-      linkAttempt,
-    );
+  private async executeAction(
+    action: WebhookAction,
+    event: MessengerWebhookEvent,
+  ): Promise<void> {
+    const psid = action.type === 'ignore' ? event.sender?.id : action.psid;
 
-    this.logger.log(`PSID: ${psid}`);
-    this.logger.log(`USER_ID: ${context?.userId ?? 'unknown'}`);
-    this.logger.log(`POSTBACK: ${payload}`);
-    if (context) {
-      this.logger.log(
-        `REF: ${context.ref}, TOPIC: ${context.topic}, CADENCE: ${context.cadence}`,
-      );
-    }
+    switch (action.type) {
+      case 'ignore':
+        if (psid) {
+          this.logger.log(`Ignored event for PSID ${psid}`);
+        }
+        break;
 
-    if (
-      payload === 'GET_LEARNING_REPORT' ||
-      payload === 'SEND_OPT_IN' ||
-      payload === 'REGISTER_LEARNING_REPORT'
-    ) {
-      if (!context) {
-        await this.outbound.sendTextViaPsid({
-          psid,
-          text: getMissingUserRefMessage(),
-          messageType: 'MISSING_USER_REF',
+      case 'link_user': {
+        const linkAttempt = await this.attemptLinkFromEvent(psid!, event);
+        if (linkAttempt.status === 'linked' && linkAttempt.context) {
+          this.logger.log(
+            `Linked PSID ${psid} from opt-in (ref=${linkAttempt.context.ref}, topic=${linkAttempt.context.topic}, cadence=${linkAttempt.context.cadence})`,
+          );
+        } else if (!this.extractRefFromEvent(event)) {
+          this.logger.warn(
+            `Opt-in for PSID ${psid} missing ref, topic or cadence`,
+          );
+        }
+        break;
+      }
+
+      case 'enqueue_chat': {
+        const linkContext = await this.resolveLinkContextForChat(psid!, event);
+        this.messengerChatQueueService.enqueue({
+          psid: psid!,
+          userId: action.userId,
+          userText: action.userText,
+          linkContext,
+          idempotencyKey: action.idempotencyKey,
         });
-        return true;
+        break;
       }
 
-      await this.signalTyping(psid);
-      await this.reportDeliveryService.registerForScheduledReports(
-        psid,
-        context,
-      );
-      return true;
-    }
+      case 'send_text':
+        this.signalMessageSeen(psid!);
+        void this.outbound
+          .sendTextViaPsid({
+            psid: psid!,
+            userId: action.userId,
+            text: action.text,
+            messageType: action.messageType,
+          })
+          .catch(() => undefined);
+        break;
 
-    if (
-      payload === 'VIEW_LEARNING_PROGRESS' ||
-      payload === 'GET_LEARNING_PROGRESS'
-    ) {
-      await this.signalTyping(psid);
-      const userId = await this.resolveUserId(psid);
-      await this.reportDeliveryService.sendReport(psid, userId);
-      return true;
-    }
+      case 'register_report':
+        await this.signalTyping(psid!);
+        await this.reportDeliveryService.registerForScheduledReports(
+          psid!,
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+          action as any,
+        );
+        break;
 
-    if (
-      payload === 'VIEW_UPCOMING_STUDY_SESSION' ||
-      payload === 'PREVIEW_STUDY_REMINDER'
-    ) {
-      await this.signalTyping(psid);
-      await this.reminderDeliveryService.sendReminderPreview(
-        psid,
-        context?.userId,
-      );
-      return true;
-    }
+      case 'send_report':
+        await this.signalTyping(psid!);
+        await this.reportDeliveryService.sendReport(psid!, action.userId);
+        break;
 
-    if (payload === CONFIRM_RESCHEDULE_POSTBACK) {
-      await this.signalTyping(psid);
-      await this.handleConfirmReschedulePostback(psid, context?.userId);
-      return true;
-    }
+      case 'send_reminder_preview':
+        await this.signalTyping(psid!);
+        await this.reminderDeliveryService.sendReminderPreview(
+          psid!,
+          action.userId,
+        );
+        break;
 
-    if (payload === CANCEL_RESCHEDULE_POSTBACK) {
-      const message = this.rescheduleConfirmationService.cancel(psid);
-      await this.outbound.sendTextViaPsid({
-        psid,
-        userId: context?.userId,
-        text: message,
-        messageType: 'RESCHEDULE_CANCELLED',
-      });
-      return true;
-    }
+      case 'confirm_reschedule':
+        await this.signalTyping(psid!);
+        await this.handleConfirmReschedulePostback(psid!, action.userId);
+        break;
 
-    if (payload === 'GET_STARTED') {
-      if (this.linkAttemptBlocksWelcome(linkAttempt)) {
-        return true;
+      case 'cancel_reschedule': {
+        const message = this.rescheduleConfirmationService.cancel(psid!);
+        await this.outbound.sendTextViaPsid({
+          psid: psid!,
+          userId: action.userId,
+          text: message,
+          messageType: 'RESCHEDULE_CANCELLED',
+        });
+        break;
       }
 
-      await this.signalTyping(psid);
-      await this.outbound.sendTextViaPsid({
+      case 'send_welcome':
+        await this.signalTyping(psid!);
+        await this.outbound.sendTextViaPsid({
+          psid: psid!,
+          userId: action.userId,
+          text: await this.buildWelcomeMessage(psid!, action.userId),
+          messageType: 'WELCOME',
+        });
+        break;
+    }
+  }
+
+  private async resolveLinkContextForChat(
+    psid: string,
+    event: MessengerWebhookEvent,
+  ): Promise<MessengerLinkContext | undefined> {
+    // Try to resolve via ref in event first
+    const ref = this.extractRefFromEvent(event);
+    if (ref) {
+      const outcome = await this.messengerLinkContextService.resolveFromRef(
         psid,
-        userId: context?.userId,
-        text: await this.buildWelcomeMessage(psid, context?.userId),
-        messageType: 'WELCOME',
-      });
-      return true;
+        {
+          ref,
+          topic: event.optin?.topic,
+          cadence: event.optin?.frequency,
+        },
+      );
+      if (outcome.context) {
+        return outcome.context;
+      }
     }
 
-    if (this.linkAttemptBlocksWelcome(linkAttempt)) {
-      return true;
-    }
-
-    await this.signalTyping(psid);
-    await this.outbound.sendTextViaPsid({
-      psid,
-      userId: context?.userId,
-      text: await this.buildWelcomeMessage(psid, context?.userId),
-      messageType: 'WELCOME',
-    });
-    return true;
+    // Fallback to existing mapping
+    return this.resolveLinkContextFromMapping(psid);
   }
 
   private async handleConfirmReschedulePostback(

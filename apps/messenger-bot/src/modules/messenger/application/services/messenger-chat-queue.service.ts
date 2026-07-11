@@ -28,6 +28,7 @@ import {
 import { CHAT_HISTORY_STORE } from '../../domain/repositories/chat-history.store.port';
 import type { ChatHistoryStorePort } from '../../domain/repositories/chat-history.store.port';
 import { MessengerChatSharedConfigService } from './messenger-chat-shared-config.service';
+import { readMessengerBubbleLimits } from '../utils/messenger-bubble-config.utils';
 import {
   MessengerOutboundService,
   MessengerPartialSendError,
@@ -432,14 +433,15 @@ export class MessengerChatQueueService implements OnModuleDestroy {
     userId?: number;
     text: string;
   }): Promise<boolean> {
+    const limits = readMessengerBubbleLimits(this.configService);
     try {
       const bubblesSent = await this.outbound.sendTextBubblesViaPsid({
         psid: params.psid,
         userId: params.userId,
         text: params.text,
         messageType: 'FREE_FORM_CHAT_OUT',
-        maxBubbles: this.getMaxBubbles(),
-        maxCharsPerBubble: this.getMaxCharsPerBubble(),
+        maxBubbles: Math.min(limits.maxBubbles, 10),
+        maxCharsPerBubble: Math.min(limits.maxCharsPerBubble, 2000),
       });
 
       return bubblesSent > 0;
@@ -551,27 +553,5 @@ export class MessengerChatQueueService implements OnModuleDestroy {
     }
 
     return Math.min(Math.floor(parsed), 10_000);
-  }
-
-  private getMaxBubbles(): number {
-    const parsed = Number(
-      this.configService.get<string>('CHAT_MAX_BUBBLES') ?? 4,
-    );
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return 4;
-    }
-
-    return Math.min(Math.floor(parsed), 10);
-  }
-
-  private getMaxCharsPerBubble(): number {
-    const parsed = Number(
-      this.configService.get<string>('CHAT_BUBBLE_MAX_CHARS') ?? 640,
-    );
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return 640;
-    }
-
-    return Math.min(Math.floor(parsed), 2000);
   }
 }

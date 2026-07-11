@@ -31,6 +31,7 @@ export type {
   LlmAgentInput,
   LlmAgentReply,
   LlmAgentStreamEvent,
+  LlmAgentExecuteCallbacks,
 } from './types';
 export {
   buildPromptInjectionBlockedMessage,

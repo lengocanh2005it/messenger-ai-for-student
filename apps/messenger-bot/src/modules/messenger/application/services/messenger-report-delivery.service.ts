@@ -43,40 +43,16 @@ export class MessengerReportDeliveryService {
       );
     }
 
-    try {
-      const report = await this.studentReportService.generateReport(
-        mapping.psid,
-      );
-      await this.sendReportBubbles({
-        psid: mapping.psid,
-        userId: mapping.userId,
-        text: report,
-        messageType: 'SCHEDULED_LEARNING_REPORT',
-      });
-      return report;
-    } catch (error) {
-      if (error instanceof StudentReportRetryableError) {
-        throw error;
-      }
-
-      if (error instanceof ProactiveMessenger24hSkippedError) {
-        return '';
-      }
-
-      throw error;
-    }
+    return this.sendReportCore(
+      mapping.psid,
+      mapping.userId,
+      'SCHEDULED_LEARNING_REPORT',
+    );
   }
 
   async sendReport(psid: string, userId?: number): Promise<string> {
     try {
-      const report = await this.studentReportService.generateReport(psid);
-      await this.sendReportBubbles({
-        psid,
-        userId,
-        text: report,
-        messageType: 'LEARNING_PROGRESS',
-      });
-      return report;
+      return await this.sendReportCore(psid, userId, 'LEARNING_PROGRESS');
     } catch (error) {
       if (error instanceof StudentReportRetryableError) {
         const retryMessage = buildStudentReportApiRetryMessage();
@@ -87,10 +63,6 @@ export class MessengerReportDeliveryService {
           messageType: 'LEARNING_PROGRESS_API_DEFERRED',
         });
         return retryMessage;
-      }
-
-      if (error instanceof ProactiveMessenger24hSkippedError) {
-        return '';
       }
 
       throw error;
@@ -134,6 +106,24 @@ export class MessengerReportDeliveryService {
       text: getPocSubscriptionConfirmationMessage(),
       messageType: 'SUBSCRIPTION_CONFIRMATION',
     });
+  }
+
+  private async sendReportCore(
+    psid: string,
+    userId: number | undefined,
+    messageType: string,
+  ): Promise<string> {
+    try {
+      const report = await this.studentReportService.generateReport(psid);
+      await this.sendReportBubbles({ psid, userId, text: report, messageType });
+      return report;
+    } catch (error) {
+      if (error instanceof ProactiveMessenger24hSkippedError) {
+        return '';
+      }
+
+      throw error;
+    }
   }
 
   private async sendReportBubbles(params: {

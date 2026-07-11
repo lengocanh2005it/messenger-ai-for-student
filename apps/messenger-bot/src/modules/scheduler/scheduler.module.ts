@@ -7,6 +7,7 @@ import { LlmSafetyModule } from '../llm-safety/llm-safety.module';
 import { DatabaseModule } from '../../infrastructure/database/database.module';
 import { MessengerModule } from '../messenger/messenger.module';
 import { MessengerOutboundModule } from '../messenger/messenger-outbound.module';
+import { UserLinkingModule } from '../messenger/user-linking.module';
 import { StudentReportModule } from '../student-report/student-report.module';
 import { StudyReminderModule } from '../study-reminder/study-reminder.module';
 import { DopplerRuntimeSyncService } from './application/services/doppler-runtime-sync.service';
@@ -15,6 +16,7 @@ import { OpsHealthService } from './application/services/ops-health.service';
 import { ReportCronLeaderService } from './application/services/report-cron-leader.service';
 import { ReportCronLockService } from './application/services/report-cron-lock.service';
 import { ReportCronService } from './application/services/report-cron.service';
+import { ReportSendOrchestrationService } from './application/services/report-send-orchestration.service';
 import { ReportSendRetryDispatchService } from './application/services/report-send-retry-dispatch.service';
 import { ReportSendScheduleService } from './application/services/report-send-schedule.service';
 import { ReportScheduleService } from './application/services/report-schedule.service';
@@ -31,6 +33,7 @@ import { SchedulerController } from './presentation/controllers/scheduler.contro
     LlmSafetyModule,
     MessengerOutboundModule,
     MessengerModule,
+    UserLinkingModule,
     StudentReportModule,
     StudyReminderModule,
   ],
@@ -39,6 +42,7 @@ import { SchedulerController } from './presentation/controllers/scheduler.contro
     ReportScheduleService,
     ReportCronLeaderService,
     ReportCronLockService,
+    ReportSendOrchestrationService,
     ReportCronService,
     ReportSendScheduleService,
     ReportSendRetryDispatchService,

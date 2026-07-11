@@ -6,39 +6,23 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
-import { ProactiveMessenger24hSkippedError } from '../../../messenger/application/utils/proactive-send.utils';
-import { MessengerReportDeliveryService } from '../../../messenger/application/services/messenger-report-delivery.service';
 import {
   MESSENGER_REPOSITORY,
   type MessengerRepositoryPort,
 } from '../../../messenger/domain/repositories/messenger.repository.port';
 import { todayReportDate } from '../../../../shared/utils/report-date.utils';
-import { StudentReportRetryableError } from '../../../student-report/domain/errors/wispace-api.error';
 import type {
   SendScheduledReportsOptions,
   SendScheduledReportsResult,
 } from '../../domain/entities/send-scheduled-reports.types';
-import {
-  REPORT_SEND_JOB_REPOSITORY,
-  type ReportSendJobRepositoryPort,
-} from '../../domain/repositories/report-send-job.repository.port';
 import { ReportCronLeaderService } from './report-cron-leader.service';
 import { ReportCronLockService } from './report-cron-lock.service';
 import { ReportScheduleService } from './report-schedule.service';
-import { ReportSendScheduleService } from './report-send-schedule.service';
+import { ReportSendOrchestrationService } from './report-send-orchestration.service';
 import type { UserMessengerMapping } from '../../../messenger/domain/entities/messenger.types';
+import type { ClaimAndSendResult } from './report-send-orchestration.service';
 
-interface MappingReportResult {
-  sent: number;
-  skipped: number;
-  deferred: number;
-  windowClosed: number;
-  claimSkipped: number;
-  retryQueued: number;
-  failures: Array<{ token: string; error: string }>;
-}
-
-const ZERO: MappingReportResult = {
+const ZERO: ClaimAndSendResult = {
   sent: 0,
   skipped: 0,
   deferred: 0,
@@ -55,14 +39,11 @@ export class ReportCronService {
   constructor(
     @Inject(MESSENGER_REPOSITORY)
     private readonly messengerRepository: MessengerRepositoryPort,
-    private readonly messengerReportDeliveryService: MessengerReportDeliveryService,
     private readonly reportScheduleService: ReportScheduleService,
     private readonly reportCronLeaderService: ReportCronLeaderService,
     private readonly reportCronLockService: ReportCronLockService,
     private readonly configService: ConfigService,
-    @Inject(REPORT_SEND_JOB_REPOSITORY)
-    private readonly reportSendJobRepository: ReportSendJobRepositoryPort,
-    private readonly reportSendScheduleService: ReportSendScheduleService,
+    private readonly reportSendOrchestrationService: ReportSendOrchestrationService,
   ) {}
 
   @Cron('0 8 * * *', {
@@ -175,7 +156,7 @@ export class ReportCronService {
       skipAlreadySentToday: boolean;
       reportDate: string;
     },
-  ): Promise<MappingReportResult> {
+  ): Promise<ClaimAndSendResult> {
     const { forceSend, skipAlreadySentToday, reportDate } = opts;
 
     if (!mapping.psid) {
@@ -207,134 +188,19 @@ export class ReportCronService {
       // forceSend: continue without examDate
     }
 
-    if (skipAlreadySentToday) {
-      const alreadySentToday =
-        await this.messengerRepository.hasSentScheduledReportToday(
-          mapping.psid,
-        );
-      if (alreadySentToday) {
-        this.logger.log(
-          `Skip PSID ${mapping.psid}: scheduled report already sent today`,
-        );
-        if (examDateForOutbox) {
-          await this.reportSendJobRepository.markSentByPsidExamDate(
-            mapping.psid,
-            examDateForOutbox,
-          );
-        }
-        return { ...ZERO, skipped: 1 };
-      }
-    }
-
-    let claimedForSend = false;
-    if (skipAlreadySentToday) {
-      const claimed = await this.messengerRepository.tryClaimScheduledReport({
-        psid: mapping.psid,
-        userId: mapping.userId,
-        reportDate,
-      });
-      if (!claimed) {
-        this.logger.log(
-          `Skip PSID ${mapping.psid}: report claim exists for ${reportDate} (R4)`,
-        );
-        return { ...ZERO, claimSkipped: 1 };
-      }
-      claimedForSend = true;
-    }
-
-    try {
-      const result =
-        await this.messengerReportDeliveryService.sendReportForMapping(mapping);
-
-      if (result) {
-        if (claimedForSend) {
-          await this.messengerRepository.markScheduledReportClaimSent({
-            psid: mapping.psid,
-            reportDate,
-          });
-        }
-        if (examDateForOutbox) {
-          await this.reportSendJobRepository.markSentByPsidExamDate(
-            mapping.psid,
-            examDateForOutbox,
-          );
-        }
-        return { ...ZERO, sent: 1 };
-      }
-
-      if (claimedForSend) {
-        await this.messengerRepository.releaseScheduledReportClaim({
-          psid: mapping.psid,
-          reportDate,
-        });
-      }
-      return { ...ZERO, windowClosed: 1 };
-    } catch (error) {
-      if (claimedForSend) {
-        if (
-          error instanceof StudentReportRetryableError ||
-          error instanceof ProactiveMessenger24hSkippedError
-        ) {
-          await this.messengerRepository.releaseScheduledReportClaim({
-            psid: mapping.psid,
-            reportDate,
-          });
-        }
-      }
-
-      if (error instanceof StudentReportRetryableError) {
-        let retryQueued = 0;
-        if (examDateForOutbox) {
-          const settings = this.reportSendScheduleService.getOutboxSettings();
-          const nextRetryAt = new Date(
-            Date.now() + settings.retryBackoffMinutes * 60 * 1000,
-          );
-          const job = await this.reportSendJobRepository.recordRetryableFailure(
-            {
-              psid: mapping.psid,
-              userId: mapping.userId,
-              examDate: examDateForOutbox,
-              firstAttemptDate: reportDate,
-              maxRetries: settings.maxRetries,
-              nextRetryAt,
-              errorMessage: error.message,
-            },
-          );
-          if (job.nextRetryAt) retryQueued = 1;
-        }
-        this.logger.warn(
-          `Deferred scheduled report for PSID ${mapping.psid} (Wispace API retryable, R3/R5)`,
-        );
-        return { ...ZERO, deferred: 1, retryQueued };
-      }
-
-      if (error instanceof ProactiveMessenger24hSkippedError) {
-        this.logger.warn(
-          `Skipped scheduled report for PSID ${mapping.psid} (Messenger 24h window, L2)`,
-        );
-        return { ...ZERO, windowClosed: 1 };
-      }
-
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        `Failed to send report for token ${mapping.notificationMessagesToken}`,
-        error,
-      );
-      return {
-        ...ZERO,
-        failures: [
-          { token: mapping.notificationMessagesToken, error: message },
-        ],
-      };
-    }
+    return this.reportSendOrchestrationService.claimAndSend(mapping, {
+      reportDate,
+      skipAlreadySentToday,
+      examDateForOutbox,
+    });
   }
 
   private async runWithConcurrency(
     mappings: UserMessengerMapping[],
     concurrency: number,
-    fn: (m: UserMessengerMapping) => Promise<MappingReportResult>,
-  ): Promise<MappingReportResult[]> {
-    const results: MappingReportResult[] = [];
+    fn: (m: UserMessengerMapping) => Promise<ClaimAndSendResult>,
+  ): Promise<ClaimAndSendResult[]> {
+    const results: ClaimAndSendResult[] = [];
     for (let i = 0; i < mappings.length; i += concurrency) {
       const batch = mappings.slice(i, i + concurrency);
       const settled = await Promise.allSettled(batch.map((m) => fn(m)));
