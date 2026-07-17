@@ -41,4 +41,24 @@ export interface StudyReminderJobRepositoryPort {
 
   /** Returns the soonest time any pending/retryable job becomes actionable (after `after`). */
   findNextDueTime(after: Date): Promise<Date | null>;
+
+  deleteSentJobs(): Promise<number>;
+
+  deleteTerminalJobsOlderThan(cutoff: Date): Promise<number>;
+
+  countJobsByStatus(): Promise<Record<string, number>>;
+
+  countTerminalFailedSince(since: Date): Promise<number>;
+
+  countStuckProcessing(olderThan: Date): Promise<number>;
+
+  findTerminalFailedSince(
+    since: Date,
+    limit: number,
+  ): Promise<StudyReminderJob[]>;
+
+  findStuckProcessing(
+    olderThan: Date,
+    limit: number,
+  ): Promise<StudyReminderJob[]>;
 }

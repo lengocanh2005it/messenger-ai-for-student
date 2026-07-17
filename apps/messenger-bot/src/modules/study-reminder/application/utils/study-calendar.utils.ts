@@ -1,16 +1,15 @@
+export type {
+  RescheduleSchedulingMode,
+  ResolvedStudyCalendarSlot,
+} from '../types/study-calendar.types';
+
+import type {
+  RescheduleSchedulingMode,
+  ResolvedStudyCalendarSlot,
+} from '../types/study-calendar.types';
+
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]?\d|2[0-3]):([0-5]\d)$/;
-
-export type RescheduleSchedulingMode =
-  | 'default_next_day_same_time'
-  | 'explicit';
-
-export interface ResolvedStudyCalendarSlot {
-  eventDate: string;
-  time: string;
-  localDate: string;
-  schedulingMode: RescheduleSchedulingMode;
-}
 
 /** Local calendar date used internally after reschedule resolution. */
 export function buildEventDateIso(localDate: string): string {

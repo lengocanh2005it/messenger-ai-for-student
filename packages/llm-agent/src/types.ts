@@ -56,3 +56,17 @@ export type LlmAgentStreamEvent =
   | { type: 'tool_start'; toolName: string }
   | { type: 'done'; reply: LlmAgentReply }
   | { type: 'error'; error: unknown };
+
+/**
+ * Callbacks for the shared `execute()` algorithm.
+ * - `reply()` passes throw-based callbacks.
+ * - `replyStream()` passes yield-based callbacks.
+ */
+export interface LlmAgentExecuteCallbacks {
+  /** Called with the final sanitized text before returning. */
+  onReply?(reply: LlmAgentReply): void;
+  /** Called when a tool call is about to be executed. */
+  onToolStart?(toolName: string): void;
+  /** Called on unrecoverable errors (empty content, retry exhaustion). */
+  onError?(error: Error): void;
+}

@@ -1,13 +1,10 @@
 import { MessengerAgentToolsService } from './messenger-agent-tools.service';
 import type { MessengerAgentToolContext } from './messenger-agent-tools.service';
-import type { StudentReportService } from '../../../student-report/application/services/student-report.service';
-import type { UserGoalsApiService } from '../../../student-report/infrastructure/wispace/user-goals-api.service';
-import type { StudyReminderService } from '../../../study-reminder/application/services/study-reminder.service';
-import type { StudyReminderScheduleService } from '../../../study-reminder/application/services/study-reminder-schedule.service';
-import type { StudyCalendarCommandService } from '../../../study-reminder/application/services/study-calendar-command.service';
-import type { StudySessionSourceService } from '../../../study-reminder/application/services/study-session-source.service';
-import type { MessengerRescheduleConfirmationService } from '../services/messenger-reschedule-confirmation.service';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
+import type { ReportPort } from '../../domain/ports/report.port';
+import type { GoalsDataPort } from '../../domain/ports/goals-data.port';
+import type { StudyDataPort } from '../../domain/ports/study-data.port';
+import type { MessengerRescheduleConfirmationService } from '../services/messenger-reschedule-confirmation.service';
 
 describe('MessengerAgentToolsService', () => {
   const createService = (
@@ -19,34 +16,23 @@ describe('MessengerAgentToolsService', () => {
       upsertPocSubscription: overrides.upsertPocSubscription ?? jest.fn(),
     } as unknown as jest.Mocked<MessengerRepositoryPort>;
 
-    const studentReportService: jest.Mocked<StudentReportService> = {
+    const reportPort: jest.Mocked<ReportPort> = {
       generateReport: overrides.generateReport ?? jest.fn(),
-    } as unknown as jest.Mocked<StudentReportService>;
+    };
 
-    const userGoalsApiService: jest.Mocked<UserGoalsApiService> = {
+    const goalsPort: jest.Mocked<GoalsDataPort> = {
       getUserGoals: overrides.getUserGoals ?? jest.fn(),
-    } as unknown as jest.Mocked<UserGoalsApiService>;
+    };
 
-    const studySessionSourceService: jest.Mocked<StudySessionSourceService> = {
+    const studyPort: jest.Mocked<StudyDataPort> = {
       getUpcomingSessions: overrides.getUpcomingSessions ?? jest.fn(),
-    } as unknown as jest.Mocked<StudySessionSourceService>;
-
-    const studyReminderService: jest.Mocked<StudyReminderService> = {
       getNextUpcomingSession: overrides.getNextUpcomingSession ?? jest.fn(),
       generateReminderBundleForSession:
         overrides.generateReminderBundleForSession ?? jest.fn(),
-    } as unknown as jest.Mocked<StudyReminderService>;
-
-    const studyReminderScheduleService: jest.Mocked<StudyReminderScheduleService> =
-      {
-        getOutboxSettings: jest.fn(() => ({ minutesBefore: 30 })),
-        formatScheduledTimeLabel: jest.fn(() => 'Thứ 2, 08:00'),
-      } as unknown as jest.Mocked<StudyReminderScheduleService>;
-
-    const studyCalendarCommandService: jest.Mocked<StudyCalendarCommandService> =
-      {
-        listEntries: overrides.listEntries ?? jest.fn(),
-      } as unknown as jest.Mocked<StudyCalendarCommandService>;
+      listCalendarEntries: overrides.listEntries ?? jest.fn(),
+      getOutboxSettings: jest.fn(() => ({ minutesBefore: 30 })),
+      formatScheduledTimeLabel: jest.fn(() => 'Thứ 2, 08:00'),
+    } as unknown as jest.Mocked<StudyDataPort>;
 
     const rescheduleConfirmationService: jest.Mocked<MessengerRescheduleConfirmationService> =
       {
@@ -55,12 +41,9 @@ describe('MessengerAgentToolsService', () => {
 
     const service = new MessengerAgentToolsService(
       repository,
-      studentReportService,
-      userGoalsApiService,
-      studySessionSourceService,
-      studyReminderService,
-      studyReminderScheduleService,
-      studyCalendarCommandService,
+      reportPort,
+      goalsPort,
+      studyPort,
       rescheduleConfirmationService,
     );
 
@@ -74,12 +57,9 @@ describe('MessengerAgentToolsService', () => {
       service,
       ctx,
       repository,
-      studentReportService,
-      userGoalsApiService,
-      studySessionSourceService,
-      studyReminderService,
-      studyReminderScheduleService,
-      studyCalendarCommandService,
+      reportPort,
+      goalsPort,
+      studyPort,
       rescheduleConfirmationService,
     };
   };

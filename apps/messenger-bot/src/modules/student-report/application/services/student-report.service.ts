@@ -9,8 +9,8 @@ import { todayUsageDate } from '@wispace/chat-metering';
 import { resolveAppTimezone } from '../../../../shared/config/app-timezone';
 import { loadSystemPrompt } from '../../../../shared/prompts/load-system-prompt';
 import { sanitizeMessengerText } from '../../../../shared/utils/messenger-text.utils';
-import type { LlmExecutionContext } from '../../../llm-execution/application/services/llm-execution.service';
 import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
+import type { LlmExecutionContext } from '../../../llm-execution/application/types/llm-execution.types';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { StudentCapacityService } from './student-capacity.service';
 

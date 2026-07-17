@@ -11,21 +11,10 @@ describe('ReportCronService.sendScheduledReports (R5 ops)', () => {
     status: 'ACTIVE' as const,
   };
 
-  const buildService = (overrides?: {
-    alreadySent?: boolean;
-    claimOk?: boolean;
-  }) => {
+  const buildService = () => {
     const messengerRepository = {
       cleanupActiveDuplicateMappings: jest.fn().mockResolvedValue(0),
       findActiveSubscribedMappings: jest.fn().mockResolvedValue([mapping]),
-      hasSentScheduledReportToday: jest
-        .fn()
-        .mockResolvedValue(overrides?.alreadySent ?? false),
-      tryClaimScheduledReport: jest
-        .fn()
-        .mockResolvedValue(overrides?.claimOk ?? true),
-      markScheduledReportClaimSent: jest.fn().mockResolvedValue(undefined),
-      releaseScheduledReportClaim: jest.fn().mockResolvedValue(undefined),
     };
 
     const reportScheduleService = {
@@ -41,75 +30,90 @@ describe('ReportCronService.sendScheduledReports (R5 ops)', () => {
       }),
     };
 
-    const messengerService = {
-      sendScheduledReportForMapping: jest.fn().mockResolvedValue('report text'),
-    };
-
-    const reportSendJobRepository = {
-      markSentByPsidExamDate: jest.fn().mockResolvedValue(undefined),
-      recordRetryableFailure: jest.fn(),
+    const reportSendOrchestrationService = {
+      claimAndSend: jest.fn().mockResolvedValue({
+        sent: 1,
+        skipped: 0,
+        deferred: 0,
+        windowClosed: 0,
+        claimSkipped: 0,
+        retryQueued: 0,
+        failures: [],
+      }),
     };
 
     const service = new ReportCronService(
       messengerRepository as never,
-      messengerService as never,
       reportScheduleService as never,
       {} as never,
       {} as never,
-      { get: jest.fn() } as never,
-      reportSendJobRepository as never,
-      { getOutboxSettings: jest.fn() } as never,
+      { get: jest.fn().mockReturnValue(undefined) } as never,
+      reportSendOrchestrationService as never,
     );
 
     return {
       service,
       messengerRepository,
-      messengerService,
-      reportSendJobRepository,
+      reportSendOrchestrationService,
     };
   };
 
-  it('forceSend skips user who already received scheduled report today', async () => {
-    const { service, messengerService } = buildService({ alreadySent: true });
+  it('delegates to orchestration service for claim and send', async () => {
+    const { service, reportSendOrchestrationService } = buildService();
 
     const result = await service.sendScheduledReports({
       forceSend: true,
       psid: 'psid-1',
-    });
-
-    expect(result.skipped).toBe(1);
-    expect(result.sent).toBe(0);
-    expect(
-      messengerService.sendScheduledReportForMapping,
-    ).not.toHaveBeenCalled();
-  });
-
-  it('forceSend sends when allowDuplicate bypasses skip', async () => {
-    const { service, messengerService } = buildService({ alreadySent: true });
-
-    const result = await service.sendScheduledReports({
-      forceSend: true,
-      psid: 'psid-1',
-      allowDuplicate: true,
     });
 
     expect(result.sent).toBe(1);
-    expect(messengerService.sendScheduledReportForMapping).toHaveBeenCalled();
+    expect(reportSendOrchestrationService.claimAndSend).toHaveBeenCalledWith(
+      mapping,
+      {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        reportDate: expect.any(String),
+        skipAlreadySentToday: true,
+        examDateForOutbox: '2026-06-15',
+      },
+    );
   });
 
-  it('forceSend marks outbox sent when skipping already-sent user', async () => {
-    const { service, reportSendJobRepository } = buildService({
-      alreadySent: true,
-    });
+  it('skips when exam window not met and not forceSend', async () => {
+    const reportScheduleService = {
+      getExamReminderWindow: jest
+        .fn()
+        .mockReturnValue({ minDays: 2, maxDays: 3 }),
+      shouldSendReportToday: jest.fn().mockResolvedValue({
+        shouldSend: false,
+        examDate: '2026-06-15',
+        daysUntilExam: 10,
+        minDays: 2,
+        maxDays: 3,
+      }),
+    };
 
-    await service.sendScheduledReports({
-      forceSend: true,
-      psid: 'psid-1',
-    });
+    const reportSendOrchestrationService = {
+      claimAndSend: jest.fn(),
+    };
 
-    expect(reportSendJobRepository.markSentByPsidExamDate).toHaveBeenCalledWith(
-      'psid-1',
-      '2026-06-15',
+    const messengerRepository = {
+      cleanupActiveDuplicateMappings: jest.fn().mockResolvedValue(0),
+      findActiveSubscribedMappings: jest.fn().mockResolvedValue([mapping]),
+    };
+
+    const service = new ReportCronService(
+      messengerRepository as never,
+      reportScheduleService as never,
+      {} as never,
+      {} as never,
+      { get: jest.fn().mockReturnValue(undefined) } as never,
+      reportSendOrchestrationService as never,
     );
+
+    const result = await service.sendScheduledReports({ psid: 'psid-1' });
+
+    expect(result.skipped).toBe(1);
+    expect(result.sent).toBe(0);
+    expect(reportSendOrchestrationService.claimAndSend).not.toHaveBeenCalled();
   });
 });

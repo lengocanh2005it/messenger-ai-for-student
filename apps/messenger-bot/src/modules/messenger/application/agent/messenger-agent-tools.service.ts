@@ -6,18 +6,18 @@ import {
   getPocSubscriptionConfirmationMessage,
   parseMessengerLinkContext,
 } from '../../../../shared/config/poc.constants';
-import { StudentReportService } from '../../../student-report/application/services/student-report.service';
-import { UserGoalsApiService } from '../../../student-report/infrastructure/wispace/user-goals-api.service';
 import {
   getNoUpcomingStudySessionMessage,
   getStudyReminderLeadTimeNotice,
 } from '../../../study-reminder/application/messages/study-reminder.messages';
-import { StudyReminderScheduleService } from '../../../study-reminder/application/services/study-reminder-schedule.service';
-import { StudyReminderService } from '../../../study-reminder/application/services/study-reminder.service';
-import { StudyCalendarCommandService } from '../../../study-reminder/application/services/study-calendar-command.service';
-import { StudySessionSourceService } from '../../../study-reminder/application/services/study-session-source.service';
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
+import { GOALS_DATA_PORT } from '../../domain/ports/goals-data.port';
+import type { GoalsDataPort } from '../../domain/ports/goals-data.port';
+import { REPORT_PORT } from '../../domain/ports/report.port';
+import type { ReportPort } from '../../domain/ports/report.port';
+import { STUDY_DATA_PORT } from '../../domain/ports/study-data.port';
+import type { StudyDataPort } from '../../domain/ports/study-data.port';
 import {
   buildCalendarEntriesRichFollowUp,
   buildReminderPreviewRichFollowUp,
@@ -58,12 +58,12 @@ export class MessengerAgentToolsService {
   constructor(
     @Inject(MESSENGER_REPOSITORY)
     private readonly repository: MessengerRepositoryPort,
-    private readonly studentReportService: StudentReportService,
-    private readonly userGoalsApiService: UserGoalsApiService,
-    private readonly studySessionSourceService: StudySessionSourceService,
-    private readonly studyReminderService: StudyReminderService,
-    private readonly studyReminderScheduleService: StudyReminderScheduleService,
-    private readonly studyCalendarCommandService: StudyCalendarCommandService,
+    @Inject(REPORT_PORT)
+    private readonly reportPort: ReportPort,
+    @Inject(GOALS_DATA_PORT)
+    private readonly goalsPort: GoalsDataPort,
+    @Inject(STUDY_DATA_PORT)
+    private readonly studyPort: StudyDataPort,
     private readonly rescheduleConfirmationService: MessengerRescheduleConfirmationService,
   ) {}
 
@@ -79,7 +79,7 @@ export class MessengerAgentToolsService {
       return null;
     }
 
-    const list = await this.studyCalendarCommandService.listEntries(
+    const list = await this.studyPort.listCalendarEntries(
       ctx.psid,
       ctx.userId,
       { timeRange: 'upcoming' },
@@ -102,8 +102,7 @@ export class MessengerAgentToolsService {
       return null;
     }
 
-    const minutesBefore =
-      this.studyReminderScheduleService.getOutboxSettings().minutesBefore;
+    const minutesBefore = this.studyPort.getOutboxSettings().minutesBefore;
 
     return {
       text: sanitizeMessengerText(
@@ -156,11 +155,11 @@ export class MessengerAgentToolsService {
   ): Promise<unknown> {
     switch (toolName) {
       case 'get_learning_progress_report': {
-        const report = await this.studentReportService.generateReport(ctx.psid);
+        const report = await this.reportPort.generateReport(ctx.psid);
         return { report };
       }
       case 'get_user_goals': {
-        const goals = await this.userGoalsApiService.getUserGoals(ctx.psid);
+        const goals = await this.goalsPort.getUserGoals(ctx.psid);
         this.pushRichFollowUp(ctx, buildUserGoalsRichFollowUp(goals));
         return goals;
       }
@@ -168,7 +167,7 @@ export class MessengerAgentToolsService {
         return this.getUpcomingStudySessions(ctx, args);
       case 'list_study_calendar_entries': {
         const timeRange = readCalendarTimeRange(args.timeRange) ?? 'upcoming';
-        const list = await this.studyCalendarCommandService.listEntries(
+        const list = await this.studyPort.listCalendarEntries(
           ctx.psid,
           ctx.userId,
           {
@@ -181,8 +180,7 @@ export class MessengerAgentToolsService {
           ctx,
           buildCalendarEntriesRichFollowUp(list.entries),
         );
-        const minutesBefore =
-          this.studyReminderScheduleService.getOutboxSettings().minutesBefore;
+        const minutesBefore = this.studyPort.getOutboxSettings().minutesBefore;
 
         return {
           ...list,
@@ -229,7 +227,7 @@ export class MessengerAgentToolsService {
       };
     }
 
-    const upcoming = await this.studyCalendarCommandService.listEntries(
+    const upcoming = await this.studyPort.listCalendarEntries(
       ctx.psid,
       ctx.userId,
       { timeRange: 'upcoming' },
@@ -290,7 +288,7 @@ export class MessengerAgentToolsService {
     args: Record<string, unknown>,
   ): Promise<unknown> {
     const limit = readPositiveLimit(args.limit, 5);
-    const sessions = await this.studySessionSourceService.getUpcomingSessions({
+    const sessions = await this.studyPort.getUpcomingSessions({
       psid: ctx.psid,
       userId: ctx.userId,
     });
@@ -299,16 +297,14 @@ export class MessengerAgentToolsService {
       sessionKey: session.sessionKey,
       topic: session.topic,
       scheduledAtIso: session.scheduledAt.toISOString(),
-      scheduledTimeLabel:
-        this.studyReminderScheduleService.formatScheduledTimeLabel(
-          session.scheduledAt,
-        ),
+      scheduledTimeLabel: this.studyPort.formatScheduledTimeLabel(
+        session.scheduledAt,
+      ),
     }));
 
     this.pushRichFollowUp(ctx, ...buildStudySessionsRichFollowUps(mapped));
 
-    const minutesBefore =
-      this.studyReminderScheduleService.getOutboxSettings().minutesBefore;
+    const minutesBefore = this.studyPort.getOutboxSettings().minutesBefore;
 
     return {
       count: sessions.length,
@@ -323,7 +319,7 @@ export class MessengerAgentToolsService {
   private async previewNextStudyReminder(
     ctx: MessengerAgentToolContext,
   ): Promise<unknown> {
-    const session = await this.studyReminderService.getNextUpcomingSession(
+    const session = await this.studyPort.getNextUpcomingSession(
       ctx.psid,
       ctx.userId,
     );
@@ -332,22 +328,20 @@ export class MessengerAgentToolsService {
       return {
         hasSession: false,
         message: getNoUpcomingStudySessionMessage(
-          this.studyReminderScheduleService.getOutboxSettings().minutesBefore,
+          this.studyPort.getOutboxSettings().minutesBefore,
         ),
       };
     }
 
-    const bundle =
-      await this.studyReminderService.generateReminderBundleForSession(
-        ctx.psid,
-        session,
-        { userId: ctx.userId },
-      );
+    const bundle = await this.studyPort.generateReminderBundleForSession(
+      ctx.psid,
+      session,
+      { userId: ctx.userId },
+    );
 
-    const scheduledTimeLabel =
-      this.studyReminderScheduleService.formatScheduledTimeLabel(
-        session.scheduledAt,
-      );
+    const scheduledTimeLabel = this.studyPort.formatScheduledTimeLabel(
+      session.scheduledAt,
+    );
 
     const teaser = [bundle.output.greeting, bundle.output.intro]
       .map((part) => part.trim())

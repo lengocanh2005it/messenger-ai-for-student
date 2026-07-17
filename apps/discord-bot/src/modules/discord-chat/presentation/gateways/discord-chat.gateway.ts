@@ -165,7 +165,7 @@ export class DiscordChatGateway {
       usageDate = quota.usageDate;
 
       if (!quota.allowed) {
-        if (quota.reason && quota.reason !== 'IDEMPOTENCY_CONFLICT') {
+        if (quota.reason === 'DAILY_LIMIT' || quota.reason === 'BURST_LIMIT') {
           const denyMsg = buildChatQuotaDenyMessage(quota.reason, quota.limit);
           if (isServerChannel) {
             await message.reply(denyMsg);

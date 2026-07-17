@@ -9,42 +9,27 @@ import {
 } from '@wispace/llm-agent';
 import { join } from 'path';
 import { trace } from '@opentelemetry/api';
-import { MessengerLinkContext } from '../../../../shared/config/poc.constants';
 import { UserDisplayNameService } from '../../../study-reminder/application/services/user-display-name.service';
 import {
   MessengerAgentToolsService,
   MessengerAgentToolContext,
 } from './messenger-agent-tools.service';
-import type { ChatHistoryMessage } from '../../domain/entities/chat-history.types';
-import type { MessengerRichFollowUp } from '../../domain/entities/messenger-rich-message.types';
 import { LlmSafetyEventService } from '../../../llm-safety/application/services/llm-safety-event.service';
 import { LlmExecutionService } from '../../../llm-execution/application/services/llm-execution.service';
+import type { LlmExecutionContext } from '../../../llm-execution/application/types/llm-execution.types';
 import { LlmUsageRecorderService } from '../../../llm-usage/application/services/llm-usage-recorder.service';
 import { MetricsService } from '../../../metrics/metrics.service';
+import type {
+  MessengerAgentReply,
+  MessengerAgentStreamEvent,
+  MessengerAgentInput,
+} from './messenger-agent.types';
 
-export interface MessengerAgentReply {
-  text: string;
-  richFollowUps: MessengerRichFollowUp[];
-  exhausted?: boolean;
-  toolSummary?: string;
-}
-
-/** Stream events from MessengerAgentService.replyStream() — done carries full MessengerAgentReply. */
-export type MessengerAgentStreamEvent =
-  | { type: 'delta'; textDelta: string }
-  | { type: 'tool_start'; toolName: string }
-  | { type: 'done'; reply: MessengerAgentReply }
-  | { type: 'error'; error: unknown };
-
-export interface MessengerAgentInput {
-  psid: string;
-  userId?: number;
-  userText: string;
-  linkContext?: MessengerLinkContext;
-  history?: ChatHistoryMessage[];
-  /** message.mid — LLM usage correlation id */
-  correlationId?: string;
-}
+export type {
+  MessengerAgentReply,
+  MessengerAgentStreamEvent,
+  MessengerAgentInput,
+} from './messenger-agent.types';
 
 /**
  * Thin NestJS adapter around the platform-agnostic `@wispace/llm-agent` orchestration
@@ -198,7 +183,7 @@ export class MessengerAgentService {
     const ports: LlmAgentPorts<MessengerAgentToolContext> = {
       llmExecution: {
         run: (fn, meta) =>
-          this.llmExecution.run(fn, meta as { feature: 'FREE_FORM_CHAT' }),
+          this.llmExecution.run(fn, meta as LlmExecutionContext),
       },
       usageRecorder: {
         recordFromCompletion: (params) =>

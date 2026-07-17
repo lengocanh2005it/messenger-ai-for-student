@@ -282,6 +282,18 @@ _Avoid_: message history (đó là `CHAT_HISTORY_STORE`)
 Cross-module port token (`MESSAGE_SENDER`) để gửi tin nhắn. Triển khai bởi `MessengerOutboundService`. Dùng bởi `StudyReminderModule` để tránh circular dependency.
 _Avoid_: inject `MessengerService` từ module khác — luôn dùng port
 
+**routeWebhookEvent**:
+Pure function phân loại webhook event thành `WebhookAction[]`. Nhận `(event, ctx?)`, trả về danh sách actions. Không side effect, không async, không phụ thuộc NestJS. Nằm trong `messenger-webhook.router.ts`.
+_Avoid_: routeEvent, classifyEvent
+
+**WebhookAction**:
+Giá trị mô tả hành động cần thực hiện cho một webhook event. Các type: `link_user`, `enqueue_chat`, `send_text`, `register_report`, `send_report`, `send_reminder_preview`, `confirm_reschedule`, `cancel_reschedule`, `send_welcome`, `ignore`.
+_Avoid_: action type không rõ nghĩa
+
+**RouterContext**:
+Context đã resolve trước khi gọi router: `{ isDuplicateMid?, isDuplicatePostback?, existingMapping?, linkContext?, linkAttemptStatus? }`. Giúp router đưa ra quyết định thuần túy (sync, không async).
+_Avoid_: routing context, event context
+
 ### LLM
 
 **LlmAgentService**:
@@ -423,6 +435,22 @@ _Avoid_: hexagonal architecture, onion architecture
 **port**:
 DI token (Symbol + interface) cho cross-module communication. Ví dụ: `MESSAGE_SENDER`, `MESSENGER_REPOSITORY`, `MESSENGER_MAPPING_READER`.
 _Avoid_: interface một mình — port cụ thể là DI token pair
+
+**GoalsDataPort**:
+Port cho việc lấy dữ liệu goals của học viên từ WISPACE API. Method: `getUserGoals(psid)`.
+_Avoid_: UserGoalsApiService (đó là adapter implementation)
+
+**ReportPort**:
+Port cho việc tạo báo cáo học tập qua LLM. Method: `generateReport(psid)`.
+_Avoid_: StudentReportService (đó là adapter implementation)
+
+**StudyDataPort**:
+Port cho việc truy xuất dữ liệu lịch học và nhắc lịch. Methods: `getUpcomingSessions`, `getNextUpcomingSession`, `generateReminderBundleForSession`, `listCalendarEntries`, `getOutboxSettings`, `formatScheduledTimeLabel`.
+_Avoid_: StudyReminderService, StudyCalendarCommandService (đó là adapter implementations)
+
+**adapter**:
+Implementation của port, bridge giữa domain interface và infrastructure service. Ví dụ: `GoalsDataAdapter` wraps `UserGoalsApiService`.
+_Avoid_: implementation, service implementation
 
 **outbox pattern**:
 Mẫu dùng cho `study_reminder_jobs` và `report_send_jobs`: ghi job row trước, rồi xử lý bất đồng bộ. Cung cấp durability và retry.

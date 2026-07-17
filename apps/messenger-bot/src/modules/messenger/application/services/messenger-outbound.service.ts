@@ -13,6 +13,7 @@ import {
 import { MESSENGER_REPOSITORY } from '../../domain/repositories/messenger.repository.port';
 import type { MessengerRepositoryPort } from '../../domain/repositories/messenger.repository.port';
 import type { MessageSenderPort } from '../ports/message-sender.port';
+import { readMessengerBubbleLimits } from '../utils/messenger-bubble-config.utils';
 import { splitMessengerBubbles } from '../../../../shared/utils/messenger-text.utils';
 import type { MessengerRichFollowUp } from '../../domain/entities/messenger-rich-message.types';
 
@@ -93,10 +94,11 @@ export class MessengerOutboundService implements MessageSenderPort {
     maxBubbles?: number;
     maxCharsPerBubble?: number;
   }): Promise<number> {
+    const defaults = readMessengerBubbleLimits(this.configService);
     const bubbles = splitMessengerBubbles(
       params.text,
-      params.maxBubbles ?? this.getMaxBubbles(),
-      params.maxCharsPerBubble ?? this.getBubbleMaxChars(),
+      params.maxBubbles ?? defaults.maxBubbles,
+      params.maxCharsPerBubble ?? defaults.maxCharsPerBubble,
     );
 
     if (!bubbles.length) {
@@ -320,18 +322,6 @@ export class MessengerOutboundService implements MessageSenderPort {
       status: 'FAILED',
       errorMessage,
     });
-  }
-
-  private getMaxBubbles(): number {
-    const raw = this.configService.get<string>('CHAT_MAX_BUBBLES');
-    const value = Number(raw);
-    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 4;
-  }
-
-  private getBubbleMaxChars(): number {
-    const raw = this.configService.get<string>('CHAT_BUBBLE_MAX_CHARS');
-    const value = Number(raw);
-    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 640;
   }
 
   private toMessengerApiError(psid: string, error: unknown): MessengerApiError {
