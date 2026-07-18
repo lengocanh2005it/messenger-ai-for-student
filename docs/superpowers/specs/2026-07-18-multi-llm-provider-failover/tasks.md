@@ -47,14 +47,14 @@ Trước khi bắt đầu: chốt 2 câu hỏi mở trong spec (MiniMax base URL
 
 ## Phase 4 — Docs
 
-- [ ] **4.1** `docs/adr/0006-llm-provider-adapter.md` — đánh dấu Phase 4 (Minimax adapter + multi-provider routing) đã triển khai, thêm link tới spec này.
-- [ ] **4.2** Nếu có doc liệt kê env vars đầy đủ (`apps/messenger-bot/docs/project-overview.md` hoặc tương tự) — thêm mục biến mới, theo checklist "Khi sửa code" trong `CLAUDE.md` (cập nhật tài liệu agent khi API/env đổi).
+- [x] **4.1** `docs/adr/0006-llm-provider-adapter.md` — đánh dấu Phase 4 (Minimax adapter + multi-provider routing) đã triển khai, thêm link tới spec này.
+- [x] **4.2** Nếu có doc liệt kê env vars đầy đủ (`apps/messenger-bot/docs/project-overview.md` hoặc tương tự) — thêm mục biến mới, theo checklist "Khi sửa code" trong `CLAUDE.md` (cập nhật tài liệu agent khi API/env đổi).
 
 ## Phase 5 — Verify toàn repo
 
-- [ ] **5.1** `npx turbo run format`
-- [ ] **5.2** `npx turbo run verify` (format:check + lint + typecheck + test + build, toàn workspace)
-- [ ] **5.3** Test thủ công qua Discord/Messenger dev: set `LLM_PROVIDER_FAILOVER_ORDER=openai,openrouter` với `OPENAI_API_KEY` **cố tình sai** (giả lập hết credit — dùng key đã revoke hoặc rate-limit) + `OPENROUTER_API_KEY` hợp lệ → xác nhận bot vẫn trả lời được (qua OpenRouter) mà không phải đợi retry backoff lâu như log cũ (`LLM call failed after 4 attempts`).
+- [x] **5.1** `npx turbo run format`
+- [x] **5.2** `npx turbo run verify` (format:check + lint + typecheck + test + build, toàn workspace)
+- [ ] **5.3** Test thủ công qua Discord/Messenger dev: set `LLM_PROVIDER_FAILOVER_ORDER=openai,openrouter` với `OPENAI_API_KEY` **cố tình sai** (giả lập hết credit — dùng key đã revoke hoặc rate-limit) + `OPENROUTER_API_KEY` hợp lệ → xác nhận bot vẫn trả lời được (qua OpenRouter) mà không phải đợi retry backoff lâu như log cũ (`LLM call failed after 4 attempts`). **Cần bot đang chạy + key thật — không tự động hóa được.**
 
 ## Lưu ý khi thực thi
 
