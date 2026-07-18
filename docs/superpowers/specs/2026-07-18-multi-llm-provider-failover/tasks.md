@@ -33,10 +33,10 @@ Trước khi bắt đầu: chốt 2 câu hỏi mở trong spec (MiniMax base URL
 
 ## Phase 2 — `apps/messenger-bot` wiring
 
-- [ ] **2.1** `llm-execution-config.service.ts` — thêm getters: `getFailoverOrder(): string[]` (parse CSV từ `LLM_PROVIDER_FAILOVER_ORDER`, rỗng nếu unset), `getOpenRouterApiKey/Model/BaseUrl()`, `getMiniMaxApiKey/Model/BaseUrl()`, `getFailoverCooldownLongMs/ShortMs()`, `getFailoverQuickRetryDelayMs()` — theo đúng pattern getter hiện có (default fallback, không throw). Test bổ sung vào spec hiện có của service (nếu chưa có file spec, tạo mới theo pattern các service khác trong module).
-- [ ] **2.2** `llm-execution.module.ts` — đổi `useFactory` sang build `entries: LlmProviderEntryConfig[]` (openai + openrouter + minimax, mỗi entry đọc từ config service) rồi gọi `createFailoverLlmProviderAdapter(entries, config.getFailoverOrder(), logger)`. Khi `getFailoverOrder()` rỗng → dùng đúng hành vi cũ (`[config.getProvider() ?? 'openai']`) để **không đổi behavior mặc định** cho deployment hiện tại chưa set biến mới.
-- [ ] **2.3** Cập nhật `.env.example` (nếu tồn tại trong `apps/messenger-bot`) với biến mới + comment ngắn.
-- [ ] **2.4** `npx turbo run build test --filter=@wispace/messenger-bot...` xanh.
+- [x] **2.1** `llm-execution-config.service.ts` — thêm getters: `getFailoverOrder(): string[]` (parse CSV từ `LLM_PROVIDER_FAILOVER_ORDER`, rỗng nếu unset), `getOpenRouterApiKey/Model/BaseUrl()`, `getMiniMaxApiKey/Model/BaseUrl()`, `getFailoverCooldownLongMs/ShortMs()`, `getFailoverQuickRetryDelayMs()` — theo đúng pattern getter hiện có (default fallback, không throw). Test bổ sung vào spec hiện có của service (nếu chưa có file spec, tạo mới theo pattern các service khác trong module).
+- [x] **2.2** `llm-execution.module.ts` — đổi `useFactory` sang build `entries: LlmProviderEntryConfig[]` (openai + openrouter + minimax, mỗi entry đọc từ config service) rồi gọi `createFailoverLlmProviderAdapter(entries, config.getFailoverOrder(), logger)`. Khi `getFailoverOrder()` rỗng → dùng đúng hành vi cũ (`[config.getProvider() ?? 'openai']`) để **không đổi behavior mặc định** cho deployment hiện tại chưa set biến mới.
+- [x] **2.3** Cập nhật `.env.example` (nếu tồn tại trong `apps/messenger-bot`) với biến mới + comment ngắn.
+- [x] **2.4** `npx turbo run build test --filter=@wispace/messenger-bot...` xanh.
 
 ## Phase 3 — `apps/discord-bot` wiring (kèm bug fix)
 
