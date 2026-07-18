@@ -40,10 +40,10 @@ Trước khi bắt đầu: chốt 2 câu hỏi mở trong spec (MiniMax base URL
 
 ## Phase 3 — `apps/discord-bot` wiring (kèm bug fix)
 
-- [ ] **3.1** `discord-chat.module.ts` — bỏ `new OpenAiAdapter(...)` hardcode trong `useFactory`. Xây `entries`/`order` tương tự Phase 2 nhưng đọc trực tiếp từ `ConfigService` (discord-bot chưa có config service riêng cho LLM — inline trong factory function, giữ đúng pattern hiện tại của file này, không tạo abstraction thừa cho 1 module).
-- [ ] **3.2** Regression test: xác nhận khi chỉ set `OPENAI_API_KEY` (không set `LLM_PROVIDER_FAILOVER_ORDER`), Discord bot vẫn dùng OpenAI đơn giống hệt trước khi sửa — test này quan trọng vì đây là bug fix, không được đổi hành vi mặc định của deployment hiện tại.
-- [ ] **3.3** Cập nhật `.env.example` discord-bot với biến mới.
-- [ ] **3.4** `npx turbo run build test --filter=@wispace/discord-bot...` xanh.
+- [x] **3.1** `discord-chat.module.ts` — bỏ `new OpenAiAdapter(...)` hardcode trong `useFactory`. Xây `entries`/`order` tương tự Phase 2 nhưng đọc trực tiếp từ `ConfigService` (discord-bot chưa có config service riêng cho LLM — inline trong factory function, giữ đúng pattern hiện tại của file này, không tạo abstraction thừa cho 1 module).
+- [x] **3.2** Regression test: xác nhận khi chỉ set `OPENAI_API_KEY` (không set `LLM_PROVIDER_FAILOVER_ORDER`), Discord bot vẫn dùng OpenAI đơn giống hệt trước khi sửa — test này quan trọng vì đây là bug fix, không được đổi hành vi mặc định của deployment hiện tại.
+- [x] **3.3** Cập nhật `.env.example` discord-bot với biến mới.
+- [x] **3.4** `npx turbo run build test --filter=@wispace/discord-bot...` xanh.
 
 ## Phase 4 — Docs
 

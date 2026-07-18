@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { OpenAiAdapter, type LlmProviderAdapter } from '@wispace/llm-agent';
+import {
+  createLlmProviderAdapter,
+  createFailoverLlmProviderAdapter,
+  type LlmProviderAdapter,
+  type LlmProviderEntryConfig,
+} from '@wispace/llm-agent';
 import { ChatMeteringModule } from '../chat-metering/chat-metering.module';
 import { AccountLinkModule } from '../account-link/account-link.module';
 import { WispaceModule } from '../wispace/wispace.module';
@@ -24,11 +29,62 @@ import { DiscordChatGateway } from './presentation/gateways/discord-chat.gateway
     {
       provide: 'LLM_PROVIDER_ADAPTER',
       useFactory: (configService: ConfigService): LlmProviderAdapter => {
-        return new OpenAiAdapter(
-          () =>
-            configService.get<string>('OPENAI_API_KEY')?.trim() || undefined,
-          () => configService.get<string>('OPENAI_MODEL')?.trim() || 'gpt-5.4',
-        );
+        const orderRaw = configService
+          .get<string>('LLM_PROVIDER_FAILOVER_ORDER')
+          ?.trim();
+        const order = orderRaw
+          ? orderRaw
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
+
+        if (order.length === 0) {
+          return createLlmProviderAdapter({
+            getApiKey: () =>
+              configService.get<string>('OPENAI_API_KEY')?.trim() || undefined,
+            getModel: () =>
+              configService.get<string>('OPENAI_MODEL')?.trim() || 'gpt-5.4',
+            provider: 'openai',
+          });
+        }
+
+        const entries: LlmProviderEntryConfig[] = [
+          {
+            provider: 'openai',
+            getApiKey: () =>
+              configService.get<string>('OPENAI_API_KEY')?.trim() || undefined,
+            getModel: () =>
+              configService.get<string>('OPENAI_MODEL')?.trim() || 'gpt-5.4',
+          },
+          {
+            provider: 'openrouter',
+            getApiKey: () =>
+              configService.get<string>('OPENROUTER_API_KEY')?.trim() ||
+              undefined,
+            getModel: () =>
+              configService.get<string>('OPENROUTER_MODEL')?.trim() ||
+              'openai/gpt-4o-mini',
+            getBaseUrl: () =>
+              configService.get<string>('OPENROUTER_BASE_URL')?.trim() ||
+              'https://openrouter.ai/api/v1',
+          },
+          {
+            provider: 'minimax',
+            getApiKey: () =>
+              configService.get<string>('MINIMAX_API_KEY')?.trim() || undefined,
+            getModel: () =>
+              configService.get<string>('MINIMAX_MODEL')?.trim() ||
+              'MiniMax-Text-01',
+            getBaseUrl: () =>
+              configService.get<string>('MINIMAX_BASE_URL')?.trim() ||
+              'https://api.minimax.chat/v1',
+          },
+        ];
+
+        return createFailoverLlmProviderAdapter(entries, order, {
+          warn: (msg) => console.warn(msg),
+        });
       },
       inject: [ConfigService],
     },
