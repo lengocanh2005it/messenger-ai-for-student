@@ -7,11 +7,11 @@ Trước khi bắt đầu: chốt 2 câu hỏi mở trong spec (MiniMax base URL
 ## Phase 1 — `packages/llm-agent` provider layer
 
 - [x] **1.1** Thêm `'quota_exceeded'` vào union `LlmProviderError['reason']` trong `provider/types.ts`.
-- [ ] **1.2** `OpenAiAdapter.normalizeError()` + private `isQuotaExhaustedError()`: nhận diện status `402`, hoặc status `429`/`400` kèm message/body chứa `insufficient_quota`/`insufficient credit`/`insufficient balance`/`billing` → trả `{ reason: 'quota_exceeded', retryable: false }`. Test: `openai-adapter.spec.ts` (tạo mới nếu chưa có, hoặc bổ sung file test hiện có) — case 402, case 429+insufficient_quota, case 429 rate-limit thường (không đổi hành vi cũ).
-- [ ] **1.3** `provider/openrouter/openrouter-adapter.ts` — `OpenRouterAdapter extends OpenAiAdapter`, default `providerName: 'openrouter'`, default baseUrl `https://openrouter.ai/api/v1`. Test: `openrouter-adapter.spec.ts` — `isConfigured()` false khi thiếu key, `providerName` đúng, default model/baseUrl đúng khi không truyền override.
-- [ ] **1.4** `provider/minimax/minimax-adapter.ts` — `MiniMaxAdapter extends OpenAiAdapter`, `providerName: 'minimax'`, default baseUrl (giá trị đã verify ở bước chuẩn bị). Test tương tự 1.3.
-- [ ] **1.5** `provider/failover/failover.errors.ts` — `LlmAllProvidersExhaustedError extends Error` (attempts: provider name[], cause: unknown), export từ `index.ts`.
-- [ ] **1.6** `provider/failover/failover-adapter.ts` — `FailoverLlmProviderAdapter` implement đầy đủ `LlmProviderAdapter` + circuit breaker + quick-retry policy (xem pseudo-code spec §3). Test `failover-adapter.spec.ts` (dùng `clock` injectable để test không phụ thuộc thời gian thật):
+- [x] **1.2** `OpenAiAdapter.normalizeError()` + private `isQuotaExhaustedError()`: nhận diện status `402`, hoặc status `429`/`400` kèm message/body chứa `insufficient_quota`/`insufficient credit`/`insufficient balance`/`billing` → trả `{ reason: 'quota_exceeded', retryable: false }`. Test: `openai-adapter.spec.ts` (tạo mới nếu chưa có, hoặc bổ sung file test hiện có) — case 402, case 429+insufficient_quota, case 429 rate-limit thường (không đổi hành vi cũ).
+- [x] **1.3** `provider/openrouter/openrouter-adapter.ts` — `OpenRouterAdapter extends OpenAiAdapter`, default `providerName: 'openrouter'`, default baseUrl `https://openrouter.ai/api/v1`. Test: `openrouter-adapter.spec.ts` — `isConfigured()` false khi thiếu key, `providerName` đúng, default model/baseUrl đúng khi không truyền override.
+- [x] **1.4** `provider/minimax/minimax-adapter.ts` — `MiniMaxAdapter extends OpenAiAdapter`, `providerName: 'minimax'`, default baseUrl (giá trị đã verify ở bước chuẩn bị). Test tương tự 1.3.
+- [x] **1.5** `provider/failover/failover.errors.ts` — `LlmAllProvidersExhaustedError extends Error` (attempts: provider name[], cause: unknown), export từ `index.ts`.
+- [x] **1.6** `provider/failover/failover-adapter.ts` — `FailoverLlmProviderAdapter` implement đầy đủ `LlmProviderAdapter` + circuit breaker + quick-retry policy (xem pseudo-code spec §3). Test `failover-adapter.spec.ts` (dùng `clock` injectable để test không phụ thuộc thời gian thật):
   - `generateJson`/`chatWithTools`: candidate 1 fail (reason bất kỳ) → candidate 2 thành công → trả kết quả candidate 2, không gọi candidate 3.
   - Tất cả candidate fail → throw `LlmAllProvidersExhaustedError` chứa đúng danh sách provider đã thử.
   - `isConfigured()` true khi ít nhất 1 candidate configured, false khi tất cả không (factory đã lọc trước, nhưng adapter tự vẫn phải an toàn nếu nhận mảng rỗng).
@@ -23,13 +23,13 @@ Trước khi bắt đầu: chốt 2 câu hỏi mở trong spec (MiniMax base URL
   - Circuit breaker reset: candidate thành công ở lượt gọi sau → `circuit.delete()`, lượt tiếp theo candidate đó lại được thử bình thường (không bị kẹt cooldown vĩnh viễn dù cooldown chưa hết hạn tự nhiên).
   - Tất cả candidate đều đang cooldown cùng lúc → `pickHealthy()` fallback về full `candidates` (thử lại candidate đầu) thay vì throw ngay không thử gì — tránh outage giả nếu cooldown ước lượng sai.
   - `chatStream`: không failover giữa chừng — nếu candidate đầu tiên configured throw ngay khi bắt đầu iterate, **không** tự động chuyển sang candidate 2 (ghi rõ trong test đây là giới hạn đã biết, xem Non-goals) — nhưng vẫn tôn trọng circuit breaker khi *chọn* candidate ban đầu.
-- [ ] **1.7** `provider/factory.ts` — thêm `case 'openrouter'`, `case 'minimax'` vào `createLlmProviderAdapter()`; thêm `createFailoverLlmProviderAdapter(entries, order, logger?)`. Test `factory.spec.ts`:
+- [x] **1.7** `provider/factory.ts` — thêm `case 'openrouter'`, `case 'minimax'` vào `createLlmProviderAdapter()`; thêm `createFailoverLlmProviderAdapter(entries, order, logger?)`. Test `factory.spec.ts`:
   - `order` rỗng/1 provider configured → trả thẳng adapter đơn (không bọc `FailoverLlmProviderAdapter`) — assert bằng `instanceof`.
   - `order` ≥2 provider configured → trả `FailoverLlmProviderAdapter` với đúng thứ tự.
   - Provider trong `order` nhưng thiếu key (`isConfigured()===false`) → bị loại khỏi danh sách candidate.
   - `order` toàn provider không configured → throw lỗi rõ ràng.
-- [ ] **1.8** `packages/llm-agent/src/index.ts` — export `OpenRouterAdapter`, `MiniMaxAdapter`, `FailoverLlmProviderAdapter`, `LlmAllProvidersExhaustedError`, `createFailoverLlmProviderAdapter`, `LlmProviderEntryConfig`.
-- [ ] **1.9** Chạy `npx turbo run build test --filter=@wispace/llm-agent` — xanh trước khi sang Phase 2.
+- [x] **1.8** `packages/llm-agent/src/index.ts` — export `OpenRouterAdapter`, `MiniMaxAdapter`, `FailoverLlmProviderAdapter`, `LlmAllProvidersExhaustedError`, `createFailoverLlmProviderAdapter`, `LlmProviderEntryConfig`.
+- [x] **1.9** Chạy `npx turbo run build test --filter=@wispace/llm-agent` — xanh trước khi sang Phase 2.
 
 ## Phase 2 — `apps/messenger-bot` wiring
 

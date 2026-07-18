@@ -1,8 +1,18 @@
 import type { LlmProviderAdapter } from './llm-provider.adapter';
 import { OpenAiAdapter } from './openai/openai-adapter';
 import { OpenAiCompatibleAdapter } from './openai-compatible/openai-compatible-adapter';
+import { OpenRouterAdapter } from './openrouter/openrouter-adapter';
+import { MiniMaxAdapter } from './minimax/minimax-adapter';
+import { FailoverLlmProviderAdapter } from './failover/failover-adapter';
 
 export type LlmProviderType = string;
+
+export interface LlmProviderEntryConfig {
+  provider: string;
+  getApiKey: () => string | undefined;
+  getModel: () => string;
+  getBaseUrl?: () => string | undefined;
+}
 
 /**
  * Factory to create the appropriate LlmProviderAdapter based on the
@@ -31,6 +41,20 @@ export function createLlmProviderAdapter(config: {
         config.getBaseUrl,
       );
 
+    case 'openrouter':
+      return new OpenRouterAdapter(
+        config.getApiKey,
+        config.getModel,
+        config.getBaseUrl,
+      );
+
+    case 'minimax':
+      return new MiniMaxAdapter(
+        config.getApiKey,
+        config.getModel,
+        config.getBaseUrl,
+      );
+
     default:
       // Fallback: try OpenAI adapter for unknown providers (may work if compatible)
       return new OpenAiAdapter(
@@ -40,4 +64,31 @@ export function createLlmProviderAdapter(config: {
         provider,
       );
   }
+}
+
+/**
+ * Build a failover chain following the given `order`.
+ * Providers without configured API key are filtered out at build time.
+ * If 0–1 provider is configured → returns that adapter directly (no failover wrapper),
+ * preserving current behavior/latency for the most common case.
+ */
+export function createFailoverLlmProviderAdapter(
+  entries: LlmProviderEntryConfig[],
+  order: string[],
+  logger?: { warn: (msg: string) => void },
+): LlmProviderAdapter {
+  const byProvider = new Map(entries.map((e) => [e.provider, e]));
+  const orderedAdapters = order
+    .map((name) => byProvider.get(name))
+    .filter((e): e is LlmProviderEntryConfig => !!e)
+    .map((e) => createLlmProviderAdapter(e))
+    .filter((a) => a.isConfigured());
+
+  if (orderedAdapters.length === 0) {
+    throw new Error('No LLM provider configured in failover order');
+  }
+  if (orderedAdapters.length === 1) {
+    return orderedAdapters[0];
+  }
+  return new FailoverLlmProviderAdapter(orderedAdapters, logger);
 }
