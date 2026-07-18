@@ -8,6 +8,8 @@
 export type LlmProvider =
   | 'openai'
   | 'openai-compatible'
+  | 'openrouter'
+  | 'minimax'
   | 'anthropic'
   | 'gemini'
   | 'local';
@@ -143,5 +145,6 @@ export interface LlmProviderError {
     | 'network'
     | 'auth'
     | 'bad_request'
+    | 'quota_exceeded'
     | 'unknown';
 }
