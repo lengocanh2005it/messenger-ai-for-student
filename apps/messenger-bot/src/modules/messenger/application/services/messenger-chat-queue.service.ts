@@ -412,7 +412,7 @@ export class MessengerChatQueueService implements OnModuleDestroy {
           }`,
         );
 
-        await this.sendChatDeliveryFallback(psid, userId, error);
+        await this.sendChatDeliveryFallback(psid, userId, error, mergedText);
       } else {
         this.logger.error(
           `Chat queue failed after partial delivery psid=${psid}: ${
@@ -503,12 +503,13 @@ export class MessengerChatQueueService implements OnModuleDestroy {
     psid: string,
     userId: number | undefined,
     error: unknown,
+    userText?: string,
   ): Promise<void> {
     try {
       await this.outbound.sendTextViaPsid({
         psid,
         userId,
-        text: buildChatDeliveryErrorMessage(error),
+        text: buildChatDeliveryErrorMessage(error, userText),
         messageType: 'FREE_FORM_CHAT_ERROR',
       });
     } catch (sendError) {

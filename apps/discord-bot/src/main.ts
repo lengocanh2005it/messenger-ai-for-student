@@ -5,9 +5,7 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableCors({
-    origin: process.env.DISCORD_OAUTH_FRONTEND_CALLBACK_URL
-      ? new URL(process.env.DISCORD_OAUTH_FRONTEND_CALLBACK_URL).origin
-      : 'http://localhost:4321',
+    origin: '*',
   });
   await app.listen(process.env.PORT ?? 3001);
 }

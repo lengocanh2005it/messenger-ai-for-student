@@ -50,7 +50,7 @@ export {
   isOpenAiRetryableError,
   isOpenAiServerError,
 } from './utils/openai-error.utils';
-export { isObviouslyOffTopic } from './utils/scope.utils';
+export { isObviouslyOffTopic, isGreetingOnly } from './utils/scope.utils';
 export { sanitizeReplyText } from './utils/text.utils';
 export { loadSystemPromptFile } from './utils/load-system-prompt';
 
@@ -74,7 +74,18 @@ export type {
 export type { LlmProviderAdapter } from './provider/llm-provider.adapter';
 export { OpenAiAdapter } from './provider/openai/openai-adapter';
 export { OpenAiCompatibleAdapter } from './provider/openai-compatible/openai-compatible-adapter';
-export { createLlmProviderAdapter } from './provider/factory';
+export { OpenRouterAdapter } from './provider/openrouter/openrouter-adapter';
+export { MiniMaxAdapter } from './provider/minimax/minimax-adapter';
+export { FailoverLlmProviderAdapter } from './provider/failover/failover-adapter';
+export { LlmAllProvidersExhaustedError } from './provider/failover/failover.errors';
+export {
+  createLlmProviderAdapter,
+  createFailoverLlmProviderAdapter,
+} from './provider/factory';
+export type {
+  LlmProviderEntryConfig,
+  FailoverConfig,
+} from './provider/factory';
 
 // --- Tool result cache ---
 export type { ToolResultCachePort } from './tool-cache/tool-result-cache.port';

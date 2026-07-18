@@ -109,4 +109,77 @@ export class LlmExecutionConfigService {
   getProvider(): string | undefined {
     return this.configService.get<string>('LLM_PROVIDER')?.trim() || undefined;
   }
+
+  // --- Failover config ---
+
+  getFailoverOrder(): string[] {
+    const raw = this.configService
+      .get<string>('LLM_PROVIDER_FAILOVER_ORDER')
+      ?.trim();
+    if (!raw) return [];
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  getOpenRouterApiKey(): string | undefined {
+    return (
+      this.configService.get<string>('OPENROUTER_API_KEY')?.trim() || undefined
+    );
+  }
+
+  getOpenRouterModel(): string {
+    return (
+      this.configService.get<string>('OPENROUTER_MODEL')?.trim() ||
+      'openai/gpt-4o-mini'
+    );
+  }
+
+  getOpenRouterBaseUrl(): string | undefined {
+    return (
+      this.configService.get<string>('OPENROUTER_BASE_URL')?.trim() ||
+      'https://openrouter.ai/api/v1'
+    );
+  }
+
+  getMiniMaxApiKey(): string | undefined {
+    return (
+      this.configService.get<string>('MINIMAX_API_KEY')?.trim() || undefined
+    );
+  }
+
+  getMiniMaxModel(): string {
+    return (
+      this.configService.get<string>('MINIMAX_MODEL')?.trim() ||
+      'MiniMax-Text-01'
+    );
+  }
+
+  getMiniMaxBaseUrl(): string | undefined {
+    return (
+      this.configService.get<string>('MINIMAX_BASE_URL')?.trim() ||
+      'https://api.minimax.chat/v1'
+    );
+  }
+
+  getFailoverCooldownLongMs(): number {
+    return this.getPositiveNumber('LLM_FAILOVER_COOLDOWN_LONG_MS', 600_000);
+  }
+
+  getFailoverCooldownShortMs(): number {
+    return this.getPositiveNumber('LLM_FAILOVER_COOLDOWN_SHORT_MS', 5_000);
+  }
+
+  getFailoverQuickRetryDelayMs(): number {
+    return this.getPositiveNumber('LLM_FAILOVER_QUICK_RETRY_DELAY_MS', 150);
+  }
+
+  private getPositiveNumber(envKey: string, defaultValue: number): number {
+    const raw = this.configService.get<string>(envKey)?.trim();
+    if (!raw) return defaultValue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) return defaultValue;
+    return Math.floor(value);
+  }
 }

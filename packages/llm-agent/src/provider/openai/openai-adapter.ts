@@ -244,6 +244,14 @@ export class OpenAiAdapter implements LlmProviderAdapter {
   }
 
   normalizeError(error: unknown): LlmProviderError {
+    if (this.isQuotaExhaustedError(error)) {
+      return {
+        provider: this.providerName,
+        retryable: false,
+        reason: 'quota_exceeded',
+        status: this.getErrorStatus(error),
+      };
+    }
     if (this.isRateLimitError(error)) {
       return {
         provider: this.providerName,
@@ -321,6 +329,31 @@ export class OpenAiAdapter implements LlmProviderAdapter {
     if (typeof error !== 'object' || error === null) return false;
     const e = error as Record<string, unknown>;
     return e['status'] === 401 || e['status'] === 403;
+  }
+
+  private isQuotaExhaustedError(error: unknown): boolean {
+    if (this.isPlatformApiError(error)) return false;
+    if (typeof error !== 'object' || error === null) return false;
+    const e = error as Record<string, unknown>;
+    const status = e['status'];
+    if (status === 402) return true;
+    if (status === 429 || status === 400) {
+      const msg = typeof e['message'] === 'string' ? e['message'] : '';
+      const code = typeof e['code'] === 'string' ? e['code'] : '';
+      if (
+        /insufficient.?quota|insufficient.?credit|insufficient.?balance|billing/i.test(
+          msg,
+        )
+      )
+        return true;
+      if (
+        /insufficient.?quota|insufficient.?credit|insufficient.?balance|billing/i.test(
+          code,
+        )
+      )
+        return true;
+    }
+    return false;
   }
 
   private getErrorStatus(error: unknown): number | undefined {

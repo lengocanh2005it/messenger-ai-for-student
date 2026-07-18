@@ -170,4 +170,8 @@ Loop behavior:
 - **Phase 1** (this ADR): `LlmProviderAdapter` interface + types + OpenAI adapter (`chat()` sync) + refactor `LlmAgentService`
 - **Phase 2** (follow-up): Add `chatStream()` to adapter + `LlmStreamEvent` + `AgentEvent` stream in `LlmAgentService`
 - **Phase 3** (follow-up): `@wispace/student-report` abstraction + streaming consumers in Messenger/Discord
-- **Phase 4** (future): Minimax/Anthropic adapters + `LLM_PROVIDER` env config + multi-provider routing
+- **Phase 4** (implemented): Multi-provider failover routing — see [spec: 2026-07-18-multi-llm-provider-failover](../superpowers/specs/2026-07-18-multi-llm-provider-failover/spec.md)
+  - `OpenRouterAdapter` + `MiniMaxAdapter` extending `OpenAiAdapter`
+  - `FailoverLlmProviderAdapter` — greedy failover by priority, circuit breaker, quick-retry (150ms × 1) for transient errors, fast-fail (quota/auth) with long cooldown
+  - Wired into `LlmExecutionModule` (messenger-bot) and `DiscordChatModule` (discord-bot) via `LLM_PROVIDER_FAILOVER_ORDER` env var
+  - Default behavior unchanged when env var is unset (single adapter, no failover wrapper)
