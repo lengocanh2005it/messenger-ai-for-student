@@ -12,7 +12,7 @@ const OFF_TOPIC_PATTERNS = [
 ] as const;
 
 const GREETING_ONLY =
-  /^(?:hello|hi|hey|chào|xin chào|ok|oke|ừ|vâng|cảm ơn|thanks|thank you)[\s!.?]*$/i;
+  /^(?:hello|hi|hey|chào|xin\s*chào|alo)(?:\s+(?:bạn|bot|ơi|nhé|nha|ạ|shop))*[\s!.,?]*$|^(?:ok|oke|okay|ừ|vâng|dạ|cảm\s*ơn|thanks|thank\s*you)[\s!.?]*$/i;
 
 /** WISPACE domain scope check — shared across all bot platforms. */
 export function isObviouslyOffTopic(userText: string): boolean {
@@ -26,4 +26,9 @@ export function isObviouslyOffTopic(userText: string): boolean {
   }
 
   return OFF_TOPIC_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/** True when the message is only a greeting/ack — safe to answer with a canned reply when the LLM is unavailable. */
+export function isGreetingOnly(userText: string): boolean {
+  return GREETING_ONLY.test(userText.trim());
 }

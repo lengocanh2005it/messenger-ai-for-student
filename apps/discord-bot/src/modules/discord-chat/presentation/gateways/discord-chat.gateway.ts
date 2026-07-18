@@ -22,9 +22,13 @@ import { DiscordChatHistoryService } from '../../application/services/discord-ch
 import { DiscordPendingJoinService } from '../../../account-link/application/services/discord-pending-join.service';
 import { buildDiscordLinkWelcomeMessage } from '../../../account-link/application/messages/account-link.messages';
 import { WispaceApiError } from '@wispace/wispace-client';
+import { isGreetingOnly } from '@wispace/llm-agent';
 
 const FALLBACK_ERROR_MESSAGE =
   'Xin lỗi, mình gặp sự cố khi xử lý tin nhắn. Bạn thử lại sau ít phút nhé.';
+
+const FALLBACK_GREETING_MESSAGE =
+  'Chào bạn! Mình là trợ lý học tập WISPACE. Hiện mình đang gặp chút trục trặc, bạn thử nhắn lại sau ít phút để mình hỗ trợ nhé.';
 
 function formatError(error: unknown): string {
   if (error instanceof WispaceApiError) {
@@ -228,7 +232,9 @@ export class DiscordChatGateway {
         );
       }
 
-      const fallback = FALLBACK_ERROR_MESSAGE;
+      const fallback = isGreetingOnly(resolvedText)
+        ? FALLBACK_GREETING_MESSAGE
+        : FALLBACK_ERROR_MESSAGE;
       if (isServerChannel) {
         await message.reply(fallback);
       } else {

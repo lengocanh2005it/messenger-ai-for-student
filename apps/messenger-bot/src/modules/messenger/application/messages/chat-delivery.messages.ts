@@ -1,4 +1,5 @@
 import {
+  isGreetingOnly,
   isOpenAiRateLimitError,
   isOpenAiServerError,
 } from '@wispace/llm-agent';
@@ -76,11 +77,21 @@ export function isMessenger24hWindowError(error: unknown): boolean {
   );
 }
 
-export function buildChatDeliveryErrorMessage(error: unknown): string {
+export function buildChatDeliveryErrorMessage(
+  error: unknown,
+  userText?: string,
+): string {
   if (isMessenger24hWindowError(error)) {
     return (
       'Facebook chỉ cho phép bot trả lời trong vòng 24 giờ kể từ lần bạn nhắn gần nhất. ' +
       'Bạn mở lại cuộc chat với WISPACE và gửi một tin ngắn để tiếp tục nhé.'
+    );
+  }
+
+  if (userText && isGreetingOnly(userText)) {
+    return (
+      'Chào bạn! Mình là trợ lý học tập WISPACE. Hiện mình đang gặp chút trục trặc, ' +
+      'bạn thử nhắn lại sau ít phút để mình hỗ trợ bạn nhé.'
     );
   }
 
