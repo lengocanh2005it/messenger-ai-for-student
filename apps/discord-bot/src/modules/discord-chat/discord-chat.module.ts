@@ -82,6 +82,11 @@ import { DiscordChatGateway } from './presentation/gateways/discord-chat.gateway
           },
         ];
 
+        const readPositiveNumber = (key: string, fallback: number): number => {
+          const raw = Number(configService.get(key));
+          return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+        };
+
         return createFailoverLlmProviderAdapter(
           entries,
           order,
@@ -89,15 +94,18 @@ import { DiscordChatGateway } from './presentation/gateways/discord-chat.gateway
             warn: (msg) => console.warn(msg),
           },
           {
-            cooldownLongMs:
-              Number(configService.get('LLM_FAILOVER_COOLDOWN_LONG_MS')) ||
+            cooldownLongMs: readPositiveNumber(
+              'LLM_FAILOVER_COOLDOWN_LONG_MS',
               600_000,
-            cooldownShortMs:
-              Number(configService.get('LLM_FAILOVER_COOLDOWN_SHORT_MS')) ||
+            ),
+            cooldownShortMs: readPositiveNumber(
+              'LLM_FAILOVER_COOLDOWN_SHORT_MS',
               5_000,
-            quickRetryDelayMs:
-              Number(configService.get('LLM_FAILOVER_QUICK_RETRY_DELAY_MS')) ||
+            ),
+            quickRetryDelayMs: readPositiveNumber(
+              'LLM_FAILOVER_QUICK_RETRY_DELAY_MS',
               150,
+            ),
           },
         );
       },
