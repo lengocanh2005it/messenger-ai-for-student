@@ -24,15 +24,22 @@ function sleep(ms: number): Promise<void> {
 export class FailoverLlmProviderAdapter implements LlmProviderAdapter {
   readonly providerName = 'failover';
   private readonly circuit = new Map<string, CircuitState>();
+  private readonly cooldownLongMs: number;
+  private readonly cooldownShortMs: number;
+  private readonly quickRetryDelayMs: number;
 
   constructor(
     private readonly candidates: LlmProviderAdapter[],
     private readonly logger?: { warn: (msg: string) => void },
     private readonly clock: () => number = Date.now,
-    private readonly cooldownLongMs: number = COOLDOWN_LONG_MS,
-    private readonly cooldownShortMs: number = COOLDOWN_SHORT_MS,
-    private readonly quickRetryDelayMs: number = QUICK_RETRY_DELAY_MS,
-  ) {}
+    cooldownLongMs?: number,
+    cooldownShortMs?: number,
+    quickRetryDelayMs?: number,
+  ) {
+    this.cooldownLongMs = cooldownLongMs ?? COOLDOWN_LONG_MS;
+    this.cooldownShortMs = cooldownShortMs ?? COOLDOWN_SHORT_MS;
+    this.quickRetryDelayMs = quickRetryDelayMs ?? QUICK_RETRY_DELAY_MS;
+  }
 
   isConfigured(): boolean {
     return this.candidates.length > 0;

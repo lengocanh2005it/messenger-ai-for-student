@@ -82,9 +82,24 @@ import { DiscordChatGateway } from './presentation/gateways/discord-chat.gateway
           },
         ];
 
-        return createFailoverLlmProviderAdapter(entries, order, {
-          warn: (msg) => console.warn(msg),
-        });
+        return createFailoverLlmProviderAdapter(
+          entries,
+          order,
+          {
+            warn: (msg) => console.warn(msg),
+          },
+          {
+            cooldownLongMs:
+              Number(configService.get('LLM_FAILOVER_COOLDOWN_LONG_MS')) ||
+              600_000,
+            cooldownShortMs:
+              Number(configService.get('LLM_FAILOVER_COOLDOWN_SHORT_MS')) ||
+              5_000,
+            quickRetryDelayMs:
+              Number(configService.get('LLM_FAILOVER_QUICK_RETRY_DELAY_MS')) ||
+              150,
+          },
+        );
       },
       inject: [ConfigService],
     },

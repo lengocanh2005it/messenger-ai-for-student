@@ -53,9 +53,18 @@ import type {
           },
         ];
 
-        return createFailoverLlmProviderAdapter(entries, order, {
-          warn: (msg) => console.warn(msg),
-        });
+        return createFailoverLlmProviderAdapter(
+          entries,
+          order,
+          {
+            warn: (msg) => console.warn(msg),
+          },
+          {
+            cooldownLongMs: config.getFailoverCooldownLongMs(),
+            cooldownShortMs: config.getFailoverCooldownShortMs(),
+            quickRetryDelayMs: config.getFailoverQuickRetryDelayMs(),
+          },
+        );
       },
       inject: [LlmExecutionConfigService],
     },

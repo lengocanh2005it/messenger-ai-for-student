@@ -25,4 +25,4 @@ export {
   createLlmProviderAdapter,
   createFailoverLlmProviderAdapter,
 } from './factory';
-export type { LlmProviderEntryConfig } from './factory';
+export type { LlmProviderEntryConfig, FailoverConfig } from './factory';

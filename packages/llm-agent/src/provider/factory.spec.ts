@@ -116,4 +116,30 @@ describe('createFailoverLlmProviderAdapter', () => {
       'No LLM provider configured in failover order',
     );
   });
+
+  it('passes failoverConfig cooldown values to FailoverLlmProviderAdapter', () => {
+    const adapter = createFailoverLlmProviderAdapter(
+      [entryA, entryB],
+      ['openai', 'openrouter'],
+      undefined,
+      { cooldownLongMs: 1000, cooldownShortMs: 200, quickRetryDelayMs: 50 },
+    );
+    expect(adapter).toBeInstanceOf(FailoverLlmProviderAdapter);
+    // Verify cooldown propagation via reflection (test-only assertion)
+    const failover = adapter as unknown as Record<string, number>;
+    expect(failover.cooldownLongMs).toBe(1000);
+    expect(failover.cooldownShortMs).toBe(200);
+    expect(failover.quickRetryDelayMs).toBe(50);
+  });
+
+  it('uses default cooldown values when failoverConfig omitted', () => {
+    const adapter = createFailoverLlmProviderAdapter(
+      [entryA, entryB],
+      ['openai', 'openrouter'],
+    );
+    const failover = adapter as unknown as Record<string, number>;
+    expect(failover.cooldownLongMs).toBe(600_000);
+    expect(failover.cooldownShortMs).toBe(5_000);
+    expect(failover.quickRetryDelayMs).toBe(150);
+  });
 });

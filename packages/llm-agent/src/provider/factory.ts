@@ -66,6 +66,12 @@ export function createLlmProviderAdapter(config: {
   }
 }
 
+export interface FailoverConfig {
+  cooldownLongMs?: number;
+  cooldownShortMs?: number;
+  quickRetryDelayMs?: number;
+}
+
 /**
  * Build a failover chain following the given `order`.
  * Providers without configured API key are filtered out at build time.
@@ -76,6 +82,7 @@ export function createFailoverLlmProviderAdapter(
   entries: LlmProviderEntryConfig[],
   order: string[],
   logger?: { warn: (msg: string) => void },
+  failoverConfig?: FailoverConfig,
 ): LlmProviderAdapter {
   const byProvider = new Map(entries.map((e) => [e.provider, e]));
   const orderedAdapters = order
@@ -90,5 +97,12 @@ export function createFailoverLlmProviderAdapter(
   if (orderedAdapters.length === 1) {
     return orderedAdapters[0];
   }
-  return new FailoverLlmProviderAdapter(orderedAdapters, logger);
+  return new FailoverLlmProviderAdapter(
+    orderedAdapters,
+    logger,
+    Date.now,
+    failoverConfig?.cooldownLongMs,
+    failoverConfig?.cooldownShortMs,
+    failoverConfig?.quickRetryDelayMs,
+  );
 }

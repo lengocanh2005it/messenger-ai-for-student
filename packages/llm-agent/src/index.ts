@@ -82,7 +82,10 @@ export {
   createLlmProviderAdapter,
   createFailoverLlmProviderAdapter,
 } from './provider/factory';
-export type { LlmProviderEntryConfig } from './provider/factory';
+export type {
+  LlmProviderEntryConfig,
+  FailoverConfig,
+} from './provider/factory';
 
 // --- Tool result cache ---
 export type { ToolResultCachePort } from './tool-cache/tool-result-cache.port';
