@@ -21,10 +21,10 @@ function sign(
 
 describe('ZaloWebhookController', () => {
   const appId = 'app-1';
-  const oaSecretKey = 'oa-secret';
+  const appSecretKey = 'app-secret';
   const config = {
     getOrThrow: (key: string) =>
-      ({ ZALO_APP_ID: appId, ZALO_OA_SECRET_KEY: oaSecretKey })[key],
+      ({ ZALO_APP_ID: appId, ZALO_APP_SECRET_KEY: appSecretKey })[key],
   } as unknown as ConfigService;
 
   it('rejects a request with an invalid signature', async () => {
@@ -68,7 +68,7 @@ describe('ZaloWebhookController', () => {
       timestamp: '1690000000000',
     };
     const rawBody = JSON.stringify(body);
-    const signature = sign(appId, rawBody, body.timestamp, oaSecretKey);
+    const signature = sign(appId, rawBody, body.timestamp, appSecretKey);
 
     await controller.handleWebhook(
       body as unknown as ZaloWebhookEvent,
@@ -97,7 +97,7 @@ describe('ZaloWebhookController', () => {
       timestamp: '1690000000000',
     };
     const rawBody = JSON.stringify(body);
-    const signature = sign(appId, rawBody, body.timestamp, oaSecretKey);
+    const signature = sign(appId, rawBody, body.timestamp, appSecretKey);
 
     await controller.handleWebhook(
       body as unknown as ZaloWebhookEvent,
@@ -126,7 +126,7 @@ describe('ZaloWebhookController', () => {
       timestamp: '1690000000000',
     };
     const rawBody = JSON.stringify(body);
-    const signature = sign(appId, rawBody, body.timestamp, oaSecretKey);
+    const signature = sign(appId, rawBody, body.timestamp, appSecretKey);
 
     await controller.handleWebhook(
       body as unknown as ZaloWebhookEvent,
@@ -154,7 +154,7 @@ describe('ZaloWebhookController', () => {
       timestamp: '1690000000000',
     };
     const rawBody = JSON.stringify(body);
-    const signature = sign(appId, rawBody, body.timestamp, oaSecretKey);
+    const signature = sign(appId, rawBody, body.timestamp, appSecretKey);
 
     await controller.handleWebhook(
       body as unknown as ZaloWebhookEvent,

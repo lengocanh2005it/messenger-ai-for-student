@@ -25,7 +25,7 @@ describe('verifyZaloWebhookSignature', () => {
         appId,
         rawBody,
         timestamp,
-        oaSecretKey: secret,
+        appSecretKey: secret,
         signatureHeader,
       }),
     ).toBe(true);
@@ -38,7 +38,7 @@ describe('verifyZaloWebhookSignature', () => {
         appId,
         rawBody: '{"event_name":"user_send_image"}',
         timestamp,
-        oaSecretKey: secret,
+        appSecretKey: secret,
         signatureHeader,
       }),
     ).toBe(false);
@@ -50,7 +50,7 @@ describe('verifyZaloWebhookSignature', () => {
         appId,
         rawBody,
         timestamp,
-        oaSecretKey: secret,
+        appSecretKey: secret,
         signatureHeader: undefined,
       }),
     ).toBe(false);

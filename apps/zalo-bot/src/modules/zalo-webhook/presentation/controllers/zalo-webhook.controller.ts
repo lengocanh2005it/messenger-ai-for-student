@@ -42,8 +42,9 @@ export class ZaloWebhookController {
     @Headers('x-zevent-timestamp') timestampHeader: string | undefined,
   ): Promise<{ received: true }> {
     const appId = this.configService.getOrThrow<string>('ZALO_APP_ID');
-    const oaSecretKey =
-      this.configService.getOrThrow<string>('ZALO_OA_SECRET_KEY');
+    const appSecretKey = this.configService.getOrThrow<string>(
+      'ZALO_APP_SECRET_KEY',
+    );
     const rawBody = (req.rawBody ?? Buffer.from(JSON.stringify(body))).toString(
       'utf8',
     );
@@ -53,7 +54,7 @@ export class ZaloWebhookController {
       appId,
       rawBody,
       timestamp,
-      oaSecretKey,
+      appSecretKey,
       signatureHeader,
     });
 
