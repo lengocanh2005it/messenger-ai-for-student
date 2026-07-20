@@ -3,7 +3,7 @@ import { isAgentToolName } from '@wispace/llm-agent';
 import type { ZaloAgentToolContext } from '../../domain/entities/zalo-chat.types';
 
 const NOT_LINKED_MESSAGE =
-  'Bạn chưa liên kết tài khoản WISPACE với Zalo. Nhắn "liên kết" để lấy link kết nối tài khoản nhé.';
+  'Bạn chưa liên kết tài khoản WISPACE với Zalo. Vào WISPACE và chọn "Kết nối Zalo" để lấy link liên kết tài khoản nhé.';
 
 const NOT_BUILT_YET_MESSAGE =
   'Tính năng này đang được phát triển cho Zalo — bạn dùng WISPACE qua Messenger/Discord cho việc này nhé.';

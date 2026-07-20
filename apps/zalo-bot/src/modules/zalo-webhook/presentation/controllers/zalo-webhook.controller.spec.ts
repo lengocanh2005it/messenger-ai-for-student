@@ -33,6 +33,7 @@ describe('ZaloWebhookController', () => {
     const controller = new ZaloWebhookController(config, {
       handleIncomingMessage,
       handleFollow,
+      handleUnsupportedMessage: jest.fn(),
     });
 
     const body = { event_name: 'user_send_text' };
@@ -56,6 +57,7 @@ describe('ZaloWebhookController', () => {
     const controller = new ZaloWebhookController(config, {
       handleIncomingMessage,
       handleFollow,
+      handleUnsupportedMessage: jest.fn(),
     });
 
     const body = {
@@ -78,12 +80,43 @@ describe('ZaloWebhookController', () => {
     expect(handleIncomingMessage).toHaveBeenCalledWith('user-1', 'hello');
   });
 
+  it('dispatches user_send_image to handleUnsupportedMessage', async () => {
+    const handleIncomingMessage = jest.fn();
+    const handleFollow = jest.fn();
+    const handleUnsupportedMessage = jest.fn().mockResolvedValue(undefined);
+    const controller = new ZaloWebhookController(config, {
+      handleIncomingMessage,
+      handleFollow,
+      handleUnsupportedMessage,
+    });
+
+    const body = {
+      app_id: appId,
+      event_name: 'user_send_image',
+      sender: { id: 'user-3' },
+      timestamp: '1690000000000',
+    };
+    const rawBody = JSON.stringify(body);
+    const signature = sign(appId, rawBody, body.timestamp, oaSecretKey);
+
+    await controller.handleWebhook(
+      body as unknown as ZaloWebhookEvent,
+      buildRequest(rawBody),
+      signature,
+      body.timestamp,
+    );
+
+    expect(handleUnsupportedMessage).toHaveBeenCalledWith('user-3');
+    expect(handleIncomingMessage).not.toHaveBeenCalled();
+  });
+
   it('dispatches follow to handleFollow', async () => {
     const handleIncomingMessage = jest.fn();
     const handleFollow = jest.fn().mockResolvedValue(undefined);
     const controller = new ZaloWebhookController(config, {
       handleIncomingMessage,
       handleFollow,
+      handleUnsupportedMessage: jest.fn(),
     });
 
     const body = {
@@ -111,6 +144,7 @@ describe('ZaloWebhookController', () => {
     const controller = new ZaloWebhookController(config, {
       handleIncomingMessage,
       handleFollow,
+      handleUnsupportedMessage: jest.fn(),
     });
 
     const body = {

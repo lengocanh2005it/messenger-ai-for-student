@@ -8,7 +8,10 @@ const FALLBACK_ERROR_MESSAGE =
   'Xin lỗi, mình gặp sự cố khi xử lý tin nhắn. Bạn thử lại sau ít phút nhé.';
 
 const WELCOME_MESSAGE =
-  'Chào bạn! Mình là trợ lý học tập WISPACE. Bạn có thể hỏi mình bất cứ điều gì, và nhắn "liên kết" để kết nối tài khoản WISPACE nhé 🎓';
+  'Chào bạn! Mình là trợ lý học tập WISPACE. Bạn có thể hỏi mình bất cứ điều gì. Để xem lịch học, tiến độ và các tính năng cá nhân hoá, vào WISPACE và chọn "Kết nối Zalo" để liên kết tài khoản nhé 🎓';
+
+const UNSUPPORTED_MESSAGE_TYPE_MESSAGE =
+  'Hiện mình chỉ hỗ trợ tin nhắn văn bản thôi nhé. Bạn gõ câu hỏi bằng chữ giúp mình nha!';
 
 /**
  * Orchestrates webhook message → account-link lookup → LLM agent →
@@ -47,5 +50,12 @@ export class ZaloChatService implements ZaloWebhookHandler {
 
   async handleFollow(zaloUserId: string): Promise<void> {
     await this.outboundService.sendText(zaloUserId, WELCOME_MESSAGE);
+  }
+
+  async handleUnsupportedMessage(zaloUserId: string): Promise<void> {
+    await this.outboundService.sendText(
+      zaloUserId,
+      UNSUPPORTED_MESSAGE_TYPE_MESSAGE,
+    );
   }
 }

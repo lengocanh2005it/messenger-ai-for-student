@@ -20,6 +20,8 @@ export const ZALO_WEBHOOK_HANDLER = 'ZALO_WEBHOOK_HANDLER';
 export interface ZaloWebhookHandler {
   handleIncomingMessage(senderId: string, text: string): Promise<void>;
   handleFollow(senderId: string): Promise<void>;
+  /** Called for user_send_* events other than user_send_text (image, sticker, file...) — not supported in this MVP. */
+  handleUnsupportedMessage(senderId: string): Promise<void>;
 }
 
 @Controller('zalo/webhook')
@@ -87,6 +89,13 @@ export class ZaloWebhookController {
       default:
         if (event.event_name.startsWith('oa_send_')) {
           // Echo of our own outbound message — ignore to avoid loops.
+          return;
+        }
+        if (event.event_name.startsWith('user_send_')) {
+          const senderId = event.sender?.id;
+          if (senderId) {
+            await this.handler.handleUnsupportedMessage(senderId);
+          }
           return;
         }
         this.logger.debug(`Unhandled event_name=${event.event_name}`);

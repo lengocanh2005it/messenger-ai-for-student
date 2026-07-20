@@ -60,4 +60,20 @@ describe('ZaloChatService', () => {
       expect.stringContaining('WISPACE'),
     );
   });
+
+  it('sends a text-only fallback message for unsupported message types', async () => {
+    const sendText = jest.fn().mockResolvedValue(undefined);
+    const service = new ZaloChatService(
+      {} as unknown as ZaloAgentService,
+      { sendText } as unknown as ZaloOutboundService,
+      {} as unknown as ZaloAccountLinkService,
+    );
+
+    await service.handleUnsupportedMessage('zalo-1');
+
+    expect(sendText).toHaveBeenCalledWith(
+      'zalo-1',
+      expect.stringContaining('văn bản'),
+    );
+  });
 });
