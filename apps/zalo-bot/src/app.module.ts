@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { HealthController } from './health.controller';
+import { DatabaseModule } from './infrastructure/database/database.module';
 
 @Module({
   controllers: [HealthController],
@@ -13,6 +14,7 @@ import { HealthController } from './health.controller';
       envFilePath: ['.env', '../../.env.shared'],
     }),
     ScheduleModule.forRoot(),
+    DatabaseModule,
   ],
 })
 export class AppModule {}
