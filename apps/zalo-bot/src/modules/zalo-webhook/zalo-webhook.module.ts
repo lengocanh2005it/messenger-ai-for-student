@@ -1,0 +1,14 @@
+import { Module } from '@nestjs/common';
+import { ZaloChatModule } from '../zalo-chat/zalo-chat.module';
+import { ZaloChatService } from '../zalo-chat/application/services/zalo-chat.service';
+import {
+  ZALO_WEBHOOK_HANDLER,
+  ZaloWebhookController,
+} from './presentation/controllers/zalo-webhook.controller';
+
+@Module({
+  imports: [ZaloChatModule],
+  controllers: [ZaloWebhookController],
+  providers: [{ provide: ZALO_WEBHOOK_HANDLER, useExisting: ZaloChatService }],
+})
+export class ZaloWebhookModule {}
