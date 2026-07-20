@@ -127,3 +127,18 @@ Không đổi bảng nào đã có (DB dùng chung, khóa `(platform, external_u
 ## 10. Env mới cần thêm
 
 `ZALO_APP_ID`, `ZALO_APP_SECRET_KEY`, `ZALO_OA_SECRET_KEY` (dùng verify webhook signature, khác `APP_SECRET_KEY` dùng cho OAuth token), `ZALO_CHAT_HISTORY_TTL_MS`, `ZALO_CHAT_HISTORY_MAX_MESSAGES`, `WISPACE_API_VERIFY_TOKEN_URL` (đã có, dùng chung 3 bot).
+
+## 11. Cải thiện tương lai (ngoài phạm vi MVP này, sắp theo thứ tự ưu tiên đề xuất)
+
+Danh sách này mở rộng mục 1 ("ngoài phạm vi MVP") thành lộ trình cụ thể hơn — mỗi mục nên là 1 spec/plan riêng khi thực sự bắt tay làm, không gộp vào MVP hiện tại để tránh phình scope.
+
+1. **Tool WISPACE thật** (`modules/wispace/` từ stub → thật) — `get_user_goals`, `get_learning_progress_report`, `get_upcoming_study_sessions`, `list_study_calendar_entries`, `preview_next_study_reminder` gọi `@wispace/wispace-client` với `idHeader='x-zaloid'` (đã hỗ trợ sẵn từ Phase 3). Làm ngay sau khi MVP account-linking đã chạy ổn định — đây là giá trị lớn nhất mang lại cho user, nên ưu tiên cao nhất trong danh sách này.
+2. **`reschedule_study_session`** — tương đương Discord button confirm/cancel; Zalo OA hỗ trợ nút bấm trong tin nhắn dạng list/template, cần khảo sát API "gửi tin kèm nút" của Zalo (chưa tra trong spec này) trước khi thiết kế chi tiết.
+3. **Quota/rate-limit** (`packages/chat-metering`, `platform='zalo'`) — áp dụng khi lưu lượng chat thật tăng, tái dùng `ChatRateLimitCore`/`LlmUsageRecorderCore`/`LlmSafetyCore` như Discord, cấu hình `MemoryBurstCounter` + `DirectUsageWriter` (bản rút gọn, không BullMQ) làm điểm khởi đầu.
+4. **ZNS (Zalo Notification Service)** — thay thế `register_exam_report_notifications`: tạo + xin duyệt template trước, cân nhắc ngân sách (tính phí theo `price_sdt`/`price_uid` mỗi tin) trước khi cam kết tính năng báo cáo định kỳ ngoài cửa sổ 48h. Phụ thuộc quyết định ngân sách phía WISPACE, không chỉ là việc kỹ thuật.
+5. **Cron báo cáo định kỳ trước ngày thi** (port `ReportCronService` sang Zalo) — chỉ có ý nghĩa sau khi có ZNS (mục 4), nếu không sẽ là tính năng nửa vời giống lý do Discord chưa làm `register_exam_report_notifications`.
+6. **Debounce/merge tin nhắn** (`packages/chat-queue-core`) — nếu người dùng thực tế hay gửi nhiều tin liên tiếp (rời rạc từng câu) gây trải nghiệm reply rời rạc, thêm `DebounceChatQueue` như Messenger.
+7. **Chat history bền vững / multi-pod** — nếu cần scale nhiều instance `apps/zalo-bot`, thay `MemoryChatHistoryStore` bằng backend Redis (đã có sẵn `ChatHistoryStoreResolver` pattern bên Messenger để tham khảo).
+8. **Dọn dẹp `zalo_oauth_states` hết hạn** — hiện MVP chỉ lọc bằng điều kiện thời gian khi query; nếu bảng phình to theo thời gian (nhiều lượt authorize bỏ dở), thêm cron xoá row quá TTL, tương tự stuck-reserved recovery bên `packages/chat-metering`.
+9. **Multi-OA support** — MVP giả định chỉ 1 Official Account (bảng `zalo_oa_tokens` không khóa theo `oa_id`). Nếu WISPACE cần vận hành nhiều OA (ví dụ theo trung tâm/chi nhánh), phải thêm `oa_id` làm khóa và refactor `ZaloTokenService` từ single-row sang lookup theo OA.
+10. **Whitelist / audit table cho quota event** — nếu áp dụng mục 3, cân nhắc thêm các phần Messenger-only hiện có (whitelist UX, `chat_quota_events` audit) nếu Zalo cần độ quan sát tương đương — không bắt buộc, chỉ làm khi có nhu cầu vận hành thực tế.
